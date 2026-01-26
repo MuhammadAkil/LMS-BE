@@ -1,7 +1,16 @@
 export class CustomUserDetails {
-  customerId!: String;
-  mobileNumber!: string;
-  fullName!: string;
+  // Customer fields (for regular users)
+  customerId?: String;
+  mobileNumber?: string;
+  fullName?: string;
+
+  // User fields (for admin users)
+  id?: number;
+  userId?: number;
+  email?: string;
+  roleId?: number;
+  isSuperAdmin?: boolean;
+  twoFAVerified?: boolean;
 
   static builder(): CustomUserDetailsBuilder {
     return new CustomUserDetailsBuilder();

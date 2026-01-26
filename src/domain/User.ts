@@ -33,6 +33,12 @@ export class User {
     @Column({ type: 'varchar', length: 30, nullable: true })
     phone?: string;
 
+    @Column({ type: 'boolean', default: false })
+    isSuperAdmin!: boolean;
+
+    @Column({ type: 'boolean', default: false })
+    twoFAVerified!: boolean;
+
     @CreateDateColumn()
     createdAt!: Date;
 
