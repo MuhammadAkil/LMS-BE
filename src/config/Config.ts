@@ -42,7 +42,7 @@ const conf = convict({
         },
         password: {
             format: "*",
-            default: "",
+            default: "root",
             env: "MYSQL_PASSWORD",
         },
         database: {

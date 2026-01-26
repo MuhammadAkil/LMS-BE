@@ -12,6 +12,7 @@ export const AppDataSource = new DataSource({
   synchronize: false, // Set to true only for development, not for production
   logging: config.env === 'development',
   timezone: '+00:00', // UTC timezone
+  connectorPackage: 'mysql2',
 });
 
 export async function initializeDatabase(): Promise<void> {
