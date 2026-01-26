@@ -1,7 +1,7 @@
-import { Controller, Get, Post, Body, Param, Query, UseMiddleware, Req } from 'routing-controllers';
+import { Controller, Get, Post, Body, Param, QueryParam, UseBefore, Req } from 'routing-controllers';
 import { Request } from 'express';
 import { AdminVerificationsService } from '../service/AdminVerificationsService';
-import { AdminGuard, SuperAdminGuard, TwoFAVerifiedGuard, CriticalOperationGuard } from '../middleware/AdminGuards';
+import { AdminGuard, CriticalOperationGuard } from '../middleware/AdminGuards';
 import {
   VerificationListItemDto,
   VerificationDetailDto,
@@ -22,9 +22,9 @@ import {
  * - POST  /admin/verifications/:id/reject  -> Reject verification (CriticalOperationGuard)
  */
 @Controller('/admin/verifications')
-@UseMiddleware(AdminGuard)
+@UseBefore(AdminGuard)
 export class AdminVerificationsController {
-  private verificationsService: AdminVerificationsService;
+  private readonly verificationsService: AdminVerificationsService;
 
   constructor() {
     this.verificationsService = new AdminVerificationsService();
@@ -42,10 +42,11 @@ export class AdminVerificationsController {
    */
   @Get('/')
   async getAllVerifications(
-    @Query('limit') limit?: number,
-    @Query('offset') offset?: number
+    @QueryParam('limit') limit?: number,
+    @QueryParam('offset') offset?: number
   ): Promise<VerificationListItemDto[]> {
-    return this.verificationsService.getAllVerifications(limit || 20, offset || 0);
+    const result = await this.verificationsService.getAllVerifications(limit || 20, offset || 0);
+    return (result as any).data || result;
   }
 
   /**
@@ -60,10 +61,11 @@ export class AdminVerificationsController {
    */
   @Get('/pending')
   async getPendingVerifications(
-    @Query('limit') limit?: number,
-    @Query('offset') offset?: number
+    @QueryParam('limit') limit?: number,
+    @QueryParam('offset') offset?: number
   ): Promise<VerificationListItemDto[]> {
-    return this.verificationsService.getPendingVerifications(limit || 20, offset || 0);
+    const result = await this.verificationsService.getPendingVerifications(limit || 20, offset || 0);
+    return (result as any).data || result;
   }
 
   /**
@@ -95,7 +97,7 @@ export class AdminVerificationsController {
    * Response: VerificationDetailDto
    */
   @Post('/:id/approve')
-  @UseMiddleware(CriticalOperationGuard)
+  @UseBefore(CriticalOperationGuard)
   async approveVerification(
     @Param('id') verificationId: number,
     @Body() request: ApproveVerificationRequest,
@@ -127,7 +129,7 @@ export class AdminVerificationsController {
    * Error: 400 if rejectionReason is missing or empty
    */
   @Post('/:id/reject')
-  @UseMiddleware(CriticalOperationGuard)
+  @UseBefore(CriticalOperationGuard)
   async rejectVerification(
     @Param('id') verificationId: number,
     @Body() request: RejectVerificationRequest,

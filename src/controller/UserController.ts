@@ -5,7 +5,6 @@ import {
   HttpCode,
   Req,
   Res,
-  UseBefore,
 } from 'routing-controllers';
 import { StatusCodes } from 'http-status-codes';
 import { Request, Response } from 'express';
@@ -14,7 +13,6 @@ import { LoginRequest } from '../dto/LoginRequest';
 import { SignupRequest } from '../dto/SignupRequest';
 import { LogoutRequest } from '../dto/LogoutRequest';
 import { ModuleResponse } from '../dto/ModuleResponse';
-import { AuthenticationMiddleware } from '../middleware/AuthenticationMiddleware';
 
 /**
  * User Controller
@@ -27,7 +25,7 @@ import { AuthenticationMiddleware } from '../middleware/AuthenticationMiddleware
  */
 @JsonController('/user')
 export class UserController {
-  private userService: UserService;
+  private readonly userService: UserService;
 
   constructor() {
     this.userService = new UserService();
@@ -176,6 +174,6 @@ export class UserController {
     const userId = user?.userId || 0;
 
     const response = await this.userService.logout(token, userId);
-    res.status(parseInt(response.statusCode || '500')).json(response);
+    res.status(Number.parseInt(response.statusCode || '500')).json(response);
   }
 }

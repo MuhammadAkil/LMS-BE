@@ -1,12 +1,9 @@
-import { Controller, Get, Post, Body, Param, Query, UseMiddleware, Req } from 'routing-controllers';
+import { Controller, Get, Post, Param, QueryParam, UseBefore, Req } from 'routing-controllers';
 import { Request } from 'express';
 import { AdminAuditService } from '../service/AdminAuditService';
-import { AdminGuard, SuperAdminGuard, CriticalOperationGuard } from '../middleware/AdminGuards';
+import { SuperAdminGuard, CriticalOperationGuard } from '../middleware/AdminGuards';
 import {
   AuditLogDto,
-  AuditLogFilterRequest,
-  RetentionScheduleDto,
-  RetentionOverrideRequest,
 } from '../dto/AdminDtos';
 
 /**
@@ -21,9 +18,9 @@ import {
  * - POST  /admin/retention/override            -> Override retention (CriticalOperationGuard)
  */
 @Controller('/admin/audit-logs')
-@UseMiddleware(SuperAdminGuard)
+@UseBefore(SuperAdminGuard)
 export class AdminAuditController {
-  private auditService: AdminAuditService;
+  private readonly auditService: AdminAuditService;
 
   constructor() {
     this.auditService = new AdminAuditService();
@@ -55,15 +52,15 @@ export class AdminAuditController {
    */
   @Get('/')
   async getAuditLogs(
-    @Query('limit') limit?: number,
-    @Query('offset') offset?: number,
-    @Query('actorId') actorId?: number,
-    @Query('action') action?: string,
-    @Query('entity') entity?: string,
-    @Query('dateFrom') dateFrom?: Date,
-    @Query('dateTo') dateTo?: Date
+    @QueryParam('limit') limit?: number,
+    @QueryParam('offset') offset?: number,
+    @QueryParam('actorId') actorId?: number,
+    @QueryParam('action') action?: string,
+    @QueryParam('entity') entity?: string,
+    @QueryParam('dateFrom') dateFrom?: Date,
+    @QueryParam('dateTo') dateTo?: Date
   ): Promise<AuditLogDto[]> {
-    const [logs] = await this.auditService.getFilteredAuditLogs({
+    const result = await this.auditService.getFilteredAuditLogs({
       actorId,
       action,
       entity,
@@ -73,8 +70,11 @@ export class AdminAuditController {
       offset: offset || 0,
     });
     
+    // Handle both array and wrapped response
+    const logs = Array.isArray(result) ? result : (result as any).data || [];
+    
     // Convert to DTOs
-    return logs.map(log => ({
+    return logs.map((log: any) => ({
       id: log.id,
       actorId: log.actorId,
       actorEmail: '', // Would need to join with users table
@@ -105,9 +105,23 @@ export class AdminAuditController {
   async getEntityHistory(
     @Param('entityType') entityType: string,
     @Param('id') entityId: number,
-    @Query('limit') limit?: number
+    @QueryParam('limit') limit?: number
   ): Promise<AuditLogDto[]> {
-    return this.auditService.getEntityHistory(entityType, entityId, limit || 20);
+    const logs = await this.auditService.getEntityHistory(entityType, entityId);
+    
+    // Convert to DTOs and apply limit
+    return (Array.isArray(logs) ? logs : (logs as any).data || [])
+      .slice(0, limit || 20)
+      .map((log: any) => ({
+        id: log.id,
+        actorId: log.actorId,
+        actorEmail: '',
+        action: log.action,
+        entity: log.entity,
+        entityId: log.entityId,
+        metadata: log.metadata ? JSON.parse(log.metadata) : undefined,
+        createdAt: log.createdAt,
+      }));
   }
 
 
@@ -127,7 +141,7 @@ export class AdminAuditController {
    * Error: 403 if not CriticalOperationGuard authorized
    */
   @Post('/:id/archive')
-  @UseMiddleware(CriticalOperationGuard)
+  @UseBefore(CriticalOperationGuard)
   async archiveAuditLog(
     @Param('id') auditLogId: number,
     @Req() req: Request

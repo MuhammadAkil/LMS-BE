@@ -9,9 +9,9 @@ import { CompanyListItemDto, CompanyDetailDto, ApproveCompanyRequest, RejectComp
  * All write operations log audit + notify relevant parties
  */
 export class AdminCompaniesService {
-  private companyRepo: CompanyRepository;
-  private userRepo: UserRepository;
-  private auditService: AdminAuditService;
+  private readonly companyRepo: CompanyRepository;
+  private readonly userRepo: UserRepository;
+  private readonly auditService: AdminAuditService;
 
   constructor() {
     this.companyRepo = new CompanyRepository();
@@ -23,15 +23,15 @@ export class AdminCompaniesService {
    * Get all companies with pagination
    */
   async getAllCompanies(limit: number = 20, offset: number = 0): Promise<CompanyListItemDto[]> {
-    const companies = await this.companyRepo.findAll(limit, offset);
+    const [companies] = await this.companyRepo.findAll(limit, offset);
     return companies.map(company => ({
       id: company.id,
       name: company.name,
-      status: this.getStatusName(company.status_id),
-      statusId: company.status_id,
-      commissionPct: company.commission_pct,
-      minManagedAmount: company.min_managed_amount,
-      createdAt: company.created_at,
+      statusId: company.statusId,
+      statusName: this.getStatusName(company.statusId),
+      commissionPct: company.commissionPct,
+      minManagedAmount: company.minManagedAmount,
+      createdAt: company.createdAt,
     }));
   }
 
@@ -39,15 +39,15 @@ export class AdminCompaniesService {
    * Get all pending companies (status_id = 1)
    */
   async getPendingCompanies(limit: number = 20, offset: number = 0): Promise<CompanyListItemDto[]> {
-    const companies = await this.companyRepo.findPending(limit, offset);
+    const [companies] = await this.companyRepo.findPending(limit, offset);
     return companies.map(company => ({
       id: company.id,
       name: company.name,
-      status: this.getStatusName(company.status_id),
-      statusId: company.status_id,
-      commissionPct: company.commission_pct,
-      minManagedAmount: company.min_managed_amount,
-      createdAt: company.created_at,
+      statusId: company.statusId,
+      statusName: this.getStatusName(company.statusId),
+      commissionPct: company.commissionPct,
+      minManagedAmount: company.minManagedAmount,
+      createdAt: company.createdAt,
     }));
   }
 
@@ -63,13 +63,13 @@ export class AdminCompaniesService {
     return {
       id: company.id,
       name: company.name,
-      status: this.getStatusName(company.status_id),
-      statusId: company.status_id,
-      commissionPct: company.commission_pct,
-      minManagedAmount: company.min_managed_amount,
-      metadata: company.metadata || {},
-      createdAt: company.created_at,
-      updatedAt: company.updated_at,
+      statusId: company.statusId,
+      statusName: this.getStatusName(company.statusId),
+      commissionPct: company.commissionPct,
+      minManagedAmount: company.minManagedAmount,
+      metadata: (typeof company.metadata === 'string' ? JSON.parse(company.metadata || '{}') : company.metadata) || {},
+      createdAt: company.createdAt,
+      updatedAt: company.updatedAt,
     };
   }
 
@@ -89,13 +89,13 @@ export class AdminCompaniesService {
     }
 
     // Only approve if pending
-    if (company.status_id !== 1) {
-      throw new Error(`Company status is ${this.getStatusName(company.status_id)}, cannot approve`);
+    if (company.statusId !== 1) {
+      throw new Error(`Company status is ${this.getStatusName(company.statusId)}, cannot approve`);
     }
 
     // Update status to APPROVED (2)
-    company.status_id = 2;
-    company.updated_at = new Date();
+    company.statusId = 2;
+    company.updatedAt = new Date();
     await this.companyRepo.save(company);
 
     // Log the action
@@ -113,13 +113,13 @@ export class AdminCompaniesService {
     return {
       id: company.id,
       name: company.name,
-      status: this.getStatusName(company.status_id),
-      statusId: company.status_id,
-      commissionPct: company.commission_pct,
-      minManagedAmount: company.min_managed_amount,
-      metadata: company.metadata || {},
-      createdAt: company.created_at,
-      updatedAt: company.updated_at,
+      statusId: company.statusId,
+      statusName: this.getStatusName(company.statusId),
+      commissionPct: company.commissionPct,
+      minManagedAmount: company.minManagedAmount,
+      metadata: (typeof company.metadata === 'string' ? JSON.parse(company.metadata || '{}') : company.metadata) || {},
+      createdAt: company.createdAt,
+      updatedAt: company.updatedAt,
     };
   }
 
@@ -144,13 +144,13 @@ export class AdminCompaniesService {
     }
 
     // Only reject if pending
-    if (company.status_id !== 1) {
-      throw new Error(`Company status is ${this.getStatusName(company.status_id)}, cannot reject`);
+    if (company.statusId !== 1) {
+      throw new Error(`Company status is ${this.getStatusName(company.statusId)}, cannot reject`);
     }
 
     // Update status to REJECTED (3)
-    company.status_id = 3;
-    company.updated_at = new Date();
+    company.statusId = 3;
+    company.updatedAt = new Date();
     await this.companyRepo.save(company);
 
     // Log the action
@@ -168,13 +168,13 @@ export class AdminCompaniesService {
     return {
       id: company.id,
       name: company.name,
-      status: this.getStatusName(company.status_id),
-      statusId: company.status_id,
-      commissionPct: company.commission_pct,
-      minManagedAmount: company.min_managed_amount,
-      metadata: company.metadata || {},
-      createdAt: company.created_at,
-      updatedAt: company.updated_at,
+      statusId: company.statusId,
+      statusName: this.getStatusName(company.statusId),
+      commissionPct: company.commissionPct,
+      minManagedAmount: company.minManagedAmount,
+      metadata: (typeof company.metadata === 'string' ? JSON.parse(company.metadata || '{}') : company.metadata) || {},
+      createdAt: company.createdAt,
+      updatedAt: company.updatedAt,
     };
   }
 
@@ -194,38 +194,38 @@ export class AdminCompaniesService {
     }
 
     // Only update conditions for approved companies
-    if (company.status_id !== 2) {
-      throw new Error(`Cannot update conditions for ${this.getStatusName(company.status_id)} company`);
+    if (company.statusId !== 2) {
+      throw new Error(`Cannot update conditions for ${this.getStatusName(company.statusId)} company`);
     }
 
     // Track changes for audit
     const changes: any = {};
 
-    if (request.commissionPct !== undefined && request.commissionPct !== company.commission_pct) {
+    if (request.commissionPct !== undefined && request.commissionPct !== company.commissionPct) {
       changes.commissionPct = {
-        from: company.commission_pct,
+        from: company.commissionPct,
         to: request.commissionPct,
       };
-      company.commission_pct = request.commissionPct;
+      company.commissionPct = request.commissionPct;
     }
 
-    if (request.minManagedAmount !== undefined && request.minManagedAmount !== company.min_managed_amount) {
+    if (request.minManagedAmount !== undefined && request.minManagedAmount !== company.minManagedAmount) {
       changes.minManagedAmount = {
-        from: company.min_managed_amount,
+        from: company.minManagedAmount,
         to: request.minManagedAmount,
       };
-      company.min_managed_amount = request.minManagedAmount;
+      company.minManagedAmount = request.minManagedAmount;
     }
 
     if (request.metadata && Object.keys(request.metadata).length > 0) {
       changes.metadata = {
-        from: company.metadata || {},
+        from: (typeof company.metadata === 'string' ? JSON.parse(company.metadata || '{}') : company.metadata) || {},
         to: request.metadata,
       };
-      company.metadata = request.metadata;
+      company.metadata = JSON.stringify(request.metadata);
     }
 
-    company.updated_at = new Date();
+    company.updatedAt = new Date();
     await this.companyRepo.save(company);
 
     // Log the action
@@ -243,13 +243,13 @@ export class AdminCompaniesService {
     return {
       id: company.id,
       name: company.name,
-      status: this.getStatusName(company.status_id),
-      statusId: company.status_id,
-      commissionPct: company.commission_pct,
-      minManagedAmount: company.min_managed_amount,
-      metadata: company.metadata || {},
-      createdAt: company.created_at,
-      updatedAt: company.updated_at,
+      statusId: company.statusId,
+      statusName: this.getStatusName(company.statusId),
+      commissionPct: company.commissionPct,
+      minManagedAmount: company.minManagedAmount,
+      metadata: (typeof company.metadata === 'string' ? JSON.parse(company.metadata || '{}') : company.metadata) || {},
+      createdAt: company.createdAt,
+      updatedAt: company.updatedAt,
     };
   }
 
@@ -257,15 +257,15 @@ export class AdminCompaniesService {
    * Get companies by status
    */
   async getCompaniesByStatus(statusId: number, limit: number = 20, offset: number = 0): Promise<CompanyListItemDto[]> {
-    const companies = await this.companyRepo.findByStatus(statusId, limit, offset);
+    const [companies] = await this.companyRepo.findByStatus(statusId, limit, offset);
     return companies.map(company => ({
       id: company.id,
       name: company.name,
-      status: this.getStatusName(company.status_id),
-      statusId: company.status_id,
-      commissionPct: company.commission_pct,
-      minManagedAmount: company.min_managed_amount,
-      createdAt: company.created_at,
+      statusId: company.statusId,
+      statusName: this.getStatusName(company.statusId),
+      commissionPct: company.commissionPct,
+      minManagedAmount: company.minManagedAmount,
+      createdAt: company.createdAt,
     }));
   }
 
@@ -273,23 +273,21 @@ export class AdminCompaniesService {
    * Get active companies
    */
   async getActiveCompanies(limit: number = 20, offset: number = 0): Promise<CompanyListItemDto[]> {
-    const companies = await this.companyRepo.findActive(limit, offset);
+    const [companies] = await this.companyRepo.findActive(limit, offset);
     return companies.map(company => ({
       id: company.id,
       name: company.name,
-      status: this.getStatusName(company.status_id),
-      statusId: company.status_id,
-      commissionPct: company.commission_pct,
-      minManagedAmount: company.min_managed_amount,
-      createdAt: company.created_at,
+      statusId: company.statusId,
+      statusName: this.getStatusName(company.statusId),
+      commissionPct: company.commissionPct,
+      minManagedAmount: company.minManagedAmount,
+      createdAt: company.createdAt,
     }));
   }
 
-  /**
-   * Get count of companies by status
-   */
   async getCountByStatus(statusId: number): Promise<number> {
-    return this.companyRepo.countByStatus(statusId);
+    const [, count] = await this.companyRepo.findByStatus(statusId, 1, 0);
+    return count;
   }
 
   /**

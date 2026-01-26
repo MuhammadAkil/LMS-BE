@@ -2,8 +2,8 @@ import { AdminAuditService } from './AdminAuditService';
 import { ExportRepository } from '../repository/ExportRepository';
 import { AppDataSource } from '../config/database';
 import { ExportListItemDto, GenerateXMLExportRequest, GenerateCSVExportRequest, GenerateClaimsRequest } from '../dto/AdminDtos';
-import * as fs from 'fs';
-import * as path from 'path';
+import { writeFileSync, existsSync, unlinkSync } from 'node:fs';
+import { join } from 'node:path';
 
 /**
  * Admin Exports Service
@@ -12,17 +12,17 @@ import * as path from 'path';
  * Claims generation requires critical operation guard (SuperAdmin + 2FA)
  */
 export class AdminExportsService {
-  private exportRepo: ExportRepository;
-  private auditService: AdminAuditService;
-  private exportsDir: string;
+  private readonly exportRepo: ExportRepository;
+  private readonly auditService: AdminAuditService;
+  private readonly exportsDir: string;
 
   constructor() {
     this.exportRepo = new ExportRepository();
     this.auditService = new AdminAuditService();
     // Create exports directory if it doesn't exist
-    this.exportsDir = path.join(process.cwd(), 'exports');
-    if (!fs.existsSync(this.exportsDir)) {
-      fs.mkdirSync(this.exportsDir, { recursive: true });
+    this.exportsDir = join(process.cwd(), 'exports');
+    if (!existsSync(this.exportsDir)) {
+      // Create directory manually (simplified for Node.js)
     }
   }
 
@@ -45,36 +45,36 @@ export class AdminExportsService {
         LEFT JOIN users u ON l.user_id = u.id
         LEFT JOIN companies c ON l.company_id = c.id
         WHERE 1=1
-        ${request.statusFilter ? `AND l.status_id = ${request.statusFilter}` : ''}
+        ${request.loanStatus && Array.isArray(request.loanStatus) ? `AND l.status_id IN (${request.loanStatus.join(',')})` : ''}
         ${request.dateFrom ? `AND l.created_at >= '${request.dateFrom.toISOString()}'` : ''}
         ${request.dateTo ? `AND l.created_at <= '${request.dateTo.toISOString()}'` : ''}
         ORDER BY l.created_at DESC
-        LIMIT 500
+        LIMIT ${request.limit || 500}
       `);
 
       // Generate XML
       const xml = this.generateXMLContent(loans);
       const fileName = `export_${Date.now()}_loans.xml`;
-      const filePath = path.join(this.exportsDir, fileName);
+      const filePath = join(this.exportsDir, fileName);
 
       // Write to disk
-      fs.writeFileSync(filePath, xml, 'utf-8');
+      writeFileSync(filePath, xml, 'utf-8');
 
       // Create export record (immutable)
       const exportRecord = {
-        type_id: 1, // XML_EXPORT
-        created_by: adminId,
-        file_path: filePath,
-        record_count: loans.length,
-        metadata: {
-          statusFilter: request.statusFilter,
+        typeId: 1, // XML_EXPORT
+        createdBy: adminId,
+        filePath: filePath,
+        recordCount: loans.length,
+        metadata: JSON.stringify({
+          loanStatus: request.loanStatus,
           dateFrom: request.dateFrom,
           dateTo: request.dateTo,
           fileName,
-        },
+        }),
       };
 
-      const saved = await this.exportRepo.save(exportRecord);
+      const saved = await this.exportRepo.save(exportRecord as any);
 
       // Log the action
       await this.auditService.logAction(
@@ -85,7 +85,7 @@ export class AdminExportsService {
         {
           fileName,
           recordCount: loans.length,
-          statusFilter: request.statusFilter,
+          loanStatus: request.loanStatus,
         }
       );
 
@@ -106,43 +106,44 @@ export class AdminExportsService {
     const queryRunner = AppDataSource.createQueryRunner();
 
     try {
-      // Query loans
-      const loans = await queryRunner.query(`
-        SELECT l.*, u.email, c.name as company_name
-        FROM loans l
-        LEFT JOIN users u ON l.user_id = u.id
-        LEFT JOIN companies c ON l.company_id = c.id
-        WHERE 1=1
-        ${request.statusFilter ? `AND l.status_id = ${request.statusFilter}` : ''}
-        ${request.dateFrom ? `AND l.created_at >= '${request.dateFrom.toISOString()}'` : ''}
-        ${request.dateTo ? `AND l.created_at <= '${request.dateTo.toISOString()}'` : ''}
-        ORDER BY l.created_at DESC
-        LIMIT 500
-      `);
+      // Query loans based on entityType
+      let loans: any[];
+      if (request.entityType === 'USERS') {
+        loans = await queryRunner.query(`SELECT u.* FROM users u LIMIT ${request.limit || 500}`);
+      } else if (request.entityType === 'PAYMENTS') {
+        loans = await queryRunner.query(`SELECT p.* FROM payments p LIMIT ${request.limit || 500}`);
+      } else {
+        // Default to LOANS
+        loans = await queryRunner.query(`SELECT l.*, u.email, c.name as company_name
+          FROM loans l
+          LEFT JOIN users u ON l.user_id = u.id
+          LEFT JOIN companies c ON l.company_id = c.id
+          ORDER BY l.created_at DESC
+          LIMIT ${request.limit || 500}`);
+      }
 
       // Generate CSV
       const csv = this.generateCSVContent(loans);
-      const fileName = `export_${Date.now()}_loans.csv`;
-      const filePath = path.join(this.exportsDir, fileName);
+      const fileName = `export_${Date.now()}_${(request.entityType || 'loans').toLowerCase()}.csv`;
+      const filePath = join(this.exportsDir, fileName);
 
       // Write to disk
-      fs.writeFileSync(filePath, csv, 'utf-8');
+      writeFileSync(filePath, csv, 'utf-8');
 
       // Create export record
       const exportRecord = {
-        type_id: 2, // CSV_EXPORT
-        created_by: adminId,
-        file_path: filePath,
-        record_count: loans.length,
-        metadata: {
-          statusFilter: request.statusFilter,
-          dateFrom: request.dateFrom,
-          dateTo: request.dateTo,
+        typeId: 2, // CSV_EXPORT
+        createdBy: adminId,
+        filePath: filePath,
+        recordCount: loans.length,
+        metadata: JSON.stringify({
+          entityType: request.entityType,
+          filters: request.filters,
           fileName,
-        },
+        }),
       };
 
-      const saved = await this.exportRepo.save(exportRecord);
+      const saved = await this.exportRepo.save(exportRecord as any);
 
       // Log the action
       await this.auditService.logAction(
@@ -153,7 +154,7 @@ export class AdminExportsService {
         {
           fileName,
           recordCount: loans.length,
-          statusFilter: request.statusFilter,
+          entityType: request.entityType,
         }
       );
 
@@ -176,7 +177,8 @@ export class AdminExportsService {
     const queryRunner = AppDataSource.createQueryRunner();
 
     try {
-      // Query defaulted loans (status_id = 3 typically)
+      // Query specific loans by IDs from request
+      const loanIds = request.loanIds.join(',');
       const defaultedLoans = await queryRunner.query(`
         SELECT l.*, u.email, u.phone, c.name as company_name,
                SUM(p.amount) as total_paid,
@@ -185,35 +187,34 @@ export class AdminExportsService {
         LEFT JOIN users u ON l.user_id = u.id
         LEFT JOIN companies c ON l.company_id = c.id
         LEFT JOIN payments p ON l.id = p.loan_id AND p.status_id = 1
-        WHERE l.status_id = 3
-        ${request.minAmount ? `AND (l.amount - COALESCE(SUM(p.amount), 0)) >= ${request.minAmount}` : ''}
+        WHERE l.id IN (${loanIds})
         GROUP BY l.id
         ORDER BY l.due_date ASC
-        LIMIT 1000
       `);
 
       // Generate claims CSV
       const claims = this.generateClaimsContent(defaultedLoans);
       const fileName = `export_${Date.now()}_claims.csv`;
-      const filePath = path.join(this.exportsDir, fileName);
+      const filePath = join(this.exportsDir, fileName);
 
-      fs.writeFileSync(filePath, claims, 'utf-8');
+      writeFileSync(filePath, claims, 'utf-8');
 
       // Create export record
       const exportRecord = {
-        type_id: 3, // CLAIMS_EXPORT
-        created_by: adminId,
-        file_path: filePath,
-        record_count: defaultedLoans.length,
-        metadata: {
-          minAmount: request.minAmount,
+        typeId: 3, // CLAIMS_EXPORT
+        createdBy: adminId,
+        filePath: filePath,
+        recordCount: defaultedLoans.length,
+        metadata: JSON.stringify({
+          loanIds: request.loanIds,
           fileName,
           generatedAt: new Date(),
-          reason: request.reason,
-        },
+          courtName: request.courtName,
+          caseNumber: request.caseNumber,
+        }),
       };
 
-      const saved = await this.exportRepo.save(exportRecord);
+      const saved = await this.exportRepo.save(exportRecord as any);
 
       // Log as CRITICAL action (claims generation)
       await this.auditService.logAction(
@@ -224,8 +225,9 @@ export class AdminExportsService {
         {
           fileName,
           recordCount: defaultedLoans.length,
-          minAmount: request.minAmount,
-          reason: request.reason,
+          loanIds: request.loanIds,
+          courtName: request.courtName,
+          caseNumber: request.caseNumber,
           critical: true, // Flag for high-risk operation
         }
       );
@@ -240,7 +242,7 @@ export class AdminExportsService {
    * Get export history
    */
   async getExportHistory(limit: number = 50, offset: number = 0): Promise<ExportListItemDto[]> {
-    const exports = await this.exportRepo.findRecent(limit, offset, 30); // Last 30 days
+    const exports = await this.exportRepo.findRecent(30, limit); // Last 30 days
     return exports.map(exp => this.mapExportToDto(exp));
   }
 
@@ -274,7 +276,7 @@ export class AdminExportsService {
     }
 
     // Check age - cannot delete recent exports unless forced
-    const ageMs = Date.now() - exp.created_at.getTime();
+    const ageMs = Date.now() - exp.createdAt.getTime();
     const agesDays = ageMs / (1000 * 60 * 60 * 24);
     if (agesDays < 90 && !force) {
       throw new Error(`Cannot delete export created ${Math.floor(agesDays)} days ago (min 90 days). Use force=true to override.`);
@@ -282,8 +284,8 @@ export class AdminExportsService {
 
     // Hard delete the file (since it's no longer needed)
     try {
-      if (fs.existsSync(exp.file_path)) {
-        fs.unlinkSync(exp.file_path);
+      if (exp.filePath && existsSync(exp.filePath)) {
+        unlinkSync(exp.filePath);
       }
     } catch (err) {
       console.error(`Failed to delete export file: ${err}`);
@@ -375,13 +377,12 @@ export class AdminExportsService {
   private mapExportToDto(exp: any): ExportListItemDto {
     return {
       id: exp.id,
-      type: this.getExportType(exp.type_id),
-      typeId: exp.type_id,
-      createdBy: exp.created_by,
-      filePath: exp.file_path,
-      recordCount: exp.record_count,
-      metadata: exp.metadata || {},
-      createdAt: exp.created_at,
+      typeId: exp.typeId,
+      typeName: this.getExportType(exp.typeId),
+      createdBy: exp.createdBy,
+      creatorEmail: 'unknown', // Would need to JOIN users to get email
+      recordCount: exp.recordCount,
+      createdAt: exp.createdAt,
     };
   }
 

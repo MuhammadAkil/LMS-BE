@@ -1,7 +1,7 @@
-import { Controller, Get, Post, Patch, Body, Param, Query, UseMiddleware, Req } from 'routing-controllers';
+import { Controller, Get, Post, Patch, Body, Param, QueryParam, UseBefore, Req } from 'routing-controllers';
 import { Request } from 'express';
 import { AdminCompaniesService } from '../service/AdminCompaniesService';
-import { AdminGuard, SuperAdminGuard } from '../middleware/AdminGuards';
+import { SuperAdminGuard } from '../middleware/AdminGuards';
 import {
   CompanyListItemDto,
   CompanyDetailDto,
@@ -23,9 +23,9 @@ import {
  * - PATCH /admin/companies/:id/conditions     -> Update conditions (SuperAdminGuard)
  */
 @Controller('/admin/companies')
-@UseMiddleware(AdminGuard)
+@UseBefore(SuperAdminGuard)
 export class AdminCompaniesController {
-  private companiesService: AdminCompaniesService;
+  private readonly companiesService: AdminCompaniesService;
 
   constructor() {
     this.companiesService = new AdminCompaniesService();
@@ -43,8 +43,8 @@ export class AdminCompaniesController {
    */
   @Get('/')
   async getAllCompanies(
-    @Query('limit') limit?: number,
-    @Query('offset') offset?: number
+    @QueryParam('limit') limit?: number,
+    @QueryParam('offset') offset?: number
   ): Promise<CompanyListItemDto[]> {
     return this.companiesService.getAllCompanies(limit || 20, offset || 0);
   }
@@ -61,8 +61,8 @@ export class AdminCompaniesController {
    */
   @Get('/pending')
   async getPendingCompanies(
-    @Query('limit') limit?: number,
-    @Query('offset') offset?: number
+    @QueryParam('limit') limit?: number,
+    @QueryParam('offset') offset?: number
   ): Promise<CompanyListItemDto[]> {
     return this.companiesService.getPendingCompanies(limit || 20, offset || 0);
   }
@@ -96,7 +96,7 @@ export class AdminCompaniesController {
    * Error: 400 if company is not PENDING
    */
   @Post('/:id/approve')
-  @UseMiddleware(SuperAdminGuard)
+  @UseBefore(SuperAdminGuard)
   async approveCompany(
     @Param('id') companyId: number,
     @Body() request: ApproveCompanyRequest,
@@ -127,7 +127,7 @@ export class AdminCompaniesController {
    * Error: 400 if company is not PENDING or rejectionReason missing
    */
   @Post('/:id/reject')
-  @UseMiddleware(SuperAdminGuard)
+  @UseBefore(SuperAdminGuard)
   async rejectCompany(
     @Param('id') companyId: number,
     @Body() request: RejectCompanyRequest,
@@ -162,7 +162,7 @@ export class AdminCompaniesController {
    * Error: 400 if company is not APPROVED
    */
   @Patch('/:id/conditions')
-  @UseMiddleware(SuperAdminGuard)
+  @UseBefore(SuperAdminGuard)
   async updateCompanyConditions(
     @Param('id') companyId: number,
     @Body() request: UpdateCompanyConditionsRequest,

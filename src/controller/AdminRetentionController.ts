@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, UseMiddleware, Req } from 'routing-controllers';
+import { Controller, Get, Post, Body, UseBefore, Req } from 'routing-controllers';
 import { Request } from 'express';
 import { AdminAuditService } from '../service/AdminAuditService';
 import { SuperAdminGuard, CriticalOperationGuard } from '../middleware/AdminGuards';
@@ -16,9 +16,9 @@ import {
  * - POST  /admin/retention/override            -> Override retention (CriticalOperationGuard)
  */
 @Controller('/admin/retention')
-@UseMiddleware(SuperAdminGuard)
+@UseBefore(SuperAdminGuard)
 export class AdminRetentionController {
-  private auditService: AdminAuditService;
+  private readonly auditService: AdminAuditService;
 
   constructor() {
     this.auditService = new AdminAuditService();
@@ -92,7 +92,7 @@ export class AdminRetentionController {
    * Error: 403 if not CriticalOperationGuard authorized
    */
   @Post('/override')
-  @UseMiddleware(CriticalOperationGuard)
+  @UseBefore(CriticalOperationGuard)
   async overrideRetention(
     @Body() request: RetentionOverrideRequest,
     @Req() req: Request

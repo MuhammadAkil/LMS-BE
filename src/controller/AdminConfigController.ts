@@ -1,7 +1,7 @@
-import { Controller, Get, Patch, Body, Param, Query, UseMiddleware, Req } from 'routing-controllers';
+import { Controller, Get, Patch, Body, Param, QueryParam, UseBefore, Req } from 'routing-controllers';
 import { Request } from 'express';
 import { AdminConfigService } from '../service/AdminConfigService';
-import { AdminGuard, SuperAdminGuard, CriticalOperationGuard } from '../middleware/AdminGuards';
+import { SuperAdminGuard, CriticalOperationGuard } from '../middleware/AdminGuards';
 import {
   PlatformConfigDto,
   UpdateLoanRulesRequest,
@@ -27,9 +27,9 @@ import {
  * - PATCH /admin/config/retention       -> Update retention (CriticalOperationGuard)
  */
 @Controller('/admin/config')
-@UseMiddleware(AdminGuard)
+@UseBefore(SuperAdminGuard)
 export class AdminConfigController {
-  private configService: AdminConfigService;
+  private readonly configService: AdminConfigService;
 
   constructor() {
     this.configService = new AdminConfigService();
@@ -48,10 +48,11 @@ export class AdminConfigController {
    */
   @Get('/')
   async getAllConfig(
-    @Query('limit') limit?: number,
-    @Query('offset') offset?: number
+    @QueryParam('limit') limit?: number,
+    @QueryParam('offset') offset?: number
   ): Promise<PlatformConfigDto[]> {
-    return this.configService.getAllConfig(limit || 20, offset || 0);
+    const result = await this.configService.getAllConfig(limit || 20, offset || 0);
+    return result.data || [];
   }
 
   /**
@@ -84,7 +85,7 @@ export class AdminConfigController {
   @Get('/:key/history')
   async getConfigHistory(
     @Param('key') key: string,
-    @Query('limit') limit?: number
+    @QueryParam('limit') limit?: number
   ): Promise<PlatformConfigDto[]> {
     return this.configService.getConfigHistory(key, limit || 10);
   }
@@ -111,7 +112,7 @@ export class AdminConfigController {
    * Response: PlatformConfigDto
    */
   @Patch('/loan-rules')
-  @UseMiddleware(SuperAdminGuard)
+  @UseBefore(SuperAdminGuard)
   async updateLoanRules(@Body() request: UpdateLoanRulesRequest, @Req() req: Request): Promise<PlatformConfigDto> {
     const adminId = (req.user as any)?.id || (req.user as any)?.userId;
     if (!adminId) {
@@ -133,7 +134,7 @@ export class AdminConfigController {
    * Response: PlatformConfigDto
    */
   @Patch('/level-rules')
-  @UseMiddleware(SuperAdminGuard)
+  @UseBefore(SuperAdminGuard)
   async updateLevelRules(@Body() request: UpdateLevelRulesRequest, @Req() req: Request): Promise<PlatformConfigDto> {
     const adminId = (req.user as any)?.id || (req.user as any)?.userId;
     if (!adminId) {
@@ -156,7 +157,7 @@ export class AdminConfigController {
    * Response: PlatformConfigDto
    */
   @Patch('/fees')
-  @UseMiddleware(SuperAdminGuard)
+  @UseBefore(SuperAdminGuard)
   async updateFees(@Body() request: UpdateFeesRequest, @Req() req: Request): Promise<PlatformConfigDto> {
     const adminId = (req.user as any)?.id || (req.user as any)?.userId;
     if (!adminId) {
@@ -178,7 +179,7 @@ export class AdminConfigController {
    * Response: PlatformConfigDto
    */
   @Patch('/reminders')
-  @UseMiddleware(SuperAdminGuard)
+  @UseBefore(SuperAdminGuard)
   async updateReminders(@Body() request: UpdateRemindersRequest, @Req() req: Request): Promise<PlatformConfigDto> {
     const adminId = (req.user as any)?.id || (req.user as any)?.userId;
     if (!adminId) {
@@ -210,7 +211,7 @@ export class AdminConfigController {
    * Error: 403 if not CriticalOperationGuard authorized
    */
   @Patch('/retention')
-  @UseMiddleware(CriticalOperationGuard)
+  @UseBefore(CriticalOperationGuard)
   async updateRetention(@Body() request: UpdateRetentionRequest, @Req() req: Request): Promise<PlatformConfigDto> {
     const adminId = (req.user as any)?.id || (req.user as any)?.userId;
     if (!adminId) {

@@ -1,7 +1,7 @@
-import { Controller, Get, Post, Patch, Body, Param, Query, UseMiddleware, Req } from 'routing-controllers';
+import { Controller, Get, UseBefore, Req } from 'routing-controllers';
 import { Request } from 'express';
 import { AdminDashboardService } from '../service/AdminDashboardService';
-import { AdminGuard, SuperAdminGuard } from '../middleware/AdminGuards';
+import { AdminGuard } from '../middleware/AdminGuards';
 import { DashboardStatsResponse, DashboardAlertsResponse } from '../dto/AdminDtos';
 
 /**
@@ -13,9 +13,9 @@ import { DashboardStatsResponse, DashboardAlertsResponse } from '../dto/AdminDto
  * - GET  /admin/dashboard/alerts  -> System alerts (AdminGuard)
  */
 @Controller('/admin/dashboard')
-@UseMiddleware(AdminGuard)
+@UseBefore(AdminGuard)
 export class AdminDashboardController {
-  private dashboardService: AdminDashboardService;
+  private readonly dashboardService: AdminDashboardService;
 
   constructor() {
     this.dashboardService = new AdminDashboardService();

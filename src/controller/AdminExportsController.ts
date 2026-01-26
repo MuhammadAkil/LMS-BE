@@ -1,7 +1,7 @@
-import { Controller, Get, Post, Delete, Body, Param, Query, UseMiddleware, Req } from 'routing-controllers';
+import { Controller, Get, Post, Delete, Body, Param, QueryParam, UseBefore, Req } from 'routing-controllers';
 import { Request } from 'express';
 import { AdminExportsService } from '../service/AdminExportsService';
-import { AdminGuard, SuperAdminGuard, CriticalOperationGuard } from '../middleware/AdminGuards';
+import { SuperAdminGuard, CriticalOperationGuard } from '../middleware/AdminGuards';
 import {
   ExportListItemDto,
   GenerateXMLExportRequest,
@@ -24,9 +24,9 @@ import {
  * - DELETE /admin/exports/:id             -> Delete export (AdminGuard)
  */
 @Controller('/admin/exports')
-@UseMiddleware(AdminGuard)
+@UseBefore(AdminExportsController)
 export class AdminExportsController {
-  private exportsService: AdminExportsService;
+  private readonly exportsService: AdminExportsService;
 
   constructor() {
     this.exportsService = new AdminExportsService();
@@ -45,8 +45,8 @@ export class AdminExportsController {
    */
   @Get('/')
   async getExportHistory(
-    @Query('limit') limit?: number,
-    @Query('offset') offset?: number
+    @QueryParam('limit') limit?: number,
+    @QueryParam('offset') offset?: number
   ): Promise<ExportListItemDto[]> {
     return this.exportsService.getExportHistory(limit || 50, offset || 0);
   }
@@ -83,7 +83,7 @@ export class AdminExportsController {
    * Includes: filePath, recordCount, metadata with filters applied
    */
   @Post('/xml')
-  @UseMiddleware(SuperAdminGuard)
+  @UseBefore(SuperAdminGuard)
   async generateXMLExport(@Body() request: GenerateXMLExportRequest, @Req() req: Request): Promise<ExportListItemDto> {
     const adminId = (req.user as any)?.id || (req.user as any)?.userId;
     if (!adminId) {
@@ -112,7 +112,7 @@ export class AdminExportsController {
    * Includes: filePath, recordCount, metadata
    */
   @Post('/csv')
-  @UseMiddleware(SuperAdminGuard)
+  @UseBefore(SuperAdminGuard)
   async generateCSVExport(@Body() request: GenerateCSVExportRequest, @Req() req: Request): Promise<ExportListItemDto> {
     const adminId = (req.user as any)?.id || (req.user as any)?.userId;
     if (!adminId) {
@@ -143,7 +143,7 @@ export class AdminExportsController {
    * Error: 403 if not CriticalOperationGuard authorized
    */
   @Post('/claims/generate')
-  @UseMiddleware(CriticalOperationGuard)
+  @UseBefore(CriticalOperationGuard)
   async generateClaimsExport(@Body() request: GenerateClaimsRequest, @Req() req: Request): Promise<ExportListItemDto> {
     const adminId = (req.user as any)?.id || (req.user as any)?.userId;
     if (!adminId) {
@@ -172,8 +172,8 @@ export class AdminExportsController {
   @Delete('/:id')
   async deleteExport(
     @Param('id') exportId: number,
-    @Query('force') force?: boolean,
-    @Req() req: Request
+    @Req() req: Request,
+    @QueryParam('force') force?: boolean
   ): Promise<void> {
     const adminId = (req.user as any)?.id || (req.user as any)?.userId;
     if (!adminId) {

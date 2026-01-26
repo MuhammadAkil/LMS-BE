@@ -1,7 +1,7 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseMiddleware, Req } from 'routing-controllers';
+import { Controller, Get, Post, Patch, Delete, Body, Param, QueryParam, UseBefore, Req } from 'routing-controllers';
 import { Request } from 'express';
 import { AdminTemplatesService } from '../service/AdminTemplatesService';
-import { AdminGuard, SuperAdminGuard, CriticalOperationGuard } from '../middleware/AdminGuards';
+import { SuperAdminGuard, CriticalOperationGuard } from '../middleware/AdminGuards';
 import {
   TemplateDto,
   CreateTemplateRequest,
@@ -26,9 +26,9 @@ import {
  * - POST   /admin/templates/:id/restore   -> Restore deprecated template (SuperAdminGuard)
  */
 @Controller('/admin/templates')
-@UseMiddleware(AdminGuard)
+@UseBefore(AdminTemplatesController)
 export class AdminTemplatesController {
-  private templatesService: AdminTemplatesService;
+  private readonly templatesService: AdminTemplatesService;
 
   constructor() {
     this.templatesService = new AdminTemplatesService();
@@ -46,10 +46,11 @@ export class AdminTemplatesController {
    */
   @Get('/')
   async getAllTemplates(
-    @Query('limit') limit?: number,
-    @Query('offset') offset?: number
+    @QueryParam('limit') limit?: number,
+    @QueryParam('offset') offset?: number
   ): Promise<TemplateDto[]> {
-    return this.templatesService.getAllTemplates(limit || 20, offset || 0);
+    const result = await this.templatesService.getAllTemplates(limit || 20, offset || 0);
+    return (result as any).data || result;
   }
 
   /**
@@ -64,10 +65,11 @@ export class AdminTemplatesController {
    */
   @Get('/all')
   async getAllTemplatesIncludingDeprecated(
-    @Query('limit') limit?: number,
-    @Query('offset') offset?: number
+    @QueryParam('limit') limit?: number,
+    @QueryParam('offset') offset?: number
   ): Promise<TemplateDto[]> {
-    return this.templatesService.getAllTemplatesIncludingDeprecated(limit || 20, offset || 0);
+    const result = await this.templatesService.getAllTemplatesIncludingDeprecated(limit || 20, offset || 0);
+    return (result as any).data || result;
   }
 
   /**
@@ -94,7 +96,7 @@ export class AdminTemplatesController {
   @Get('/:id/history')
   async getTemplateHistory(
     @Param('id') templateId: number,
-    @Query('limit') limit?: number
+    @QueryParam('limit') limit?: number
   ): Promise<TemplateDto[]> {
     const template = await this.templatesService.getTemplateById(templateId);
     return this.templatesService.getTemplateHistory(template.type, limit || 10);
@@ -119,7 +121,7 @@ export class AdminTemplatesController {
    * Response: TemplateDto
    */
   @Post('/')
-  @UseMiddleware(SuperAdminGuard)
+  @UseBefore(SuperAdminGuard)
   async createTemplate(@Body() request: CreateTemplateRequest, @Req() req: Request): Promise<TemplateDto> {
     const adminId = (req.user as any)?.id || (req.user as any)?.userId;
     if (!adminId) {
@@ -145,7 +147,7 @@ export class AdminTemplatesController {
    * Response: TemplateDto
    */
   @Patch('/:id')
-  @UseMiddleware(SuperAdminGuard)
+  @UseBefore(SuperAdminGuard)
   async updateTemplate(
     @Param('id') templateId: number,
     @Body() request: UpdateTemplateRequest,
@@ -175,7 +177,7 @@ export class AdminTemplatesController {
    * Response: TemplateDto
    */
   @Post('/:id/deprecate')
-  @UseMiddleware(SuperAdminGuard)
+  @UseBefore(SuperAdminGuard)
   async deprecateTemplate(
     @Param('id') templateId: number,
     @Body() request: DeprecateTemplateRequest,
@@ -201,7 +203,7 @@ export class AdminTemplatesController {
    * Response: TemplateDto
    */
   @Post('/:id/restore')
-  @UseMiddleware(SuperAdminGuard)
+  @UseBefore(SuperAdminGuard)
   async restoreTemplate(@Param('id') templateId: number, @Req() req: Request): Promise<TemplateDto> {
     const adminId = (req.user as any)?.id || (req.user as any)?.userId;
     if (!adminId) {
@@ -228,11 +230,11 @@ export class AdminTemplatesController {
    * Error: 400 if template is not deprecated (unless force=true)
    */
   @Delete('/:id')
-  @UseMiddleware(CriticalOperationGuard)
+  @UseBefore(CriticalOperationGuard)
   async deleteTemplate(
     @Param('id') templateId: number,
-    @Query('force') force?: boolean,
-    @Req() req: Request
+    @Req() req: Request,
+    @QueryParam('force') force?: boolean
   ): Promise<void> {
     const adminId = (req.user as any)?.id || (req.user as any)?.userId;
     if (!adminId) {

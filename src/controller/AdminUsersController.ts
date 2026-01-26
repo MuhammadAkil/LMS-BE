@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Body, Param, Query, UseMiddleware, Req } from 'routing-controllers';
+import { Controller, Get, Patch, Body, Param, QueryParam, UseBefore, Req } from 'routing-controllers';
 import { Request } from 'express';
 import { AdminUsersService } from '../service/AdminUsersService';
 import { AdminGuard, SuperAdminGuard } from '../middleware/AdminGuards';
@@ -22,9 +22,9 @@ import {
  * - GET    /admin/users/:id/logs     -> Get audit logs (AdminGuard)
  */
 @Controller('/admin/users')
-@UseMiddleware(AdminGuard)
+@UseBefore(AdminGuard)
 export class AdminUsersController {
-  private usersService: AdminUsersService;
+  private readonly usersService: AdminUsersService;
 
   constructor() {
     this.usersService = new AdminUsersService();
@@ -42,10 +42,11 @@ export class AdminUsersController {
    */
   @Get('/')
   async getAllUsers(
-    @Query('limit') limit?: number,
-    @Query('offset') offset?: number
+    @QueryParam('limit') limit?: number,
+    @QueryParam('offset') offset?: number
   ): Promise<UserListItemDto[]> {
-    return this.usersService.getAllUsers(limit || 20, offset || 0);
+    const result = await this.usersService.getAllUsers(limit || 20, offset || 0);
+    return (result as any).data || result;
   }
 
   /**
@@ -71,7 +72,7 @@ export class AdminUsersController {
    * Response: UserDetailDto
    */
   @Patch('/:id/status')
-  @UseMiddleware(SuperAdminGuard)
+  @UseBefore(SuperAdminGuard)
   async updateUserStatus(
     @Param('id') userId: number,
     @Body() request: UpdateUserStatusRequest,
@@ -96,7 +97,7 @@ export class AdminUsersController {
    * Response: UserDetailDto
    */
   @Patch('/:id/level')
-  @UseMiddleware(SuperAdminGuard)
+  @UseBefore(SuperAdminGuard)
   async updateUserLevel(
     @Param('id') userId: number,
     @Body() request: UpdateUserLevelRequest,
@@ -118,8 +119,9 @@ export class AdminUsersController {
   @Get('/:id/logs')
   async getUserAuditLogs(
     @Param('id') userId: number,
-    @Query('limit') limit?: number
+    @QueryParam('limit') limit?: number
   ): Promise<AuditLogDto[]> {
-    return this.usersService.getUserAuditLogs(userId, limit || 50);
+    const result = await this.usersService.getUserAuditLogs(userId, limit || 50);
+    return (result as any).data || result;
   }
 }
