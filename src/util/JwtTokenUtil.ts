@@ -1,59 +1,155 @@
 import * as jwt from 'jsonwebtoken';
-import { CustomUserDetails } from '../security/CustomUserDetails';
 import config from '../config/Config';
 
+/**
+ * JWT Token Utility
+ * Handles token generation, validation, and extraction of claims
+ */
 export class JwtTokenUtil {
   private static readonly SECRET = config.jwt.secret;
   private static readonly JWT_TOKEN_VALIDITY = config.jwt.expiration; // 5 hours in milliseconds
-  private static readonly CLAIM_CUSTOMER_ID = 'customerId';
-  private static readonly CLAIM_FULL_NAME = 'fullName';
+  private static readonly CLAIM_USER_ID = 'userId';
+  private static readonly CLAIM_EMAIL = 'email';
+  private static readonly CLAIM_ROLE_ID = 'roleId';
 
-  static getMobileNumberFromToken(token: string): string {
-    const decoded = jwt.verify(token, this.SECRET) as jwt.JwtPayload;
-    return decoded.sub || '';
-  }
-
-  static getCustomerIdFromToken(token: string): string {
-    const decoded = jwt.verify(token, this.SECRET) as jwt.JwtPayload;
-    return decoded[this.CLAIM_CUSTOMER_ID] as string;
-  }
-
-  static getExpirationDateFromToken(token: string): Date {
-    const decoded = jwt.verify(token, this.SECRET) as jwt.JwtPayload;
-    return new Date((decoded.exp || 0) * 1000);
-  }
-
-  static generateToken(userDetails: CustomUserDetails): string {
+  /**
+   * Generate JWT token for user
+   * @param userId - User ID
+   * @param email - User email
+   * @param roleId - User role ID
+   * @returns JWT token string
+   */
+  static generateToken(userId: number, email: string, roleId: number): string {
     const claims: any = {
-      [this.CLAIM_CUSTOMER_ID]: userDetails.customerId,
-      [this.CLAIM_FULL_NAME]: userDetails.fullName,
+      [this.CLAIM_USER_ID]: userId,
+      [this.CLAIM_EMAIL]: email,
+      [this.CLAIM_ROLE_ID]: roleId,
     };
 
-    return jwt.sign(
-      claims,
-      this.SECRET,
-      {
-        subject: userDetails.mobileNumber,
-        expiresIn: this.JWT_TOKEN_VALIDITY / 1000, // Convert to seconds
-        algorithm: 'HS512',
-      }
-    );
+    return jwt.sign(claims, this.SECRET, {
+      expiresIn: this.JWT_TOKEN_VALIDITY / 1000, // Convert to seconds
+      algorithm: 'HS512',
+    });
   }
 
-  static validateToken(token: string, customerId: string): boolean {
+  /**
+   * Get user ID from token
+   * @param token - JWT token
+   * @returns User ID
+   */
+  static getUserIdFromToken(token: string): number {
     try {
-      const tokenCustomerId = this.getCustomerIdFromToken(token);
       const decoded = jwt.verify(token, this.SECRET) as jwt.JwtPayload;
-      const expiration = new Date((decoded.exp || 0) * 1000);
-      return tokenCustomerId === customerId && expiration > new Date();
+      return (decoded[this.CLAIM_USER_ID] as number) || 0;
     } catch (error) {
-      console.log('Error validating JWT token:', error);
+      console.error('Error extracting user ID from token:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get email from token
+   * @param token - JWT token
+   * @returns User email
+   */
+  static getEmailFromToken(token: string): string {
+    try {
+      const decoded = jwt.verify(token, this.SECRET) as jwt.JwtPayload;
+      return (decoded[this.CLAIM_EMAIL] as string) || '';
+    } catch (error) {
+      console.error('Error extracting email from token:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get role ID from token
+   * @param token - JWT token
+   * @returns Role ID
+   */
+  static getRoleIdFromToken(token: string): number {
+    try {
+      const decoded = jwt.verify(token, this.SECRET) as jwt.JwtPayload;
+      return (decoded[this.CLAIM_ROLE_ID] as number) || 0;
+    } catch (error) {
+      console.error('Error extracting role ID from token:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get all claims from token
+   * @param token - JWT token
+   * @returns Decoded JWT payload
+   */
+  static decodeToken(token: string): jwt.JwtPayload {
+    try {
+      return jwt.verify(token, this.SECRET) as jwt.JwtPayload;
+    } catch (error) {
+      console.error('Error decoding token:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get expiration date from token
+   * @param token - JWT token
+   * @returns Expiration date
+   */
+  static getExpirationDateFromToken(token: string): Date {
+    try {
+      const decoded = jwt.verify(token, this.SECRET) as jwt.JwtPayload;
+      return new Date((decoded.exp || 0) * 1000);
+    } catch (error) {
+      console.error('Error extracting expiration from token:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Validate JWT token
+   * @param token - JWT token
+   * @returns true if token is valid, false otherwise
+   */
+  static validateToken(token: string): boolean {
+    try {
+      jwt.verify(token, this.SECRET);
+      return true;
+    } catch (error) {
+      console.log('Token validation failed:', error);
       return false;
     }
   }
 
+  /**
+   * Get token expiration duration in milliseconds
+   * @returns Token validity period in milliseconds
+   */
+  static getTokenExpiration(): number {
+    return this.JWT_TOKEN_VALIDITY;
+  }
+
+  /**
+   * Get expiration date for new token
+   * @returns Future date when token will expire
+   */
   static getTokenExpirationDate(): Date {
     const now = new Date();
     return new Date(now.getTime() + this.JWT_TOKEN_VALIDITY);
   }
+
+  /**
+   * Extract token from Authorization header
+   * @param authHeader - Authorization header value (e.g., "Bearer token")
+   * @returns Token string or null if invalid format
+   */
+  static extractTokenFromHeader(authHeader: string): string | null {
+    if (!authHeader) return null;
+    const parts = authHeader.split(' ');
+    if (parts.length !== 2 || parts[0] !== 'Bearer') {
+      return null;
+    }
+    return parts[1];
+  }
 }
+

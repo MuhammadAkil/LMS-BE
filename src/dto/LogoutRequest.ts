@@ -1,8 +1,17 @@
-import { IsNotEmpty, Matches, Length } from 'class-validator';
-
+/**
+ * Logout request DTO - Token should be in Authorization header
+ * This is kept for backwards compatibility
+ * @swagger
+ * components:
+ *   schemas:
+ *     LogoutRequest:
+ *       type: object
+ *       properties:
+ *         note:
+ *           type: string
+ *           example: "Token should be sent in Authorization header"
+ */
 export class LogoutRequest {
-  @IsNotEmpty({ message: 'Mobile number is required' })
-  @Length(11, 13, { message: 'Mobile number length must be between 11 and 13' })
-  @Matches(/^[0-9]+$/, { message: 'Mobile number must contain only digits' })
-  mobileNumber!: string;
+  // Token will be extracted from Authorization header
+  // This DTO can be empty or contain additional logout-related data
 }

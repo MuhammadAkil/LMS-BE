@@ -22,17 +22,33 @@ const conf = convict({
         },
     },
 
-    // MongoDB configuration
-    mongo: {
-        url: {
+
+    // MySQL configuration
+    mysql: {
+        host: {
+            format: "*",
+            default: "localhost",
+            env: "MYSQL_HOST",
+        },
+        port: {
+            format: "port",
+            default: 3306,
+            env: "MYSQL_PORT",
+        },
+        username: {
+            format: "*",
+            default: "root",
+            env: "MYSQL_USER",
+        },
+        password: {
             format: "*",
             default: "",
-            env: "MONGO_URL",
+            env: "MYSQL_PASSWORD",
         },
         database: {
             format: "*",
-            default: "",
-            env: "MONGO_DB",
+            default: "lms_db",
+            env: "MYSQL_DATABASE",
         },
     },
 
@@ -40,7 +56,7 @@ const conf = convict({
     jwt: {
         secret: {
             format: "*",
-            default: "",
+            default: "your-secret-key-change-in-production",
             env: "JWT_SECRET",
         },
         expiration: {

@@ -1,32 +1,51 @@
-import { IsNotEmpty, IsString, Matches, Length, IsOptional, IsDateString } from 'class-validator';
+import { IsNotEmpty, IsEmail, IsString, MinLength, MaxLength, IsOptional } from 'class-validator';
 
+/**
+ * Signup request DTO
+ * @swagger
+ * components:
+ *   schemas:
+ *     SignupRequest:
+ *       type: object
+ *       required:
+ *         - email
+ *         - password
+ *       properties:
+ *         email:
+ *           type: string
+ *           format: email
+ *           example: "user@example.com"
+ *         password:
+ *           type: string
+ *           minLength: 8
+ *           maxLength: 100
+ *           example: "password123"
+ *         phone:
+ *           type: string
+ *           maxLength: 30
+ *           example: "+1234567890"
+ *         fullName:
+ *           type: string
+ *           maxLength: 255
+ *           example: "John Doe"
+ */
 export class SignupRequest {
-  @IsNotEmpty({ message: 'Mobile number is required' })
-  @Length(11, 13, { message: 'Mobile number length must be between 11 and 13' })
-  @Matches(/^[0-9]+$/, { message: 'Mobile number must contain only digits' })
-  mobileNumber!: string;
-
-  @IsNotEmpty({ message: 'Full name is required' })
-  @Length(1, 150, { message: 'Full name must not exceed 150 characters' })
-  @IsString()
-  fullName!: string;
-
-  @IsNotEmpty({ message: 'CNIC is required' })
-  @Length(1, 20, { message: 'CNIC must not exceed 20 characters' })
-  @IsString()
-  cnic!: string;
-
-  @IsOptional()
-  @Length(0, 150, { message: 'Email must not exceed 150 characters' })
-  @Matches(/^[A-Za-z0-9+_.-]+@(.+)$/, { message: 'Invalid email format' })
-  email?: string;
+  @IsNotEmpty({ message: 'Email is required' })
+  @IsEmail({}, { message: 'Invalid email format' })
+  email!: string;
 
   @IsNotEmpty({ message: 'Password is required' })
-  @Length(8, undefined, { message: 'Password must be at least 8 characters' })
-  @IsString()
+  @MinLength(8, { message: 'Password must be at least 8 characters long' })
+  @MaxLength(100, { message: 'Password must not exceed 100 characters' })
   password!: string;
 
-  @IsNotEmpty({ message: 'Date of birth is required' })
-  @IsDateString()
-  dateOfBirth!: string;
+  @IsOptional()
+  @IsString()
+  @MaxLength(30, { message: 'Phone must not exceed 30 characters' })
+  phone?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255, { message: 'Full name must not exceed 255 characters' })
+  fullName?: string;
 }

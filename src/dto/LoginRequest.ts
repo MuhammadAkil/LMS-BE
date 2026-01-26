@@ -1,10 +1,28 @@
-import { IsNotEmpty, IsString, Matches, Length } from 'class-validator';
+import { IsNotEmpty, IsString, IsEmail } from 'class-validator';
 
+/**
+ * Login request DTO
+ * @swagger
+ * components:\n *   schemas:
+ *     LoginRequest:
+ *       type: object
+ *       required:
+ *         - email
+ *         - password
+ *       properties:
+ *         email:
+ *           type: string
+ *           format: email
+ *           example: "user@example.com"
+ *         password:
+ *           type: string
+ *           minLength: 8
+ *           example: "password123"
+ */
 export class LoginRequest {
-  @IsNotEmpty({ message: 'Mobile number is required' })
-  @Length(11, 13, { message: 'Mobile number length must be between 11 and 13' })
-  @Matches(/^[0-9]+$/, { message: 'Mobile number must contain only digits' })
-  mobileNumber!: string;
+  @IsNotEmpty({ message: 'Email is required' })
+  @IsEmail({}, { message: 'Invalid email format' })
+  email!: string;
 
   @IsNotEmpty({ message: 'Password is required' })
   @IsString()
