@@ -27,7 +27,7 @@ const conf = convict({
     mysql: {
         host: {
             format: "*",
-            default: "localhost",
+            default: "127.0.0.1",
             env: "MYSQL_HOST",
         },
         port: {
@@ -37,17 +37,17 @@ const conf = convict({
         },
         username: {
             format: "*",
-            default: "root",
+            default: "lms_user",
             env: "MYSQL_USER",
         },
         password: {
             format: "*",
-            default: "root",
+            default: "",
             env: "MYSQL_PASSWORD",
         },
         database: {
             format: "*",
-            default: "lms_db",
+            default: "lms_portal",
             env: "MYSQL_DATABASE",
         },
     },

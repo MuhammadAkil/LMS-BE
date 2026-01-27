@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import 'reflect-metadata';
 import express from 'express';
 import cors from 'cors';
@@ -53,6 +54,8 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 AppDataSource.initialize()
     .then(() => {
         console.log('Database connection established');
+        console.log('DB USER:', process.env.MYSQL_USER);
+        console.log('DB HOST:', process.env.MYSQL_HOST);
         app.listen(PORT, () => {
             console.log(`LMS application started on port ${PORT}`);
             console.log(`API available at http://localhost:${PORT}${INTERNAL_API_PREFIX}`);
@@ -60,12 +63,14 @@ AppDataSource.initialize()
         });
     })
     .catch((error: any) => {
-        console.log('Error during MongoDB initialization:', error);
+        console.log('Error during MySQL database initialization:', error);
         console.log('Database connection failed. Please check:');
-        console.log(`  - MongoDB URI: ${config.mongo.url}`);
-        console.log(`  - Database name: ${config.mongo.database}`);
-        console.log('  - Make sure MongoDB is accessible and credentials are correct');
-        console.log('  - Check your environment variables (MONGO_URI, MONGO_DB)');
+        console.log(`  - MySQL Host: ${config.mysql.host}`);
+        console.log(`  - MySQL Port: ${config.mysql.port}`);
+        console.log(`  - MySQL User: ${config.mysql.username}`);
+        console.log(`  - MySQL Database: ${config.mysql.database}`);
+        console.log('  - Make sure MySQL is running and credentials are correct');
+        console.log('  - Check your environment variables (MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DATABASE)');
         process.exit(1);
     });
 
