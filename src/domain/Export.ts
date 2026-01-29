@@ -13,10 +13,10 @@ export class Export {
   @PrimaryGeneratedColumn({ type: 'bigint' })
   id!: number;
 
-  @Column({ type: 'int' })
+  @Column({ type: 'int', name: 'type_id' })
   typeId!: number; // References export_types (XML, CSV, LAWSUITS)
 
-  @Column({ type: 'bigint' })
+  @Column({ type: 'bigint', name: 'created_by' })
   createdBy!: number; // References users.id
 
   @Column({ type: 'longtext', nullable: true })

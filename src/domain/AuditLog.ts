@@ -17,7 +17,7 @@ export class AuditLog {
   @PrimaryGeneratedColumn({ type: 'bigint' })
   id!: number;
 
-  @Column({ type: 'bigint' })
+  @Column({ type: 'bigint', name: 'actor_id' })
   actorId!: number;
 
   @Column({ type: 'varchar', length: 100 })
@@ -26,7 +26,7 @@ export class AuditLog {
   @Column({ type: 'varchar', length: 100 })
   entity!: string; // e.g., USER, VERIFICATION, COMPANY
 
-  @Column({ type: 'bigint' })
+  @Column({ type: 'bigint', name: 'entity_id' })
   entityId!: number;
 
   @Column({ type: 'longtext', nullable: true })
@@ -36,6 +36,6 @@ export class AuditLog {
   createdAt!: Date;
 
   @ManyToOne(() => User, { onDelete: 'RESTRICT' })
-  @JoinColumn({ name: 'actorId' })
+  @JoinColumn({ name: 'actor_id' })
   actor?: User;
 }

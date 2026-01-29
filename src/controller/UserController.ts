@@ -10,8 +10,8 @@ import { StatusCodes } from 'http-status-codes';
 import { Request, Response } from 'express';
 import { UserService } from '../service/UserService';
 import { LoginRequest } from '../dto/LoginRequest';
-import { SignupRequest } from '../dto/SignupRequest';
 import { LogoutRequest } from '../dto/LogoutRequest';
+import { SignupRequest } from '../dto/SignupRequest';
 import { ModuleResponse } from '../dto/ModuleResponse';
 
 /**
@@ -119,12 +119,10 @@ export class UserController {
    * /user/logout:
    *   post:
    *     summary: Logout user
-   *     description: Invalidate user's current session token (requires authentication)
+   *     description: Expire the latest session for the given userId. No authentication required.
    *     tags: [Authentication]
-   *     security:
-   *       - BearerAuth: []
    *     requestBody:
-   *       required: false
+   *       required: true
    *       content:
    *         application/json:
    *           schema:
@@ -155,25 +153,9 @@ export class UserController {
   async logout(
     @Req() req: Request,
     @Res() res: Response,
-    @Body() _logoutRequest?: LogoutRequest
+    @Body() body: LogoutRequest,
   ): Promise<void> {
-    // Get token from Authorization header
-    const authHeader = req.headers.authorization;
-    const token = authHeader?.replace('Bearer ', '') || '';
-
-    if (!token) {
-      res.status(StatusCodes.UNAUTHORIZED).json({
-        statusCode: '401',
-        statusMessage: 'Unauthorized: No token provided',
-      });
-      return;
-    }
-
-    // Get user from authenticated middleware (if set up)
-    const user = (req as any).user;
-    const userId = user?.userId || 0;
-
-    const response = await this.userService.logout(token, userId);
-    res.status(Number.parseInt(response.statusCode || '500')).json(response);
+    const response = await this.userService.logout(body.userId);
+    res.status(Number.parseInt(response.statusCode || '500', 10)).json(response);
   }
 }

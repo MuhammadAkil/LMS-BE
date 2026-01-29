@@ -48,4 +48,9 @@ export class SignupRequest {
   @IsString()
   @MaxLength(255, { message: 'Full name must not exceed 255 characters' })
   fullName?: string;
+
+  // roleId is automatically assigned by the service and should not be provided by client
+  // But accept it if sent and ignore it
+  @IsOptional()
+  roleId?: number;
 }

@@ -16,7 +16,7 @@ export class Notification {
   @PrimaryGeneratedColumn({ type: 'bigint' })
   id!: number;
 
-  @Column({ type: 'bigint' })
+  @Column({ type: 'bigint', name: 'user_id' })
   userId!: number;
 
   @Column({ type: 'varchar', length: 100 })
@@ -35,6 +35,6 @@ export class Notification {
   readAt?: Date;
 
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'userId' })
+  @JoinColumn({ name: 'user_id' })
   user?: User;
 }

@@ -1,17 +1,24 @@
+import { Type } from 'class-transformer';
+import { IsInt, IsNotEmpty, Min } from 'class-validator';
+
 /**
- * Logout request DTO - Token should be in Authorization header
- * This is kept for backwards compatibility
+ * Logout request DTO - userId in body
  * @swagger
  * components:
  *   schemas:
  *     LogoutRequest:
  *       type: object
+ *       required:
+ *         - userId
  *       properties:
- *         note:
- *           type: string
- *           example: "Token should be sent in Authorization header"
+ *         userId:
+ *           type: integer
+ *           example: 1
  */
 export class LogoutRequest {
-  // Token will be extracted from Authorization header
-  // This DTO can be empty or contain additional logout-related data
+  @IsNotEmpty({ message: 'userId is required' })
+  @Type(() => Number)
+  @IsInt({ message: 'userId must be an integer' })
+  @Min(1, { message: 'userId must be a positive integer' })
+  userId!: number;
 }

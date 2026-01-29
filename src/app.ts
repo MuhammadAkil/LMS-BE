@@ -40,6 +40,9 @@ const app = useExpressServer(expressApp, {
         whitelist: true,
         forbidNonWhitelisted: true,
     },
+    plainToClassTransformOptions: {
+        enableImplicitConversion: true,
+    },
 });
 
 // Swagger Documentation

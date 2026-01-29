@@ -13,10 +13,10 @@ export class CustomerAuthSession {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column({ type: 'varchar', length: 255 })
+  @Column({ type: 'varchar', length: 255, name: 'customer_id' })
   customerId!: string;
 
-  @Column({ type: 'varchar', length: 256, unique: true })
+  @Column({ type: 'varchar', length: 256, unique: true, name: 'jwt_token' })
   jwtToken!: string;
 
   @Column({ type: 'timestamp' })

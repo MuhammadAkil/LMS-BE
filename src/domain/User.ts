@@ -18,39 +18,33 @@ export class User {
     @Column({ type: 'varchar', length: 255, unique: true })
     email!: string;
 
-    @Column({ type: 'varchar', length: 255 })
+    @Column({ type: 'varchar', length: 255, name: 'password_hash' })
     passwordHash!: string;
 
-    @Column({ type: 'int' })
+    @Column({ type: 'int', name: 'role_id' })
     roleId!: number;
 
-    @Column({ type: 'int' })
+    @Column({ type: 'int', name: 'status_id' })
     statusId!: number;
 
-    @Column({ type: 'int', default: 0 })
+    @Column({ type: 'int', default: 0, name: 'level' })
     level!: number;
 
-    @Column({ type: 'varchar', length: 30, nullable: true })
+    @Column({ type: 'varchar', length: 30, nullable: true, name: 'phone' })
     phone?: string;
 
-    @Column({ type: 'boolean', default: false })
-    isSuperAdmin!: boolean;
-
-    @Column({ type: 'boolean', default: false })
-    twoFAVerified!: boolean;
-
-    @CreateDateColumn()
+    @CreateDateColumn({ name: 'created_at' })
     createdAt!: Date;
 
-    @UpdateDateColumn()
+    @UpdateDateColumn({ name: 'updated_at' })
     updatedAt!: Date;
 
     // Relations
     @ManyToOne(() => UserRole)
-    @JoinColumn({ name: 'roleId' })
+    @JoinColumn({ name: 'role_id' })
     role?: UserRole;
 
     @ManyToOne(() => UserStatus)
-    @JoinColumn({ name: 'statusId' })
+    @JoinColumn({ name: 'status_id' })
     status?: UserStatus;
 }

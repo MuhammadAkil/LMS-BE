@@ -10,7 +10,7 @@ import { User } from './User';
 
 @Entity('user_2fa')
 export class User2FA {
-    @PrimaryColumn({ type: 'bigint' })
+    @PrimaryColumn({ type: 'bigint', name: 'user_id' })
     userId!: number;
 
     @Column({ type: 'boolean', default: false })
@@ -24,6 +24,6 @@ export class User2FA {
 
     // Relations
     @ManyToOne(() => User, { onDelete: 'CASCADE' })
-    @JoinColumn({ name: 'userId' })
+    @JoinColumn({ name: 'user_id' })
     user?: User;
 }

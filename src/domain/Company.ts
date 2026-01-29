@@ -16,7 +16,7 @@ export class Company {
   @Column({ type: 'varchar', length: 255, unique: true })
   name!: string;
 
-  @Column({ type: 'int' })
+  @Column({ type: 'int', name: 'status_id' })
   statusId!: number; // References user_statuses
 
   @Column({ type: 'decimal', precision: 5, scale: 2, default: 0 })

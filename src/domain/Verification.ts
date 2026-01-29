@@ -14,22 +14,22 @@ export class Verification {
   @PrimaryGeneratedColumn({ type: 'bigint' })
   id!: number;
 
-  @Column({ type: 'bigint' })
+  @Column({ type: 'bigint', name: 'user_id' })
   userId!: number;
 
-  @Column({ type: 'int' })
+  @Column({ type: 'int', name: 'type_id' })
   typeId!: number; // References verification_types
 
-  @Column({ type: 'int' })
+  @Column({ type: 'int', name: 'status_id' })
   statusId!: number; // References verification_statuses
 
   @Column({ type: 'datetime' })
   submittedAt!: Date;
 
-  @Column({ type: 'bigint', nullable: true })
+  @Column({ type: 'bigint', nullable: true, name: 'reviewed_by' })
   reviewedBy?: number; // References users.id
 
-  @Column({ type: 'datetime', nullable: true })
+  @Column({ type: 'datetime', nullable: true, name: 'reviewed_at' })
   reviewedAt?: Date;
 
   @Column({ type: 'longtext', nullable: true })

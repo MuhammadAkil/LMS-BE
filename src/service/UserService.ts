@@ -136,25 +136,16 @@ export class UserService {
 
     /**
      * User logout
-     * Invalidates the user's current session token
+     * Expires the user's latest session by setting expires_at to now.
+     * No auth required: call with body { userId }. Idempotent: returns success
+     * even if no active session exists.
      */
-    async logout(token: string, userId: number): Promise<ModuleResponse> {
+    async logout(userIdFromBody: number, _authenticatedUserId?: number): Promise<ModuleResponse> {
         try {
-            // Verify token exists and belongs to user
-            const session = await this.userSessionRepository.findByToken(token);
-
-            if (!session) {
-                return ModuleResponse.generateCustomResponse(404, 'Session not found');
+            const updated = await this.userSessionRepository.expireLatestSessionByUserId(userIdFromBody);
+            if (updated) {
+                console.log(`User logged out successfully: userId=${userIdFromBody}`);
             }
-
-            if (session.userId !== userId) {
-                return ModuleResponse.generateCustomResponse(403, 'Token does not belong to user');
-            }
-
-            // Delete the session
-            await this.userSessionRepository.deleteByToken(token);
-
-            console.log(`User logged out successfully: ${userId}`);
             return ModuleResponse.generateSuccessResponse({
                 message: 'Logged out successfully',
             });

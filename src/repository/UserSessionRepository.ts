@@ -29,6 +29,24 @@ export class UserSessionRepository {
         });
     }
 
+    /** Find the latest session for a user (most recent by created_at). */
+    async findLatestByUserId(userId: number): Promise<UserSession | null> {
+        return await this.sessionRepository.findOne({
+            where: { userId },
+            order: { createdAt: 'DESC' },
+            relations: ['user'],
+        });
+    }
+
+    /** Set the latest session's expires_at to now (expire it). Returns true if a session was updated. */
+    async expireLatestSessionByUserId(userId: number): Promise<boolean> {
+        const session = await this.findLatestByUserId(userId);
+        if (!session) return false;
+        session.expiresAt = new Date();
+        await this.sessionRepository.save(session);
+        return true;
+    }
+
     async delete(id: number): Promise<boolean> {
         const result = await this.sessionRepository.delete(id);
         return (result.affected ?? 0) > 0;

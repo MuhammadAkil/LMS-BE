@@ -9,8 +9,11 @@ export function validateRequest<T extends object>(
   skipMissingProperties = false
 ) {
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    const dto = plainToInstance(dtoClass, req.body);
-    const errors: ValidationError[] = await validate(dto, { skipMissingProperties });
+    const dto = plainToInstance(dtoClass, req.body, {
+      excludeExtraneousValues: false,  // Allow extra properties to be passed through
+      exposeDefaultValues: true
+    });
+    const errors: ValidationError[] = await validate(dto, { skipMissingProperties, forbidUnknownValues: false });
 
     if (errors.length > 0) {
       const messages = errors.map((error) => {

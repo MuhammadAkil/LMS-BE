@@ -24,6 +24,7 @@ const getPublicRoutes = (): string[] => {
     return [
         '/user/login',
         '/user/signup',
+        '/user/logout',
         '/health',
         '/docs',
         '/docs/**',
@@ -87,11 +88,11 @@ export class GlobalAuthMiddleware implements ExpressMiddlewareInterface {
         }
 
         try {
-            // Check if this is an admin route - use User authentication
-            const isAdminRoute = path.startsWith('/admin');
+            // Routes that require User (admin) JWT: /admin/*
+            const isUserAuthRoute = path.startsWith('/admin');
 
-            if (isAdminRoute) {
-                // Admin routes use User authentication
+            if (isUserAuthRoute) {
+                // User JWT validation
                 if (!JwtTokenUtil.validateToken(token)) {
                     res.status(401).json({
                         statusCode: '401',
@@ -147,11 +148,11 @@ export class GlobalAuthMiddleware implements ExpressMiddlewareInterface {
                     userId: user.id,
                     email: user.email,
                     roleId: user.roleId,
-                    isSuperAdmin: user.isSuperAdmin || false,
-                    twoFAVerified: user.twoFAVerified || false,
+                    isSuperAdmin: false,
+                    twoFAVerified: false,
                 };
                 req.user = userDetails;
-                console.log(`Authenticated admin request for user: ${email}, path: ${path}`);
+                console.log(`Authenticated user request for user: ${email}, path: ${path}`);
                 next();
             } else {
                 // Regular routes use Customer authentication
