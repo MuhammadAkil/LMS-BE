@@ -1,5 +1,8 @@
 import { AuditLogRepository } from '../repository/AuditLogRepository';
 import { NotificationRepository } from '../repository/NotificationRepository';
+import { VerificationRepositoryBase } from '../repository/VerificationRepositoryBase';
+import { UserRepository } from '../repository/UserRepository';
+import { Verification } from '../domain/Verification';
 import {
     VerificationStatusDto,
     VerificationItemDto,
@@ -17,10 +20,14 @@ import {
 export class BorrowerVerificationService {
     private auditRepo: AuditLogRepository;
     private notificationRepo: NotificationRepository;
+    private verificationRepo: VerificationRepositoryBase;
+    private userRepo: UserRepository;
 
     constructor() {
         this.auditRepo = new AuditLogRepository();
         this.notificationRepo = new NotificationRepository();
+        this.verificationRepo = new VerificationRepositoryBase();
+        this.userRepo = new UserRepository();
     }
 
     /**
@@ -44,17 +51,53 @@ export class BorrowerVerificationService {
         try {
             const borrowerIdNum = parseInt(borrowerId, 10);
 
-            // TODO: Query user's current level and all verifications
-            const verifications: VerificationItemDto[] = [];
+            // Get user's current level
+            const user = await this.userRepo.findById(borrowerIdNum);
+            if (!user) {
+                throw new Error('User not found');
+            }
 
-            // TODO: Query user_verifications table
-            // SELECT * FROM user_verifications WHERE user_id = ? ORDER BY created_at DESC
+            // Query user_verifications table
+            const verifications = await this.verificationRepo.findByUserId(borrowerIdNum);
+
+            const verificationDtos: VerificationItemDto[] = verifications.map((v) => {
+                const statusMap: { [key: number]: string } = {
+                    1: 'PENDING',
+                    2: 'APPROVED',
+                    3: 'REJECTED',
+                };
+
+                const typeMap: { [key: number]: string } = {
+                    1: 'ID',
+                    2: 'ADDRESS',
+                    3: 'INCOME',
+                    4: 'BIK',
+                    5: 'PHONE',
+                    6: 'EMAIL',
+                };
+
+                return {
+                    id: v.id,
+                    type: typeMap[v.typeId] || `TYPE_${v.typeId}`,
+                    status: statusMap[v.statusId] || 'UNKNOWN',
+                    submittedAt: v.createdAt?.toISOString(),
+                    approvedAt: v.reviewedAt?.toISOString(),
+                    rejectionReason: v.reviewComment,
+                };
+            });
+
+            const levelNames: { [key: number]: string } = {
+                0: 'F',
+                1: '1',
+                2: '2',
+                3: '3',
+            };
 
             const status: VerificationStatusDto = {
-                level: 2,
-                levelName: '2',
-                isVerified: true,
-                verifications: verifications,
+                level: user.level,
+                levelName: levelNames[user.level] || 'UNKNOWN',
+                isVerified: user.level > 0,
+                verifications: verificationDtos,
             };
 
             // Audit log
@@ -92,38 +135,98 @@ export class BorrowerVerificationService {
         try {
             const borrowerIdNum = parseInt(borrowerId, 10);
 
-            // TODO: Get user's current level
-            // TODO: Query verification_requirements for next level
-            // TODO: Check which requirements are already completed
+            // Get user's current level
+            const user = await this.userRepo.findById(borrowerIdNum);
+            if (!user) {
+                throw new Error('User not found');
+            }
 
-            const requirements: RequirementDto[] = [
-                {
-                    id: 'REQ_001',
-                    type: 'EMAIL',
-                    description: 'Verify your email address',
-                    isRequired: true,
-                    isCompleted: true,
-                },
-                {
-                    id: 'REQ_002',
-                    type: 'PHONE',
-                    description: 'Verify your phone number',
-                    isRequired: true,
-                    isCompleted: true,
-                },
-                {
-                    id: 'REQ_003',
-                    type: 'KYC',
-                    description: 'Complete KYC verification with ID',
-                    isRequired: true,
-                    isCompleted: false,
-                    expiresAt: '2026-03-01',
-                },
-            ];
+            const nextLevel = user.level + 1;
+            if (nextLevel > 3) {
+                // User has maximum verification level
+                return {
+                    currentLevel: user.level,
+                    nextLevel: user.level,
+                    requirements: [],
+                };
+            }
+
+            // Define verification requirements per level
+            const requirementsByLevel: { [key: number]: RequirementDto[] } = {
+                1: [
+                    {
+                        id: 'REQ_001',
+                        type: 'EMAIL',
+                        description: 'Verify your email address',
+                        isRequired: true,
+                        isCompleted: true,
+                    },
+                    {
+                        id: 'REQ_002',
+                        type: 'PHONE',
+                        description: 'Verify your phone number',
+                        isRequired: true,
+                        isCompleted: true,
+                    },
+                ],
+                2: [
+                    {
+                        id: 'REQ_003',
+                        type: 'ID',
+                        description: 'Government-issued ID verification',
+                        isRequired: true,
+                        isCompleted: false,
+                        expiresAt: '2026-03-01',
+                    },
+                    {
+                        id: 'REQ_004',
+                        type: 'ADDRESS',
+                        description: 'Proof of address (utility bill, lease, etc.)',
+                        isRequired: true,
+                        isCompleted: false,
+                    },
+                ],
+                3: [
+                    {
+                        id: 'REQ_005',
+                        type: 'INCOME',
+                        description: 'Income verification (tax return, pay stub)',
+                        isRequired: true,
+                        isCompleted: false,
+                    },
+                    {
+                        id: 'REQ_006',
+                        type: 'BIK',
+                        description: 'Credit bureau check',
+                        isRequired: false,
+                        isCompleted: false,
+                    },
+                ],
+            };
+
+            const requirements = requirementsByLevel[nextLevel] || [];
+
+            // Check completion status for each requirement
+            const completedVerifications = await this.verificationRepo.findApprovedByUser(borrowerIdNum);
+            const completedTypes = new Set(completedVerifications.map((v) => v.typeId));
+
+            const typeMap: { [key: string]: number } = {
+                EMAIL: 6,
+                PHONE: 5,
+                ID: 1,
+                ADDRESS: 2,
+                INCOME: 3,
+                BIK: 4,
+            };
+
+            requirements.forEach((req) => {
+                const typeId = typeMap[req.type];
+                req.isCompleted = typeId ? completedTypes.has(typeId) : false;
+            });
 
             const dto: VerificationRequirementsDto = {
-                currentLevel: 2,
-                nextLevel: 3,
+                currentLevel: user.level,
+                nextLevel: nextLevel,
                 requirements: requirements,
             };
 
@@ -167,45 +270,58 @@ export class BorrowerVerificationService {
         try {
             const borrowerIdNum = parseInt(borrowerId, 10);
 
-            // TODO: Transaction start
-            // 1. Get verification_type_id from verification_types lookup
-            // 2. Get PENDING status_id from verification_statuses lookup
-            // 3. INSERT into user_verifications
-            // 4. INSERT documents into verification_documents
-            // 5. Audit log
-            // 6. Notify admin
+            // Get verification type ID
+            const typeMap: { [key: string]: number } = {
+                EMAIL: 6,
+                PHONE: 5,
+                ID: 1,
+                ADDRESS: 2,
+                INCOME: 3,
+                BIK: 4,
+            };
 
-            const verificationId = Math.floor(Math.random() * 1000000);
+            const typeId = typeMap[request.verificationType];
+            if (!typeId) {
+                throw new Error('Invalid verification type');
+            }
+
+            // Create verification record with PENDING status (statusId = 1)
+            const verification = new Verification();
+            verification.userId = borrowerIdNum;
+            verification.typeId = typeId;
+            verification.statusId = 1; // PENDING
+            verification.submittedAt = new Date();
+            verification.metadata = JSON.stringify(request.documents || []);
+
+            const savedVerification = await this.verificationRepo.save(verification);
 
             // Audit log
             await this.auditRepo.create({
                 actorId: borrowerIdNum,
                 action: 'VERIFICATION_SUBMITTED',
                 entity: 'VERIFICATION',
-                entityId: verificationId,
+                entityId: savedVerification.id,
                 createdAt: new Date(),
             } as any);
 
-            // Notification to admin
-            // TODO: Insert into notifications table
-            // notificationRepo.create({
-            //   recipient_id: ADMIN_ID,
-            //   type: 'VERIFICATION_SUBMITTED',
-            //   message: `New verification submission from borrower ${borrowerId}`,
-            //   related_entity: 'VERIFICATION',
-            //   related_entity_id: verificationId,
-            // });
+            // Notification
+            await this.notificationRepo.create({
+                userId: borrowerIdNum,
+                type: 'VERIFICATION_SUBMITTED',
+                title: 'Verification Submitted',
+                message: `Your ${request.verificationType} verification has been submitted for review`,
+                createdAt: new Date(),
+            } as any);
 
             return {
-                verificationId,
+                verificationId: savedVerification.id,
                 type: request.verificationType,
                 status: 'PENDING',
                 submittedAt: new Date().toISOString(),
-                message: 'Verification documents submitted successfully',
+                message: 'Verification documents submitted successfully. Our team will review them soon.',
             };
         } catch (error: any) {
             console.error('Error submitting verification:', error);
-            // TODO: Transaction rollback on error
             throw new Error('Failed to submit verification');
         }
     }

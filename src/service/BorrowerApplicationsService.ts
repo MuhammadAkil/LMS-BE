@@ -1,5 +1,11 @@
 import { AuditLogRepository } from '../repository/AuditLogRepository';
 import { NotificationRepository } from '../repository/NotificationRepository';
+import { LoanApplicationRepository } from '../repository/LoanApplicationRepository';
+import { LoanRepository } from '../repository/LoanRepository';
+import { LoanOfferRepository } from '../repository/LoanOfferRepository';
+import { LevelRulesRepository } from '../repository/LevelRulesRepository';
+import { UserRepository } from '../repository/UserRepository';
+import { LoanApplication } from '../domain/LoanApplication';
 import {
     CreateApplicationRequest,
     ApplicationListItemDto,
@@ -27,10 +33,20 @@ import {
 export class BorrowerApplicationsService {
     private auditRepo: AuditLogRepository;
     private notificationRepo: NotificationRepository;
+    private loanAppRepo: LoanApplicationRepository;
+    private loanRepo: LoanRepository;
+    private loanOfferRepo: LoanOfferRepository;
+    private levelRulesRepo: LevelRulesRepository;
+    private userRepo: UserRepository;
 
     constructor() {
         this.auditRepo = new AuditLogRepository();
         this.notificationRepo = new NotificationRepository();
+        this.loanAppRepo = new LoanApplicationRepository();
+        this.loanRepo = new LoanRepository();
+        this.loanOfferRepo = new LoanOfferRepository();
+        this.levelRulesRepo = new LevelRulesRepository();
+        this.userRepo = new UserRepository();
     }
 
     /**
@@ -59,62 +75,93 @@ export class BorrowerApplicationsService {
         try {
             const borrowerIdNum = parseInt(borrowerId, 10);
 
+            // Get user to fetch verification level
+            const user = await this.userRepo.findById(borrowerIdNum);
+            if (!user) {
+                throw new Error('User not found');
+            }
+
+            // Fetch level rules for the user's verification level
+            const levelRules = await this.levelRulesRepo.findByLevel(user.level);
+            if (!levelRules) {
+                throw new Error('Verification level not configured');
+            }
+
             // Validation 1: Amount within limits for verification level
-            // TODO: Query level_rules WHERE level = (SELECT level FROM users WHERE id = ?)
-            // SELECT max_amount, min_amount FROM level_rules WHERE level = ?
-            const maxAmount = 100000; // TODO: Fetch from level_rules
+            const maxAmount = levelRules.maxLoanAmount || 100000;
+            const minAmount = levelRules.minAmount || 1000;
             if (request.amount > maxAmount) {
                 throw new Error(`Loan amount cannot exceed ${maxAmount} for your verification level`);
             }
+            if (request.amount < minAmount) {
+                throw new Error(`Loan amount must be at least ${minAmount}`);
+            }
 
             // Validation 2: No duplicate OPEN applications
-            // TODO: Query loan_applications WHERE borrower_id = ? AND status_id = OPEN_STATUS_ID
-            // If exists, throw error
+            const existingOpen = await this.loanAppRepo.findOpenByBorrowerId(borrowerIdNum);
+            if (existingOpen) {
+                throw new Error('You already have an open application. Please close or cancel it first.');
+            }
 
-            // Transaction start
-            const applicationId = Math.floor(Math.random() * 1000000);
-            const commissionRequired = request.amount * 0.02; // 2% commission example
+            // Validation 3: Check max active applications
+            const maxApplications = levelRules.maxApplications || 5;
+            const activeCount = await this.loanAppRepo.countActiveByBorrower(borrowerIdNum);
+            if (activeCount >= maxApplications) {
+                throw new Error(`Maximum ${maxApplications} active applications allowed for your level`);
+            }
 
-            // TODO: Insert into loan_applications
-            // INSERT INTO loan_applications (borrower_id, amount, duration_months, purpose, description, status_id, created_at)
-            // VALUES (?, ?, ?, ?, ?, OPEN_STATUS_ID, NOW())
+            // Create new application
+            const application = new LoanApplication();
+            application.borrowerId = borrowerIdNum;
+            application.amount = request.amount;
+            application.durationMonths = request.durationMonths;
+            application.purpose = request.purpose;
+            application.description = request.description;
+            application.statusId = 1; // OPEN status
+            application.fundedPercent = 0;
+            application.fundedAmount = 0;
+            application.commissionStatus = 'PENDING';
+
+            const savedApp = await this.loanAppRepo.save(application);
 
             // Audit log
             await this.auditRepo.create({
                 actorId: borrowerIdNum,
                 action: 'APPLICATION_CREATED',
                 entity: 'APPLICATION',
-                entityId: applicationId,
+                entityId: savedApp.id,
                 createdAt: new Date(),
             } as any);
 
             // Notification
-            // TODO: Insert into notifications
-            // notificationRepo.create({
-            //   user_id: borrowerId,
-            //   type: 'APPLICATION_CREATED',
-            //   message: `Your loan application for ${amount} has been created`,
-            // })
+            await this.notificationRepo.create({
+                userId: borrowerIdNum,
+                type: 'APPLICATION_CREATED',
+                title: 'Application Created',
+                message: `Your loan application for ${request.amount} has been created successfully`,
+                createdAt: new Date(),
+            } as any);
+
+            const commissionRequired = request.amount * ((levelRules.commissionPercent || 2) / 100);
 
             return {
-                id: applicationId,
-                amount: request.amount,
-                durationMonths: request.durationMonths,
+                id: savedApp.id,
+                amount: savedApp.amount,
+                durationMonths: savedApp.durationMonths,
                 status: 'OPEN',
                 statusId: 1,
                 fundedPercent: 0,
                 fundedAmount: 0,
-                remainingAmount: request.amount,
-                purpose: request.purpose,
-                description: request.description,
+                remainingAmount: savedApp.amount,
+                purpose: savedApp.purpose,
+                description: savedApp.description,
                 commissionRequired: commissionRequired,
                 commissionStatus: 'PENDING',
-                createdAt: new Date().toISOString(),
+                createdAt: savedApp.createdAt.toISOString(),
                 offers: [],
             };
         } catch (error: any) {
             console.error('Error creating application:', error);
-            // TODO: Transaction rollback
             throw new Error(error.message || 'Failed to create application');
         }
     }
@@ -149,9 +196,39 @@ export class BorrowerApplicationsService {
             const borrowerIdNum = parseInt(borrowerId, 10);
             const offset = (page - 1) * pageSize;
 
-            // TODO: Query loan_applications for borrower
-            const applications: ApplicationListItemDto[] = [];
-            const totalItems = 0;
+            // Query loan_applications for borrower
+            const [applications, totalItems] = await this.loanAppRepo.findByBorrowerId(
+                borrowerIdNum,
+                pageSize,
+                offset
+            );
+
+            // Transform to DTOs with funded information
+            const appDtos: ApplicationListItemDto[] = await Promise.all(
+                applications.map(async (app) => {
+                    // Get total offered amount for this application's loan
+                    const loan = await this.loanRepo.findByApplicationId(app.id);
+                    let fundedAmount = 0;
+                    if (loan) {
+                        fundedAmount = await this.loanOfferRepo.sumAmountByLoanId(loan.id);
+                    }
+
+                    const fundedPercent = app.amount > 0 ? (fundedAmount / app.amount) * 100 : 0;
+
+                    return {
+                        id: app.id,
+                        amount: app.amount,
+                        durationMonths: app.durationMonths,
+                        status: this.getStatusName(app.statusId),
+                        statusId: app.statusId,
+                        fundedPercent: Math.round(fundedPercent * 100) / 100,
+                        fundedAmount: fundedAmount,
+                        remainingAmount: app.amount - fundedAmount,
+                        createdAt: app.createdAt.toISOString(),
+                        commissionStatus: app.commissionStatus,
+                    };
+                })
+            );
 
             // Audit log
             await this.auditRepo.create({
@@ -163,7 +240,7 @@ export class BorrowerApplicationsService {
             } as any);
 
             return {
-                applications,
+                applications: appDtos,
                 pagination: {
                     page,
                     pageSize,
@@ -177,6 +254,16 @@ export class BorrowerApplicationsService {
         }
     }
 
+    private getStatusName(statusId: number): string {
+        const statuses: { [key: number]: string } = {
+            1: 'OPEN',
+            2: 'FUNDED',
+            3: 'CLOSED',
+            4: 'CANCELLED',
+        };
+        return statuses[statusId] || 'UNKNOWN';
+    }
+
     /**
      * Get application details with all offers
      */
@@ -188,21 +275,47 @@ export class BorrowerApplicationsService {
             const borrowerIdNum = parseInt(borrowerId, 10);
             const appIdNum = parseInt(applicationId, 10);
 
-            // TODO: Query loan_applications + loans + loan_offers
+            // Query loan_applications + loans + loan_offers
+            const application = await this.loanAppRepo.findById(appIdNum);
+            if (!application || application.borrowerId !== borrowerIdNum) {
+                throw new Error('Application not found');
+            }
+
+            // Get loan for this application
+            const loan = await this.loanRepo.findByApplicationId(appIdNum);
+            let fundedAmount = 0;
+            let offers: OfferSummaryDto[] = [];
+
+            if (loan) {
+                // Get all offers for the loan
+                const loanOffers = await this.loanOfferRepo.findByLoanId(loan.id);
+                fundedAmount = await this.loanOfferRepo.sumAmountByLoanId(loan.id);
+
+                offers = loanOffers.map((offer) => ({
+                    id: offer.id,
+                    lenderId: offer.lenderId,
+                    amount: offer.amount,
+                    createdAt: offer.createdAt.toISOString(),
+                }));
+            }
+
+            const fundedPercent = application.amount > 0 ? (fundedAmount / application.amount) * 100 : 0;
 
             const detail: ApplicationDetailDto = {
-                id: appIdNum,
-                amount: 50000,
-                durationMonths: 12,
-                status: 'FUNDED',
-                statusId: 2,
-                fundedPercent: 100,
-                fundedAmount: 50000,
-                remainingAmount: 0,
-                commissionRequired: 1000,
-                commissionStatus: 'PAID',
-                createdAt: new Date().toISOString(),
-                offers: [],
+                id: application.id,
+                amount: application.amount,
+                durationMonths: application.durationMonths,
+                status: this.getStatusName(application.statusId),
+                statusId: application.statusId,
+                fundedPercent: Math.round(fundedPercent * 100) / 100,
+                fundedAmount: fundedAmount,
+                remainingAmount: application.amount - fundedAmount,
+                purpose: application.purpose,
+                description: application.description,
+                commissionRequired: application.amount * 0.02,
+                commissionStatus: application.commissionStatus,
+                createdAt: application.createdAt.toISOString(),
+                offers: offers,
             };
 
             // Audit log
@@ -224,13 +337,6 @@ export class BorrowerApplicationsService {
     /**
      * Cancel application
      * Allowed only if status = OPEN
-     *
-     * ATOMIC TRANSACTION:
-     * BEGIN
-     *   UPDATE loan_applications SET status_id = CANCELLED_STATUS_ID, updated_at = NOW()
-     *   WHERE id = ? AND status_id = OPEN_STATUS_ID
-     *   INSERT INTO audit_logs (action='APPLICATION_CANCELLED', ...)
-     * COMMIT
      */
     async cancelApplication(
         borrowerId: string,
@@ -241,12 +347,20 @@ export class BorrowerApplicationsService {
             const borrowerIdNum = parseInt(borrowerId, 10);
             const appIdNum = parseInt(applicationId, 10);
 
-            // Validation: Application must be OPEN
-            // TODO: Query loan_applications WHERE id = ? AND status_id = OPEN_STATUS_ID
-            // If not found, throw 'Application is not in OPEN status'
+            // Query and validate application
+            const application = await this.loanAppRepo.findById(appIdNum);
+            if (!application || application.borrowerId !== borrowerIdNum) {
+                throw new Error('Application not found');
+            }
 
-            // TODO: Update status to CANCELLED
-            // UPDATE loan_applications SET status_id = CANCELLED_STATUS_ID WHERE id = ?
+            // Validation: Application must be OPEN (statusId = 1)
+            if (application.statusId !== 1) {
+                throw new Error('Application is not in OPEN status. Only OPEN applications can be cancelled');
+            }
+
+            // Update status to CANCELLED (statusId = 4)
+            application.statusId = 4;
+            await this.loanAppRepo.update(appIdNum, application);
 
             // Audit log
             await this.auditRepo.create({
@@ -254,6 +368,15 @@ export class BorrowerApplicationsService {
                 action: 'APPLICATION_CANCELLED',
                 entity: 'APPLICATION',
                 entityId: appIdNum,
+                createdAt: new Date(),
+            } as any);
+
+            // Notification
+            await this.notificationRepo.create({
+                userId: borrowerIdNum,
+                type: 'APPLICATION_CANCELLED',
+                title: 'Application Cancelled',
+                message: `Your loan application has been cancelled. Reason: ${request.reason || 'N/A'}`,
                 createdAt: new Date(),
             } as any);
 
@@ -275,10 +398,6 @@ export class BorrowerApplicationsService {
      * - status = OPEN or FUNDED
      * - funded_percent >= 50
      * - At least one loan created from this application
-     *
-     * SQL:
-     * UPDATE loan_applications SET status_id = CLOSED_STATUS_ID, updated_at = NOW()
-     * WHERE id = ? AND funded_percent >= 50
      */
     async closeApplication(
         borrowerId: string,
@@ -289,11 +408,27 @@ export class BorrowerApplicationsService {
             const borrowerIdNum = parseInt(borrowerId, 10);
             const appIdNum = parseInt(applicationId, 10);
 
-            // Validation: funded_percent >= 50
-            // TODO: Query loan_applications for funded_percent
-            // If < 50, throw error
+            // Query and validate application
+            const application = await this.loanAppRepo.findById(appIdNum);
+            if (!application || application.borrowerId !== borrowerIdNum) {
+                throw new Error('Application not found');
+            }
 
-            // TODO: Update status to CLOSED
+            // Validation: Status must be OPEN (1) or FUNDED (2)
+            if (![1, 2].includes(application.statusId)) {
+                throw new Error('Application must be in OPEN or FUNDED status to be closed');
+            }
+
+            // Validation: funded_percent >= 50
+            if (application.fundedPercent < 50) {
+                throw new Error('Application must be at least 50% funded before closing');
+            }
+
+            // Update status to CLOSED (statusId = 3)
+            application.statusId = 3;
+            await this.loanAppRepo.update(appIdNum, application);
+
+            const fundedAmount = (application.amount * application.fundedPercent) / 100;
 
             // Audit log
             await this.auditRepo.create({
@@ -304,12 +439,21 @@ export class BorrowerApplicationsService {
                 createdAt: new Date(),
             } as any);
 
+            // Notification
+            await this.notificationRepo.create({
+                userId: borrowerIdNum,
+                type: 'APPLICATION_CLOSED',
+                title: 'Application Closed',
+                message: `Your loan application has been successfully closed with ${application.fundedPercent}% funding`,
+                createdAt: new Date(),
+            } as any);
+
             return {
                 applicationId: appIdNum,
                 status: 'CLOSED',
                 closedAt: new Date().toISOString(),
-                fundedAmount: 50000,
-                unfundedAmount: 0,
+                fundedAmount: fundedAmount,
+                unfundedAmount: application.amount - fundedAmount,
             };
         } catch (error: any) {
             console.error('Error closing application:', error);

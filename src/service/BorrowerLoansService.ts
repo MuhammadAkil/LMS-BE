@@ -1,4 +1,7 @@
 import { AuditLogRepository } from '../repository/AuditLogRepository';
+import { LoanRepository } from '../repository/LoanRepository';
+import { LoanApplicationRepository } from '../repository/LoanApplicationRepository';
+import { RepaymentRepository } from '../repository/RepaymentRepository';
 import {
     ActiveLoanListResponse,
     ActiveLoanListItemDto,
@@ -19,9 +22,15 @@ import {
  */
 export class BorrowerLoansService {
     private auditRepo: AuditLogRepository;
+    private loanRepo: LoanRepository;
+    private loanAppRepo: LoanApplicationRepository;
+    private repaymentRepo: RepaymentRepository;
 
     constructor() {
         this.auditRepo = new AuditLogRepository();
+        this.loanRepo = new LoanRepository();
+        this.loanAppRepo = new LoanApplicationRepository();
+        this.repaymentRepo = new RepaymentRepository();
     }
 
     /**
@@ -58,25 +67,61 @@ export class BorrowerLoansService {
             const borrowerIdNum = parseInt(borrowerId, 10);
             const offset = (page - 1) * pageSize;
 
-            // TODO: Query loans with ACTIVE status for borrower
-            const loans: ActiveLoanListItemDto[] = [];
-            const totalItems = 0;
-            const totalOutstanding = 0;
+            // Query loans with ACTIVE status for borrower
+            const [loans, totalItems] = await this.loanRepo.findActiveByBorrowerId(
+                borrowerIdNum,
+                pageSize,
+                offset
+            );
 
-            // Sample data
-            loans.push({
-                id: 1,
-                applicationId: 101,
-                amount: 50000,
-                durationMonths: 12,
-                status: 'ACTIVE',
-                disbursedAmount: 50000,
-                disbursedAt: '2026-01-01',
-                expectedCompletionDate: '2027-01-01',
-                nextRepaymentDate: '2026-02-01',
-                nextRepaymentAmount: 4500,
-                remainingBalance: 48000,
-            });
+            let totalOutstanding = 0;
+            const loanDtos: ActiveLoanListItemDto[] = await Promise.all(
+                loans.map(async (loan) => {
+                    // Get application details
+                    const app = await this.loanAppRepo.findById(loan.applicationId);
+                    if (!app) throw new Error('Application not found');
+
+                    // Get repayments
+                    const repayments = await this.repaymentRepo.findByLoanId(loan.id);
+                    
+                    // Calculate paid and remaining amounts
+                    let paidAmount = 0;
+                    let remainingBalance = 0;
+                    let nextRepaymentDate: string | null = null;
+                    let nextRepaymentAmount = 0;
+
+                    repayments.forEach((r) => {
+                        if (r.paidAt) {
+                            paidAmount += r.amount;
+                        } else {
+                            remainingBalance += r.amount;
+                            if (!nextRepaymentDate || r.dueDate < new Date(nextRepaymentDate)) {
+                                nextRepaymentDate = r.dueDate.toISOString();
+                                nextRepaymentAmount = r.amount;
+                            }
+                        }
+                    });
+
+                    totalOutstanding += remainingBalance;
+
+                    const expectedCompletionDate = new Date(loan.createdAt);
+                    expectedCompletionDate.setMonth(expectedCompletionDate.getMonth() + app.durationMonths);
+
+                    return {
+                        id: loan.id,
+                        applicationId: loan.applicationId,
+                        amount: app.amount,
+                        durationMonths: app.durationMonths,
+                        status: 'ACTIVE',
+                        disbursedAmount: loan.fundedAmount,
+                        disbursedAt: loan.createdAt.toISOString().split('T')[0],
+                        expectedCompletionDate: expectedCompletionDate.toISOString().split('T')[0],
+                        nextRepaymentDate: nextRepaymentDate?.split('T')[0] || null,
+                        nextRepaymentAmount: nextRepaymentAmount,
+                        remainingBalance: remainingBalance,
+                    };
+                })
+            );
 
             // Audit log
             await this.auditRepo.create({
@@ -88,7 +133,7 @@ export class BorrowerLoansService {
             } as any);
 
             return {
-                loans,
+                loans: loanDtos,
                 pagination: {
                     page,
                     pageSize,
@@ -130,43 +175,77 @@ export class BorrowerLoansService {
             const borrowerIdNum = parseInt(borrowerId, 10);
             const loanIdNum = parseInt(loanId, 10);
 
-            // TODO: Query loan details
-            // TODO: Query repayment schedule
+            // Query loan details
+            const loan = await this.loanRepo.findById(loanIdNum);
+            if (!loan || loan.borrowerId !== borrowerIdNum) {
+                throw new Error('Loan not found');
+            }
 
-            const schedule: RepaymentScheduleItemDto[] = [
-                {
-                    dueDate: '2026-02-01',
-                    amount: 4500,
-                    status: 'PENDING',
-                },
-                {
-                    dueDate: '2026-03-01',
-                    amount: 4500,
-                    status: 'PENDING',
-                },
-                {
-                    dueDate: '2026-04-01',
-                    amount: 4500,
-                    status: 'PAID',
-                    paidAmount: 4500,
-                    paidDate: '2026-04-01',
-                },
-            ];
+            // Get application
+            const app = await this.loanAppRepo.findById(loan.applicationId);
+            if (!app) throw new Error('Application not found');
 
-            const loan: LoanDetailDto = {
+            // Get repayments
+            const repayments = await this.repaymentRepo.findByLoanId(loanIdNum);
+
+            // Calculate amounts
+            let paidAmount = 0;
+            let remainingBalance = 0;
+            let nextRepaymentDate: string | null = null;
+            let nextRepaymentAmount = 0;
+            let delayedPaymentsCount = 0;
+            const schedule: RepaymentScheduleItemDto[] = [];
+
+            const today = new Date();
+
+            repayments.forEach((r) => {
+                if (r.paidAt) {
+                    paidAmount += r.amount;
+                    schedule.push({
+                        dueDate: r.dueDate.toISOString().split('T')[0],
+                        amount: r.amount,
+                        status: 'PAID',
+                        paidAmount: r.amount,
+                        paidDate: r.paidAt.toISOString().split('T')[0],
+                    });
+                } else {
+                    remainingBalance += r.amount;
+                    const isPastDue = r.dueDate < today;
+                    
+                    schedule.push({
+                        dueDate: r.dueDate.toISOString().split('T')[0],
+                        amount: r.amount,
+                        status: isPastDue ? 'OVERDUE' : 'PENDING',
+                    });
+
+                    if (isPastDue) {
+                        delayedPaymentsCount++;
+                    }
+
+                    if (!nextRepaymentDate || r.dueDate < new Date(nextRepaymentDate)) {
+                        nextRepaymentDate = r.dueDate.toISOString().split('T')[0];
+                        nextRepaymentAmount = r.amount;
+                    }
+                }
+            });
+
+            const expectedCompletionDate = new Date(loan.createdAt);
+            expectedCompletionDate.setMonth(expectedCompletionDate.getMonth() + app.durationMonths);
+
+            const loanDetail: LoanDetailDto = {
                 id: loanIdNum,
-                applicationId: 101,
-                amount: 50000,
-                durationMonths: 12,
+                applicationId: loan.applicationId,
+                amount: app.amount,
+                durationMonths: app.durationMonths,
                 status: 'ACTIVE',
-                disbursedAmount: 50000,
-                disbursedAt: '2026-01-01',
-                expectedCompletionDate: '2027-01-01',
-                remainingBalance: 48000,
-                paidAmount: 2000,
-                nextRepaymentDate: '2026-02-01',
-                nextRepaymentAmount: 4500,
-                delayedPaymentsCount: 0,
+                disbursedAmount: loan.fundedAmount,
+                disbursedAt: loan.createdAt.toISOString().split('T')[0],
+                expectedCompletionDate: expectedCompletionDate.toISOString().split('T')[0],
+                remainingBalance: remainingBalance,
+                paidAmount: paidAmount,
+                nextRepaymentDate: nextRepaymentDate,
+                nextRepaymentAmount: nextRepaymentAmount,
+                delayedPaymentsCount: delayedPaymentsCount,
                 repaymentSchedule: schedule,
             };
 
@@ -179,7 +258,7 @@ export class BorrowerLoansService {
                 createdAt: new Date(),
             } as any);
 
-            return loan;
+            return loanDetail;
         } catch (error: any) {
             console.error('Error fetching loan detail:', error);
             throw new Error('Failed to fetch loan details');
@@ -210,8 +289,34 @@ export class BorrowerLoansService {
             const borrowerIdNum = parseInt(borrowerId, 10);
             const loanIdNum = parseInt(loanId, 10);
 
-            // TODO: Query repayments table for loan_id
-            const schedule: RepaymentScheduleItemDto[] = [];
+            // Verify loan belongs to borrower
+            const loan = await this.loanRepo.findById(loanIdNum);
+            if (!loan || loan.borrowerId !== borrowerIdNum) {
+                throw new Error('Loan not found');
+            }
+
+            // Query repayments table for loan_id
+            const repayments = await this.repaymentRepo.findByLoanId(loanIdNum);
+
+            const today = new Date();
+            const schedule: RepaymentScheduleItemDto[] = repayments.map((r) => {
+                if (r.paidAt) {
+                    return {
+                        dueDate: r.dueDate.toISOString().split('T')[0],
+                        amount: r.amount,
+                        status: 'PAID',
+                        paidAmount: r.amount,
+                        paidDate: r.paidAt.toISOString().split('T')[0],
+                    };
+                } else {
+                    const isPastDue = r.dueDate < today;
+                    return {
+                        dueDate: r.dueDate.toISOString().split('T')[0],
+                        amount: r.amount,
+                        status: isPastDue ? 'OVERDUE' : 'PENDING',
+                    };
+                }
+            });
 
             // Audit log
             await this.auditRepo.create({
