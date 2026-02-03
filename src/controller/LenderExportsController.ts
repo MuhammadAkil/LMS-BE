@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { Body, Controller, Get, Post, Req, Res, UseBefore } from 'routing-controllers';
 import { LenderRemindersService, LenderExportsService } from '../service/LenderExportsService';
 import {
     SendReminderRequest,
@@ -6,11 +7,16 @@ import {
     ExportXmlRequest,
     GenerateClaimRequest,
 } from '../dto/LenderDtos';
+import { AuthenticationMiddleware } from '../middleware/AuthenticationMiddleware';
+import { LenderRoleGuard } from '../middleware/LenderGuards';
+import { withLenderStatusGuard, withLenderVerificationGuard } from '../middleware/LenderGuardWrappers';
 
 /**
  * L-05: LENDER REMINDERS CONTROLLER
  * POST /lender/reminders
  */
+@Controller('/lender/reminders')
+@UseBefore(AuthenticationMiddleware.verifyToken, LenderRoleGuard)
 export class LenderRemindersController {
     private remindersService: LenderRemindersService;
 
@@ -24,7 +30,9 @@ export class LenderRemindersController {
      * Body: { loanId: string, templateCode?: string }
      * Required guards: LenderRoleGuard, LenderStatusGuard
      */
-    async sendReminder(req: Request, res: Response): Promise<void> {
+    @Post('/')
+    @UseBefore(withLenderStatusGuard(false), withLenderVerificationGuard(1))
+    async sendReminder(@Req() req: Request, @Res() res: Response, @Body() _body?: SendReminderRequest): Promise<void> {
         try {
             const lenderId = (req as any).user.id;
             const request: SendReminderRequest = req.body;
@@ -81,6 +89,8 @@ export class LenderRemindersController {
  * GET  /lender/exports/history
  * POST /lender/claims/generate
  */
+@Controller('/lender')
+@UseBefore(AuthenticationMiddleware.verifyToken, LenderRoleGuard)
 export class LenderExportsController {
     private exportsService: LenderExportsService;
 
@@ -94,7 +104,9 @@ export class LenderExportsController {
      * Body: { dateFrom?: string, dateTo?: string, statusFilter?: string[] }
      * Required guards: LenderRoleGuard, LenderStatusGuard
      */
-    async exportCsv(req: Request, res: Response): Promise<void> {
+    @Post('/exports/csv')
+    @UseBefore(withLenderStatusGuard(false), withLenderVerificationGuard(1))
+    async exportCsv(@Req() req: Request, @Res() res: Response, @Body() _body?: ExportCsvRequest): Promise<void> {
         try {
             const lenderId = (req as any).user.id;
             const request: ExportCsvRequest = req.body || {};
@@ -127,7 +139,9 @@ export class LenderExportsController {
      * Body: { dateFrom?: string, dateTo?: string, statusFilter?: string[], limit?: number }
      * Required guards: LenderRoleGuard, LenderStatusGuard
      */
-    async exportXml(req: Request, res: Response): Promise<void> {
+    @Post('/exports/xml')
+    @UseBefore(withLenderStatusGuard(false), withLenderVerificationGuard(1))
+    async exportXml(@Req() req: Request, @Res() res: Response, @Body() _body?: ExportXmlRequest): Promise<void> {
         try {
             const lenderId = (req as any).user.id;
             const request: ExportXmlRequest = req.body || {};
@@ -172,7 +186,9 @@ export class LenderExportsController {
      * Query params: page, pageSize
      * Required guards: LenderRoleGuard, LenderStatusGuard(allowReadOnly=true)
      */
-    async getExportHistory(req: Request, res: Response): Promise<void> {
+    @Get('/exports/history')
+    @UseBefore(withLenderStatusGuard(true), withLenderVerificationGuard(0))
+    async getExportHistory(@Req() req: Request, @Res() res: Response): Promise<void> {
         try {
             const lenderId = (req as any).user.id;
             const page = parseInt((req.query.page as string) || '1');
@@ -203,7 +219,9 @@ export class LenderExportsController {
      * Body: { loanId: string, reason: string }
      * Required guards: LenderRoleGuard, LenderStatusGuard
      */
-    async generateClaim(req: Request, res: Response): Promise<void> {
+    @Post('/claims/generate')
+    @UseBefore(withLenderStatusGuard(false), withLenderVerificationGuard(2))
+    async generateClaim(@Req() req: Request, @Res() res: Response, @Body() _body?: GenerateClaimRequest): Promise<void> {
         try {
             const lenderId = (req as any).user.id;
             const request: GenerateClaimRequest = req.body;

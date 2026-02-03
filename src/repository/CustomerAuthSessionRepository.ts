@@ -1,12 +1,12 @@
-import { ObjectId, MongoRepository } from 'typeorm';
+import { LessThan, Repository } from 'typeorm';
 import { AppDataSource } from '../config/database';
 import { CustomerAuthSession } from '../domain/CustomerAuthSession';
 
 export class CustomerAuthSessionRepository {
-  private repository: MongoRepository<CustomerAuthSession>;
+  private repository: Repository<CustomerAuthSession>;
 
   constructor() {
-    this.repository = AppDataSource.getMongoRepository(CustomerAuthSession);
+    this.repository = AppDataSource.getRepository(CustomerAuthSession);
   }
 
   /**
@@ -21,16 +21,13 @@ export class CustomerAuthSessionRepository {
   }
 
   /**
-   * Find a session by the customer's ObjectId.
-   * @param customerId - The customer's ObjectId or string representation.
+   * Find a session by the customer's ID.
+   * @param customerId - The customer's ID.
    * @returns The CustomerAuthSession if found, otherwise null.
    */
-  async findByCustomerId(customerId: string | ObjectId): Promise<CustomerAuthSession | null> {
-    const customerObjectId =
-        typeof customerId === 'string' ? new ObjectId(customerId) : customerId;
-
+  async findByCustomerId(customerId: string): Promise<CustomerAuthSession | null> {
     return await this.repository.findOne({
-      where: { customerId: customerObjectId },
+      where: { customerId },
     });
   }
 
@@ -56,8 +53,8 @@ export class CustomerAuthSessionRepository {
    * @param currentDate - The cutoff date for expired sessions.
    */
   async deleteExpiredSessions(currentDate: Date): Promise<void> {
-    await this.repository.deleteMany({
-      expiresAt: { $lt: currentDate },
+    await this.repository.delete({
+      expiresAt: LessThan(currentDate),
     });
   }
 }

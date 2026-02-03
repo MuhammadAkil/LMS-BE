@@ -1,12 +1,12 @@
-import { Entity, Column, ObjectIdColumn, ObjectId } from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn } from 'typeorm';
 
 export type CustomerStatus = 'PENDING' | 'ACTIVE' | 'BLOCKED';
 export type RiskTier = 'LOW' | 'MEDIUM' | 'HIGH';
 
 @Entity('customers')
 export class Customer {
-  @ObjectIdColumn()
-  id!: ObjectId;
+  @PrimaryGeneratedColumn('uuid')
+  id!: string;
 
   @Column()
   mobileNumber!: string;

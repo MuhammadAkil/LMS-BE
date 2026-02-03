@@ -1,6 +1,10 @@
 import { Request, Response } from 'express';
+import { Controller, Get, Patch, Req, Res, UseBefore } from 'routing-controllers';
 import { LenderDashboardService } from '../service/LenderDashboardService';
 import { LenderLoansService } from '../service/LenderLoansService';
+import { AuthenticationMiddleware } from '../middleware/AuthenticationMiddleware';
+import { LenderRoleGuard } from '../middleware/LenderGuards';
+import { withLenderStatusGuard, withLenderVerificationGuard } from '../middleware/LenderGuardWrappers';
 
 /**
  * L-01: LENDER DASHBOARD CONTROLLER
@@ -8,6 +12,8 @@ import { LenderLoansService } from '../service/LenderLoansService';
  * GET /lender/dashboard/alerts
  * All operations are read-only
  */
+@Controller('/lender/dashboard')
+@UseBefore(AuthenticationMiddleware.verifyToken, LenderRoleGuard)
 export class LenderDashboardController {
     private dashboardService: LenderDashboardService;
 
@@ -20,7 +26,9 @@ export class LenderDashboardController {
      * Returns dashboard statistics
      * Required guards: LenderRoleGuard, LenderStatusGuard(allowReadOnly=true)
      */
-    async getDashboardStats(req: Request, res: Response): Promise<void> {
+    @Get('/stats')
+    @UseBefore(withLenderStatusGuard(true), withLenderVerificationGuard(0))
+    async getDashboardStats(@Req() req: Request, @Res() res: Response): Promise<void> {
         try {
             const lenderId = (req as any).user.id;
 
@@ -49,7 +57,9 @@ export class LenderDashboardController {
      * Query params: page, pageSize
      * Required guards: LenderRoleGuard, LenderStatusGuard(allowReadOnly=true)
      */
-    async getAlerts(req: Request, res: Response): Promise<void> {
+    @Get('/alerts')
+    @UseBefore(withLenderStatusGuard(true), withLenderVerificationGuard(0))
+    async getAlerts(@Req() req: Request, @Res() res: Response): Promise<void> {
         try {
             const lenderId = (req as any).user.id;
             const page = parseInt((req.query.page as string) || '1');
@@ -79,7 +89,9 @@ export class LenderDashboardController {
      * Mark alert as resolved
      * Required guards: LenderRoleGuard, LenderStatusGuard
      */
-    async resolveAlert(req: Request, res: Response): Promise<void> {
+    @Patch('/alerts/:alertId')
+    @UseBefore(withLenderStatusGuard(false), withLenderVerificationGuard(0))
+    async resolveAlert(@Req() req: Request, @Res() res: Response): Promise<void> {
         try {
             const lenderId = (req as any).user.id;
             const { alertId } = req.params;
@@ -109,6 +121,8 @@ export class LenderDashboardController {
  * GET /lender/loans/:id
  * All operations are read-only
  */
+@Controller('/lender/loans')
+@UseBefore(AuthenticationMiddleware.verifyToken, LenderRoleGuard)
 export class LenderLoansController {
     private loansService: LenderLoansService;
 
@@ -123,7 +137,9 @@ export class LenderLoansController {
      * Query params: status, minAmount, maxAmount, minDuration, maxDuration, sortBy, sortOrder, page, pageSize
      * Required guards: LenderRoleGuard, LenderStatusGuard(allowReadOnly=true)
      */
-    async browseLoansPaginated(req: Request, res: Response): Promise<void> {
+    @Get('/')
+    @UseBefore(withLenderStatusGuard(true), withLenderVerificationGuard(0))
+    async browseLoansPaginated(@Req() req: Request, @Res() res: Response): Promise<void> {
         try {
             const lenderId = (req as any).user.id;
 
@@ -163,7 +179,9 @@ export class LenderLoansController {
      * Get specific loan details
      * Required guards: LenderRoleGuard, LenderStatusGuard(allowReadOnly=true)
      */
-    async getLoanDetail(req: Request, res: Response): Promise<void> {
+    @Get('/:loanId')
+    @UseBefore(withLenderStatusGuard(true), withLenderVerificationGuard(0))
+    async getLoanDetail(@Req() req: Request, @Res() res: Response): Promise<void> {
         try {
             const lenderId = (req as any).user.id;
             const { loanId } = req.params;

@@ -1,12 +1,12 @@
-import { ObjectId, MongoRepository } from 'typeorm';
+import { Repository } from 'typeorm';
 import { AppDataSource } from '../config/database';
 import { Customer } from '../domain/Customer';
 
 export class CustomerRepository {
-  private repository: MongoRepository<Customer>;
+  private repository: Repository<Customer>;
 
   constructor() {
-    this.repository = AppDataSource.getMongoRepository(Customer);
+    this.repository = AppDataSource.getRepository(Customer);
   }
 
   /**
@@ -77,14 +77,11 @@ export class CustomerRepository {
   }
 
   /**
-   * Find a customer by their MongoDB ObjectId.
-   * @param id - The ObjectId or string representation of the customer ID.
+   * Find a customer by their ID.
+   * @param id - The customer ID.
    * @returns The customer object if found, otherwise null.
    */
-  async findOne(id: string | ObjectId): Promise<Customer | null> {
-    const objectId = typeof id === 'string' ? new ObjectId(id) : id;
-    return await this.repository.findOne({
-      where: { _id: objectId },
-    });
+  async findOne(id: string): Promise<Customer | null> {
+    return await this.repository.findOne({ where: { id } });
   }
 }

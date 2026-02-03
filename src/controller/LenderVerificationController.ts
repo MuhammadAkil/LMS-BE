@@ -1,12 +1,18 @@
 import { Request, Response } from 'express';
+import { Body, Controller, Get, Patch, Post, Req, Res, UseBefore } from 'routing-controllers';
 import { LenderVerificationService, LenderProfileService } from '../service/LenderVerificationService';
 import { SubmitVerificationRequest, UpdateLenderProfileRequest } from '../dto/LenderDtos';
+import { AuthenticationMiddleware } from '../middleware/AuthenticationMiddleware';
+import { LenderRoleGuard } from '../middleware/LenderGuards';
+import { withLenderStatusGuard, withLenderVerificationGuard } from '../middleware/LenderGuardWrappers';
 
 /**
  * L-08: LENDER VERIFICATION CONTROLLER
  * GET  /lender/verifications
  * POST /lender/verifications
  */
+@Controller('/lender/verifications')
+@UseBefore(AuthenticationMiddleware.verifyToken, LenderRoleGuard)
 export class LenderVerificationController {
     private verificationService: LenderVerificationService;
 
@@ -19,7 +25,9 @@ export class LenderVerificationController {
      * Get verification status
      * Required guards: LenderRoleGuard, LenderStatusGuard(allowReadOnly=true)
      */
-    async getVerifications(req: Request, res: Response): Promise<void> {
+    @Get('/')
+    @UseBefore(withLenderStatusGuard(true), withLenderVerificationGuard(0))
+    async getVerifications(@Req() req: Request, @Res() res: Response): Promise<void> {
         try {
             const lenderId = (req as any).user.id;
 
@@ -48,7 +56,13 @@ export class LenderVerificationController {
      * Body: { verificationType: string, documents: { fileName: string, filePath: string }[] }
      * Required guards: LenderRoleGuard, LenderStatusGuard
      */
-    async submitVerification(req: Request, res: Response): Promise<void> {
+    @Post('/')
+    @UseBefore(withLenderStatusGuard(false), withLenderVerificationGuard(0))
+    async submitVerification(
+        @Req() req: Request,
+        @Res() res: Response,
+        @Body() _body?: SubmitVerificationRequest
+    ): Promise<void> {
         try {
             const lenderId = (req as any).user.id;
             const request: SubmitVerificationRequest = req.body;
@@ -118,6 +132,8 @@ export class LenderVerificationController {
  * GET   /lender/profile
  * PATCH /lender/profile
  */
+@Controller('/lender/profile')
+@UseBefore(AuthenticationMiddleware.verifyToken, LenderRoleGuard)
 export class LenderProfileController {
     private profileService: LenderProfileService;
 
@@ -130,7 +146,9 @@ export class LenderProfileController {
      * Get lender profile
      * Required guards: LenderRoleGuard, LenderStatusGuard(allowReadOnly=true)
      */
-    async getProfile(req: Request, res: Response): Promise<void> {
+    @Get('/')
+    @UseBefore(withLenderStatusGuard(true), withLenderVerificationGuard(0))
+    async getProfile(@Req() req: Request, @Res() res: Response): Promise<void> {
         try {
             const lenderId = (req as any).user.id;
 
@@ -171,7 +189,13 @@ export class LenderProfileController {
      * 
      * Required guards: LenderRoleGuard, LenderStatusGuard(allowReadOnly=true)
      */
-    async updateProfile(req: Request, res: Response): Promise<void> {
+    @Patch('/')
+    @UseBefore(withLenderStatusGuard(false), withLenderVerificationGuard(0))
+    async updateProfile(
+        @Req() req: Request,
+        @Res() res: Response,
+        @Body() _body?: UpdateLenderProfileRequest
+    ): Promise<void> {
         try {
             const lenderId = (req as any).user.id;
             const request: UpdateLenderProfileRequest = req.body;

@@ -1,6 +1,10 @@
 import { Request, Response } from 'express';
+import { Body, Controller, Get, Post, Req, Res, UseBefore } from 'routing-controllers';
 import { LenderOffersService } from '../service/LenderOffersService';
 import { MakeOfferRequest } from '../dto/LenderDtos';
+import { AuthenticationMiddleware } from '../middleware/AuthenticationMiddleware';
+import { LenderBankAccountGuard, LenderRoleGuard } from '../middleware/LenderGuards';
+import { withLenderStatusGuard, withLenderVerificationGuard } from '../middleware/LenderGuardWrappers';
 
 /**
  * L-03: LENDER OFFERS CONTROLLER (CRITICAL)
@@ -8,6 +12,8 @@ import { MakeOfferRequest } from '../dto/LenderDtos';
  * GET /lender/offers/validate
  * This is the critical path for the business model
  */
+@Controller('/lender/offers')
+@UseBefore(AuthenticationMiddleware.verifyToken, LenderRoleGuard)
 export class LenderOffersController {
     private offersService: LenderOffersService;
 
@@ -33,7 +39,9 @@ export class LenderOffersController {
      * - Audit logging
      * - Borrower notification
      */
-    async createOffer(req: Request, res: Response): Promise<void> {
+    @Post('/')
+    @UseBefore(withLenderStatusGuard(false), withLenderVerificationGuard(2), LenderBankAccountGuard)
+    async createOffer(@Req() req: Request, @Res() res: Response, @Body() _body?: MakeOfferRequest): Promise<void> {
         try {
             const lenderId = (req as any).user.id;
             const request: MakeOfferRequest = req.body;
@@ -84,7 +92,9 @@ export class LenderOffersController {
      * - remainingCapacity: number
      * - estimatedROI: number
      */
-    async validateOffer(req: Request, res: Response): Promise<void> {
+    @Get('/validate')
+    @UseBefore(withLenderStatusGuard(true), withLenderVerificationGuard(0))
+    async validateOffer(@Req() req: Request, @Res() res: Response): Promise<void> {
         try {
             const lenderId = (req as any).user.id;
             const { loanId, amount } = req.query;

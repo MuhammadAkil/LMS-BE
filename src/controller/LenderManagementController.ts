@@ -1,6 +1,10 @@
 import { Request, Response } from 'express';
+import { Body, Controller, Delete, Get, Post, Req, Res, UseBefore } from 'routing-controllers';
 import { LenderManagementService } from '../service/LenderManagementService';
 import { CreateManagementAgreementRequest } from '../dto/LenderDtos';
+import { AuthenticationMiddleware } from '../middleware/AuthenticationMiddleware';
+import { LenderBankAccountGuard, LenderRoleGuard } from '../middleware/LenderGuards';
+import { withLenderStatusGuard, withLenderVerificationGuard } from '../middleware/LenderGuardWrappers';
 
 /**
  * L-07: LENDER MANAGEMENT AGREEMENTS CONTROLLER
@@ -9,6 +13,8 @@ import { CreateManagementAgreementRequest } from '../dto/LenderDtos';
  * GET  /lender/management-agreements
  * DELETE /lender/management-agreements/:id
  */
+@Controller('/lender')
+@UseBefore(AuthenticationMiddleware.verifyToken, LenderRoleGuard)
 export class LenderManagementController {
     private managementService: LenderManagementService;
 
@@ -22,7 +28,9 @@ export class LenderManagementController {
      * Query params: page, pageSize
      * Required guards: LenderRoleGuard, LenderStatusGuard(allowReadOnly=true)
      */
-    async getManagementCompanies(req: Request, res: Response): Promise<void> {
+    @Get('/management-companies')
+    @UseBefore(withLenderStatusGuard(true), withLenderVerificationGuard(0))
+    async getManagementCompanies(@Req() req: Request, @Res() res: Response): Promise<void> {
         try {
             const lenderId = (req as any).user.id;
             const page = parseInt((req.query.page as string) || '1');
@@ -58,7 +66,13 @@ export class LenderManagementController {
      * 3. LenderVerificationGuard (verification level >= required)
      * 4. LenderBankAccountGuard (must have verified bank account)
      */
-    async createManagementAgreement(req: Request, res: Response): Promise<void> {
+    @Post('/management-agreements')
+    @UseBefore(withLenderStatusGuard(false), withLenderVerificationGuard(2), LenderBankAccountGuard)
+    async createManagementAgreement(
+        @Req() req: Request,
+        @Res() res: Response,
+        @Body() _body?: CreateManagementAgreementRequest
+    ): Promise<void> {
         try {
             const lenderId = (req as any).user.id;
             const request: CreateManagementAgreementRequest = req.body;
@@ -100,7 +114,9 @@ export class LenderManagementController {
      * Query params: page, pageSize
      * Required guards: LenderRoleGuard, LenderStatusGuard(allowReadOnly=true)
      */
-    async getManagementAgreements(req: Request, res: Response): Promise<void> {
+    @Get('/management-agreements')
+    @UseBefore(withLenderStatusGuard(true), withLenderVerificationGuard(0))
+    async getManagementAgreements(@Req() req: Request, @Res() res: Response): Promise<void> {
         try {
             const lenderId = (req as any).user.id;
             const page = parseInt((req.query.page as string) || '1');
@@ -130,7 +146,9 @@ export class LenderManagementController {
      * Terminate management agreement
      * Required guards: LenderRoleGuard, LenderStatusGuard
      */
-    async terminateAgreement(req: Request, res: Response): Promise<void> {
+    @Delete('/management-agreements/:agreementId')
+    @UseBefore(withLenderStatusGuard(false), withLenderVerificationGuard(2))
+    async terminateAgreement(@Req() req: Request, @Res() res: Response): Promise<void> {
         try {
             const lenderId = (req as any).user.id;
             const { agreementId } = req.params;

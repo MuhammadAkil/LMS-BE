@@ -1,5 +1,9 @@
 import { Request, Response } from 'express';
+import { Controller, Get, Req, Res, UseBefore } from 'routing-controllers';
 import { LenderInvestmentsService } from '../service/LenderInvestmentsService';
+import { AuthenticationMiddleware } from '../middleware/AuthenticationMiddleware';
+import { LenderRoleGuard } from '../middleware/LenderGuards';
+import { withLenderStatusGuard, withLenderVerificationGuard } from '../middleware/LenderGuardWrappers';
 
 /**
  * L-04: LENDER INVESTMENTS CONTROLLER
@@ -8,6 +12,8 @@ import { LenderInvestmentsService } from '../service/LenderInvestmentsService';
  * GET /lender/investments/:id/repayments
  * All operations are read-only
  */
+@Controller('/lender/investments')
+@UseBefore(AuthenticationMiddleware.verifyToken, LenderRoleGuard)
 export class LenderInvestmentsController {
     private investmentsService: LenderInvestmentsService;
 
@@ -21,7 +27,9 @@ export class LenderInvestmentsController {
      * Query params: page, pageSize
      * Required guards: LenderRoleGuard, LenderStatusGuard(allowReadOnly=true)
      */
-    async getInvestmentsPaginated(req: Request, res: Response): Promise<void> {
+    @Get('/')
+    @UseBefore(withLenderStatusGuard(true), withLenderVerificationGuard(0))
+    async getInvestmentsPaginated(@Req() req: Request, @Res() res: Response): Promise<void> {
         try {
             const lenderId = (req as any).user.id;
             const page = parseInt((req.query.page as string) || '1');
@@ -51,7 +59,9 @@ export class LenderInvestmentsController {
      * Get specific investment detail with repayment schedule
      * Required guards: LenderRoleGuard, LenderStatusGuard(allowReadOnly=true)
      */
-    async getInvestmentDetail(req: Request, res: Response): Promise<void> {
+    @Get('/:investmentId')
+    @UseBefore(withLenderStatusGuard(true), withLenderVerificationGuard(0))
+    async getInvestmentDetail(@Req() req: Request, @Res() res: Response): Promise<void> {
         try {
             const lenderId = (req as any).user.id;
             const { investmentId } = req.params;
@@ -81,7 +91,9 @@ export class LenderInvestmentsController {
      * Get repayment schedule for specific investment
      * Required guards: LenderRoleGuard, LenderStatusGuard(allowReadOnly=true)
      */
-    async getInvestmentRepayments(req: Request, res: Response): Promise<void> {
+    @Get('/:investmentId/repayments')
+    @UseBefore(withLenderStatusGuard(true), withLenderVerificationGuard(0))
+    async getInvestmentRepayments(@Req() req: Request, @Res() res: Response): Promise<void> {
         try {
             const lenderId = (req as any).user.id;
             const { investmentId } = req.params;
