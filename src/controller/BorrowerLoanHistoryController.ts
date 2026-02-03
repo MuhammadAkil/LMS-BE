@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { Controller, Get, Param, Req, Res } from 'routing-controllers';
 import { BorrowerLoanHistoryService } from '../service/BorrowerLoanHistoryService';
 import {
     LoanHistoryListResponse,
@@ -13,6 +14,7 @@ import {
  * - GET /api/borrower/loans/history/:id
  * Guards: BorrowerRoleGuard, BorrowerStatusGuard(allowReadOnly=true), BorrowerVerificationGuard(level=0)
  */
+@Controller('/borrower/loans/history')
 export class BorrowerLoanHistoryController {
     private loanHistoryService: BorrowerLoanHistoryService;
 
@@ -25,7 +27,8 @@ export class BorrowerLoanHistoryController {
      * Get loan history (REPAID and DEFAULTED loans)
      * Query params: page, pageSize
      */
-    async getLoanHistoryPaginated(req: Request, res: Response): Promise<void> {
+    @Get('/')
+    async getLoanHistoryPaginated(@Req() req: Request, @Res() res: Response): Promise<void> {
         try {
             const user = (req as any).user;
             const borrowerId = user.id.toString();
@@ -59,7 +62,8 @@ export class BorrowerLoanHistoryController {
      * GET /api/borrower/loans/history/:id
      * Get loan history detail with contract
      */
-    async getLoanHistoryDetail(req: Request, res: Response): Promise<void> {
+    @Get('/:id')
+    async getLoanHistoryDetail(@Req() req: Request, @Res() res: Response): Promise<void> {
         try {
             const user = (req as any).user;
             const borrowerId = user.id.toString();

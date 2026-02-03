@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { Controller, Get, Req, Res } from 'routing-controllers';
 import { BorrowerDashboardService } from '../service/BorrowerDashboardService';
 import {
     BorrowerDashboardStatsDto,
@@ -11,6 +12,7 @@ import {
  * Endpoints: GET /api/borrower/dashboard
  * Guards: BorrowerRoleGuard, BorrowerStatusGuard(allowReadOnly=true), BorrowerVerificationGuard(level=0)
  */
+@Controller('/borrower/dashboard')
 export class BorrowerDashboardController {
     private dashboardService: BorrowerDashboardService;
 
@@ -22,7 +24,8 @@ export class BorrowerDashboardController {
      * GET /api/borrower/dashboard
      * Returns dashboard statistics: verification level, loan limits, active loans, alerts
      */
-    async getDashboard(req: Request, res: Response): Promise<void> {
+    @Get('/')
+    async getDashboard(@Req() req: Request, @Res() res: Response): Promise<void> {
         try {
             const user = (req as any).user;
             const borrowerId = user.id.toString();

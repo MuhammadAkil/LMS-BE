@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { Controller, Post, Get, Param, Req, Res } from 'routing-controllers';
 import { BorrowerPaymentsService } from '../service/BorrowerPaymentsService';
 import {
     InitiateCommissionPaymentRequest,
@@ -13,6 +14,7 @@ import {
  * - GET  /api/borrower/payments/status/:id
  * Guards: BorrowerRoleGuard, BorrowerStatusGuard, BorrowerVerificationGuard
  */
+@Controller('/borrower/payments')
 export class BorrowerPaymentsController {
     private paymentsService: BorrowerPaymentsService;
 
@@ -31,7 +33,8 @@ export class BorrowerPaymentsController {
      * - Payment provider: PRZELEWY24
      * - Creates immutable payment record
      */
-    async initiateCommissionPayment(req: Request, res: Response): Promise<void> {
+    @Post('/commission')
+    async initiateCommissionPayment(@Req() req: Request, @Res() res: Response): Promise<void> {
         try {
             const user = (req as any).user;
             const borrowerId = user.id.toString();
@@ -75,7 +78,8 @@ export class BorrowerPaymentsController {
      * Get payment status
      * Returns: payment ID, status (PENDING, PAID, FAILED), amounts, dates
      */
-    async getPaymentStatus(req: Request, res: Response): Promise<void> {
+    @Get('/status/:id')
+    async getPaymentStatus(@Req() req: Request, @Res() res: Response): Promise<void> {
         try {
             const user = (req as any).user;
             const borrowerId = user.id.toString();

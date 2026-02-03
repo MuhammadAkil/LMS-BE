@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { Controller, Get, Put, Param, Req, Res } from 'routing-controllers';
 import { BorrowerNotificationsService } from '../service/BorrowerNotificationsService';
 import {
     NotificationListResponse,
@@ -15,6 +16,7 @@ import {
  * - PUT /api/borrower/notifications/mark-all-read
  * Guards: BorrowerRoleGuard, BorrowerStatusGuard(allowReadOnly=true), BorrowerVerificationGuard(level=0)
  */
+@Controller('/borrower/notifications')
 export class BorrowerNotificationsController {
     private notificationsService: BorrowerNotificationsService;
 
@@ -27,7 +29,8 @@ export class BorrowerNotificationsController {
      * Get notifications (paginated)
      * Query params: page, pageSize
      */
-    async getNotificationsPaginated(req: Request, res: Response): Promise<void> {
+    @Get('/')
+    async getNotificationsPaginated(@Req() req: Request, @Res() res: Response): Promise<void> {
         try {
             const user = (req as any).user;
             const borrowerId = user.id.toString();
@@ -61,7 +64,8 @@ export class BorrowerNotificationsController {
      * PUT /api/borrower/notifications/:id/read
      * Mark specific notification as read
      */
-    async markNotificationRead(req: Request, res: Response): Promise<void> {
+    @Put('/:id/read')
+    async markNotificationRead(@Req() req: Request, @Res() res: Response): Promise<void> {
         try {
             const user = (req as any).user;
             const borrowerId = user.id.toString();
@@ -97,7 +101,8 @@ export class BorrowerNotificationsController {
      * PUT /api/borrower/notifications/mark-all-read
      * Mark all unread notifications as read
      */
-    async markAllNotificationsRead(req: Request, res: Response): Promise<void> {
+    @Put('/mark-all-read')
+    async markAllNotificationsRead(@Req() req: Request, @Res() res: Response): Promise<void> {
         try {
             const user = (req as any).user;
             const borrowerId = user.id.toString();

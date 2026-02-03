@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { Controller, Post, Get, Put, Param, Req, Res } from 'routing-controllers';
 import { BorrowerApplicationsService } from '../service/BorrowerApplicationsService';
 import {
     CreateApplicationRequest,
@@ -21,6 +22,7 @@ import {
  * - POST /api/borrower/applications/:id/close
  * Guards: BorrowerRoleGuard, BorrowerStatusGuard, BorrowerVerificationGuard
  */
+@Controller('/borrower/applications')
 export class BorrowerApplicationsController {
     private applicationsService: BorrowerApplicationsService;
 
@@ -34,7 +36,8 @@ export class BorrowerApplicationsController {
      * Body: { amount, durationMonths, purpose?, description? }
      * Rules: ACTIVE status required, verification level required, amount limits from level_rules
      */
-    async createApplication(req: Request, res: Response): Promise<void> {
+    @Post('/')
+    async createApplication(@Req() req: Request, @Res() res: Response): Promise<void> {
         try {
             const user = (req as any).user;
             const borrowerId = user.id.toString();
@@ -75,7 +78,8 @@ export class BorrowerApplicationsController {
      * Get paginated applications list
      * Query params: page, pageSize
      */
-    async getApplications(req: Request, res: Response): Promise<void> {
+    @Get('/')
+    async getApplications(@Req() req: Request, @Res() res: Response): Promise<void> {
         try {
             const user = (req as any).user;
             const borrowerId = user.id.toString();
@@ -105,7 +109,8 @@ export class BorrowerApplicationsController {
      * GET /api/borrower/applications/:id
      * Get application details with all offers
      */
-    async getApplicationDetail(req: Request, res: Response): Promise<void> {
+    @Get('/:id')
+    async getApplicationDetail(@Req() req: Request, @Res() res: Response): Promise<void> {
         try {
             const user = (req as any).user;
             const borrowerId = user.id.toString();
@@ -138,7 +143,8 @@ export class BorrowerApplicationsController {
      * Cancel application (only if OPEN)
      * Body: { reason?: string }
      */
-    async cancelApplication(req: Request, res: Response): Promise<void> {
+    @Put('/:id/cancel')
+    async cancelApplication(@Req() req: Request, @Res() res: Response): Promise<void> {
         try {
             const user = (req as any).user;
             const borrowerId = user.id.toString();
@@ -173,7 +179,8 @@ export class BorrowerApplicationsController {
      * Close application (only if funded >= 50%)
      * Body: { notes?: string }
      */
-    async closeApplication(req: Request, res: Response): Promise<void> {
+    @Post('/:id/close')
+    async closeApplication(@Req() req: Request, @Res() res: Response): Promise<void> {
         try {
             const user = (req as any).user;
             const borrowerId = user.id.toString();

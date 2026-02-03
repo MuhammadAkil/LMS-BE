@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { Controller, Get, Put, Req, Res } from 'routing-controllers';
 import { BorrowerProfileService } from '../service/BorrowerProfileService';
 import {
     ProfileDto,
@@ -16,6 +17,7 @@ import {
  * - GET  /api/borrower/profile/activity
  * Guards: BorrowerRoleGuard, BorrowerStatusGuard, BorrowerVerificationGuard
  */
+@Controller('/borrower/profile')
 export class BorrowerProfileController {
     private profileService: BorrowerProfileService;
 
@@ -27,7 +29,8 @@ export class BorrowerProfileController {
      * GET /api/borrower/profile
      * Get borrower profile
      */
-    async getProfile(req: Request, res: Response): Promise<void> {
+    @Get('/')
+    async getProfile(@Req() req: Request, @Res() res: Response): Promise<void> {
         try {
             const user = (req as any).user;
             const borrowerId = user.id.toString();
@@ -59,7 +62,8 @@ export class BorrowerProfileController {
      * Protected fields (cannot be edited):
      * - email, password, role, status, level
      */
-    async updateProfile(req: Request, res: Response): Promise<void> {
+    @Put('/')
+    async updateProfile(@Req() req: Request, @Res() res: Response): Promise<void> {
         try {
             const user = (req as any).user;
             const borrowerId = user.id.toString();
@@ -104,7 +108,8 @@ export class BorrowerProfileController {
      * Shows all actions performed by borrower
      * Query params: page, pageSize
      */
-    async getActivityLog(req: Request, res: Response): Promise<void> {
+    @Get('/activity')
+    async getActivityLog(@Req() req: Request, @Res() res: Response): Promise<void> {
         try {
             const user = (req as any).user;
             const borrowerId = user.id.toString();

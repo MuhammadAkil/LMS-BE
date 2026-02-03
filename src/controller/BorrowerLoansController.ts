@@ -1,3 +1,4 @@
+import { Req, Res, Controller, Get, Param, QueryParam, HttpCode } from 'routing-controllers';
 import { Request, Response } from 'express';
 import { BorrowerLoansService } from '../service/BorrowerLoansService';
 import {
@@ -17,6 +18,7 @@ import {
  * - GET /api/borrower/loans/:id/payments
  * Guards: BorrowerRoleGuard, BorrowerStatusGuard(allowReadOnly=true), BorrowerVerificationGuard(level=0)
  */
+@Controller('/borrower/loans')
 export class BorrowerLoansController {
     private loansService: BorrowerLoansService;
 
@@ -29,29 +31,32 @@ export class BorrowerLoansController {
      * Get active loans (paginated)
      * Query params: page, pageSize
      */
-    async getActiveLoansPaginated(req: Request, res: Response): Promise<void> {
+    @Get('/')
+    @HttpCode(200)
+    async getActiveLoansPaginated(@Req() req: Request, @Res() res: Response, @QueryParam('page') page?: number, @QueryParam('pageSize') pageSize?: number): Promise<any> {
         try {
-            const user = (req as any).user;
+            const user = req.user;
             const borrowerId = user.id.toString();
-            const page = parseInt(req.query.page as string) || 1;
-            const pageSize = parseInt(req.query.pageSize as string) || 10;
+            const pageNum = page || 1;
+            const pageSizeNum = pageSize || 10;
 
-            const result = await this.loansService.getActiveLoansPaginated(borrowerId, page, pageSize);
+            const result = await this.loansService.getActiveLoansPaginated(borrowerId, pageNum, pageSizeNum);
 
-            res.status(200).json({
+            return {
                 statusCode: '200',
                 statusMessage: 'Active loans retrieved successfully',
                 data: result,
                 timestamp: new Date().toISOString(),
-            } as BorrowerApiResponse<ActiveLoanListResponse>);
+            } as BorrowerApiResponse<ActiveLoanListResponse>;
         } catch (error: any) {
             console.error('Error in getActiveLoansPaginated:', error);
-            res.status(500).json({
+            res.status(500);
+            return {
                 statusCode: '500',
                 statusMessage: 'Internal server error',
                 errors: [error.message],
                 timestamp: new Date().toISOString(),
-            });
+            };
         }
     }
 
@@ -59,7 +64,8 @@ export class BorrowerLoansController {
      * GET /api/borrower/loans/:id
      * Get loan details with repayment schedule
      */
-    async getLoanDetail(req: Request, res: Response): Promise<void> {
+    @Get('/:id')
+    async getLoanDetail(@Req() req: Request, @Res() res: Response): Promise<void> {
         try {
             const user = (req as any).user;
             const borrowerId = user.id.toString();
@@ -88,7 +94,8 @@ export class BorrowerLoansController {
      * GET /api/borrower/loans/:id/schedule
      * Get repayment schedule for loan
      */
-    async getRepaymentSchedule(req: Request, res: Response): Promise<void> {
+    @Get('/:id/schedule')
+    async getRepaymentSchedule(@Req() req: Request, @Res() res: Response): Promise<void> {
         try {
             const user = (req as any).user;
             const borrowerId = user.id.toString();
@@ -118,7 +125,8 @@ export class BorrowerLoansController {
      * Get payment history for loan
      * Query params: page, pageSize
      */
-    async getPaymentHistory(req: Request, res: Response): Promise<void> {
+    @Get('/:id/payments')
+    async getPaymentHistory(@Req() req: Request, @Res() res: Response): Promise<void> {
         try {
             const user = (req as any).user;
             const borrowerId = user.id.toString();

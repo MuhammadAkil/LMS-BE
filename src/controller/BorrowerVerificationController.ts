@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { Controller, Get, Post, Req, Res } from 'routing-controllers';
 import { BorrowerVerificationService } from '../service/BorrowerVerificationService';
 import {
     VerificationStatusDto,
@@ -16,6 +17,7 @@ import {
  * - POST /api/borrower/verification/upload
  * Guards: BorrowerRoleGuard, BorrowerStatusGuard(allowReadOnly=true), BorrowerVerificationGuard(level=0)
  */
+@Controller('/borrower/verification')
 export class BorrowerVerificationController {
     private verificationService: BorrowerVerificationService;
 
@@ -27,7 +29,8 @@ export class BorrowerVerificationController {
      * GET /api/borrower/verification/status
      * Returns current verification status and completed verifications
      */
-    async getVerificationStatus(req: Request, res: Response): Promise<void> {
+    @Get('/status')
+    async getVerificationStatus(@Req() req: Request, @Res() res: Response): Promise<void> {
         try {
             const user = (req as any).user;
             const borrowerId = user.id.toString();
@@ -55,7 +58,8 @@ export class BorrowerVerificationController {
      * GET /api/borrower/verification/requirements
      * Returns next level verification requirements
      */
-    async getVerificationRequirements(req: Request, res: Response): Promise<void> {
+    @Get('/requirements')
+    async getVerificationRequirements(@Req() req: Request, @Res() res: Response): Promise<void> {
         try {
             const user = (req as any).user;
             const borrowerId = user.id.toString();
@@ -86,7 +90,8 @@ export class BorrowerVerificationController {
      * Submit verification documents
      * Body: { verificationType: string, documents: [{ fileName, filePath }] }
      */
-    async uploadVerification(req: Request, res: Response): Promise<void> {
+    @Post('/upload')
+    async uploadVerification(@Req() req: Request, @Res() res: Response): Promise<void> {
         try {
             const user = (req as any).user;
             const borrowerId = user.id.toString();

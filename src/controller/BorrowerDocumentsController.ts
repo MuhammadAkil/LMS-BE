@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { Controller, Get, Param, Req, Res } from 'routing-controllers';
 import { BorrowerDocumentsService } from '../service/BorrowerDocumentsService';
 import {
     DocumentListResponse,
@@ -14,6 +15,7 @@ import {
  * - GET /api/borrower/documents/:id/download
  * Guards: BorrowerRoleGuard, BorrowerStatusGuard(allowReadOnly=true), BorrowerVerificationGuard(level=0)
  */
+@Controller('/borrower/documents')
 export class BorrowerDocumentsController {
     private documentsService: BorrowerDocumentsService;
 
@@ -26,7 +28,8 @@ export class BorrowerDocumentsController {
      * Get all documents (contracts, verifications, etc.)
      * Query params: page, pageSize
      */
-    async getDocumentsPaginated(req: Request, res: Response): Promise<void> {
+    @Get('/')
+    async getDocumentsPaginated(@Req() req: Request, @Res() res: Response): Promise<void> {
         try {
             const user = (req as any).user;
             const borrowerId = user.id.toString();
@@ -56,7 +59,8 @@ export class BorrowerDocumentsController {
      * GET /api/borrower/documents/:id
      * Get document details
      */
-    async getDocumentDetail(req: Request, res: Response): Promise<void> {
+    @Get('/:id')
+    async getDocumentDetail(@Req() req: Request, @Res() res: Response): Promise<void> {
         try {
             const user = (req as any).user;
             const borrowerId = user.id.toString();
@@ -86,7 +90,8 @@ export class BorrowerDocumentsController {
      * Download document
      * Returns file stream for download
      */
-    async downloadDocument(req: Request, res: Response): Promise<void> {
+    @Get('/:id/download')
+    async downloadDocument(@Req() req: Request, @Res() res: Response): Promise<void> {
         try {
             const user = (req as any).user;
             const borrowerId = user.id.toString();
