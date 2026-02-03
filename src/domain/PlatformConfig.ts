@@ -7,7 +7,7 @@ import {
   Index,
 } from 'typeorm';
 
-@Entity('platform_config')
+@Entity('platform_configs')
 export class PlatformConfig {
   @PrimaryGeneratedColumn({ type: 'bigint' })
   id!: number;

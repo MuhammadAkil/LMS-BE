@@ -10,17 +10,17 @@ import {
 import { User } from './User';
 
 @Entity('audit_logs')
-@Index(['actorId', 'createdAt'])
+@Index(['userId', 'createdAt'])
 @Index(['entity', 'entityId'])
 @Index(['createdAt'])
 export class AuditLog {
   @PrimaryGeneratedColumn({ type: 'bigint' })
   id!: number;
 
-  @Column({ type: 'bigint', name: 'actor_id' })
-  actorId!: number;
+  @Column({ type: 'bigint', name: 'user_id' })
+  userId!: number;
 
-  @Column({ type: 'varchar', length: 100 })
+  @Column({ type: 'varchar', length: 255 })
   action!: string; // e.g., USER_STATUS_CHANGED, VERIFICATION_APPROVED
 
   @Column({ type: 'varchar', length: 100 })
@@ -32,10 +32,10 @@ export class AuditLog {
   @Column({ type: 'longtext', nullable: true })
   metadata?: string; // JSON string of changes
 
-  @CreateDateColumn()
+  @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 
   @ManyToOne(() => User, { onDelete: 'RESTRICT' })
-  @JoinColumn({ name: 'actor_id' })
+  @JoinColumn({ name: 'user_id' })
   actor?: User;
 }

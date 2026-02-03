@@ -16,21 +16,15 @@ export class Company {
   @Column({ type: 'varchar', length: 255, unique: true })
   name!: string;
 
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  bankAccount?: string;
+
   @Column({ type: 'int', name: 'status_id' })
   statusId!: number; // References user_statuses
 
-  @Column({ type: 'decimal', precision: 5, scale: 2, default: 0 })
-  commissionPct!: number;
+  @Column({ type: 'json', nullable: true, name: 'conditions_json' })
+  conditionsJson?: any; // Storing as JSON
 
-  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0 })
-  minManagedAmount!: number;
-
-  @Column({ type: 'longtext', nullable: true })
-  metadata?: string; // JSON string
-
-  @CreateDateColumn()
-  createdAt!: Date;
-
-  @UpdateDateColumn()
-  updatedAt!: Date;
+  @Column({ type: 'datetime', nullable: true, name: 'approved_at' })
+  approvedAt?: Date;
 }

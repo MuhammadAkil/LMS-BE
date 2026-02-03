@@ -30,7 +30,7 @@ export class AdminAuditService {
     metadata?: Record<string, any>
   ): Promise<AuditLog> {
     const auditLog = new AuditLog();
-    auditLog.actorId = actorId;
+    auditLog.userId = actorId;  // Changed from actorId to userId
     auditLog.action = action;
     auditLog.entity = entity;
     auditLog.entityId = entityId;

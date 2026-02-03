@@ -260,8 +260,7 @@ export class CompanyListItemDto {
   name!: string;
   statusId!: number;
   statusName!: string;
-  commissionPct!: number;
-  minManagedAmount!: number;
+  bankAccount?: string;
   createdAt!: Date;
 }
 
@@ -270,11 +269,9 @@ export class CompanyDetailDto {
   name!: string;
   statusId!: number;
   statusName!: string;
-  commissionPct!: number;
-  minManagedAmount!: number;
-  metadata?: Record<string, any>;
-  createdAt!: Date;
-  updatedAt!: Date;
+  bankAccount?: string;
+  conditions?: Record<string, any>;
+  approvedAt?: Date;
 }
 
 export class ApproveCompanyRequest {

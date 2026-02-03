@@ -26,7 +26,7 @@ export class AuditLogRepository {
 
   async findByActor(actorId: number, limit: number = 50, offset: number = 0): Promise<[AuditLog[], number]> {
     return await this.repo.findAndCount({
-      where: { actorId },
+      where: { userId: actorId },  // Changed from actorId to userId
       relations: ['actor'],
       take: limit,
       skip: offset,

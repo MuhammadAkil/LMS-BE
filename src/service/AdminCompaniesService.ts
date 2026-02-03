@@ -29,9 +29,8 @@ export class AdminCompaniesService {
       name: company.name,
       statusId: company.statusId,
       statusName: this.getStatusName(company.statusId),
-      commissionPct: company.commissionPct,
-      minManagedAmount: company.minManagedAmount,
-      createdAt: company.createdAt,
+      bankAccount: company.bankAccount,
+      createdAt: new Date(),  // Schema doesn't have created_at
     }));
   }
 
@@ -45,9 +44,8 @@ export class AdminCompaniesService {
       name: company.name,
       statusId: company.statusId,
       statusName: this.getStatusName(company.statusId),
-      commissionPct: company.commissionPct,
-      minManagedAmount: company.minManagedAmount,
-      createdAt: company.createdAt,
+      bankAccount: company.bankAccount,
+      createdAt: new Date(),
     }));
   }
 
@@ -65,11 +63,9 @@ export class AdminCompaniesService {
       name: company.name,
       statusId: company.statusId,
       statusName: this.getStatusName(company.statusId),
-      commissionPct: company.commissionPct,
-      minManagedAmount: company.minManagedAmount,
-      metadata: (typeof company.metadata === 'string' ? JSON.parse(company.metadata || '{}') : company.metadata) || {},
-      createdAt: company.createdAt,
-      updatedAt: company.updatedAt,
+      bankAccount: company.bankAccount,
+      conditions: (typeof company.conditionsJson === 'string' ? JSON.parse(company.conditionsJson || '{}') : company.conditionsJson) || {},
+      approvedAt: company.approvedAt,
     };
   }
 
@@ -95,7 +91,7 @@ export class AdminCompaniesService {
 
     // Update status to APPROVED (2)
     company.statusId = 2;
-    company.updatedAt = new Date();
+    company.approvedAt = new Date();
     await this.companyRepo.save(company);
 
     // Log the action
@@ -115,11 +111,9 @@ export class AdminCompaniesService {
       name: company.name,
       statusId: company.statusId,
       statusName: this.getStatusName(company.statusId),
-      commissionPct: company.commissionPct,
-      minManagedAmount: company.minManagedAmount,
-      metadata: (typeof company.metadata === 'string' ? JSON.parse(company.metadata || '{}') : company.metadata) || {},
-      createdAt: company.createdAt,
-      updatedAt: company.updatedAt,
+      bankAccount: company.bankAccount,
+      conditions: (typeof company.conditionsJson === 'string' ? JSON.parse(company.conditionsJson || '{}') : company.conditionsJson) || {},
+      approvedAt: company.approvedAt,
     };
   }
 
@@ -150,7 +144,6 @@ export class AdminCompaniesService {
 
     // Update status to REJECTED (3)
     company.statusId = 3;
-    company.updatedAt = new Date();
     await this.companyRepo.save(company);
 
     // Log the action
@@ -170,11 +163,9 @@ export class AdminCompaniesService {
       name: company.name,
       statusId: company.statusId,
       statusName: this.getStatusName(company.statusId),
-      commissionPct: company.commissionPct,
-      minManagedAmount: company.minManagedAmount,
-      metadata: (typeof company.metadata === 'string' ? JSON.parse(company.metadata || '{}') : company.metadata) || {},
-      createdAt: company.createdAt,
-      updatedAt: company.updatedAt,
+      bankAccount: company.bankAccount,
+      conditions: (typeof company.conditionsJson === 'string' ? JSON.parse(company.conditionsJson || '{}') : company.conditionsJson) || {},
+      approvedAt: company.approvedAt,
     };
   }
 

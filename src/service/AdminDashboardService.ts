@@ -38,7 +38,7 @@ export class AdminDashboardService {
       const verificationStats = await queryRunner.query(`
         SELECT 
           SUM(CASE WHEN status_id = 1 THEN 1 ELSE 0 END) as pendingCount
-        FROM verifications
+        FROM user_verifications
       `);
 
       // Get loan statistics (if loans table exists)

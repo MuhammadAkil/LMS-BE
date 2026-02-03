@@ -13,20 +13,17 @@ export class Export {
   @PrimaryGeneratedColumn({ type: 'bigint' })
   id!: number;
 
-  @Column({ type: 'int', name: 'type_id' })
+  @Column({ type: 'int', name: 'export_type_id' })
   typeId!: number; // References export_types (XML, CSV, LAWSUITS)
 
   @Column({ type: 'bigint', name: 'created_by' })
   createdBy!: number; // References users.id
 
-  @Column({ type: 'longtext', nullable: true })
+  @Column({ type: 'varchar', length: 255, nullable: true, name: 'file_path' })
   filePath?: string; // S3 or local file path
 
-  @Column({ type: 'int', default: 0 })
-  recordCount!: number; // Number of records exported
-
-  @Column({ type: 'longtext', nullable: true })
-  metadata?: string; // JSON string (filters, status, etc)
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt!: Date;
 
   @CreateDateColumn()
   createdAt!: Date;
