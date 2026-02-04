@@ -2,48 +2,47 @@ import { AppDataSource } from '../config/database';
 import { LoanOffer } from '../domain/LoanOffer';
 
 export class LoanOfferRepository {
-    private repo = AppDataSource.getRepository(LoanOffer);
+    private loanOfferRepository = AppDataSource.getRepository(LoanOffer);
 
-    async save(offer: LoanOffer): Promise<LoanOffer> {
-        return await this.repo.save(offer);
+    async save(loanOffer: LoanOffer): Promise<LoanOffer> {
+        return await this.loanOfferRepository.save(loanOffer);
     }
 
     async findById(id: number): Promise<LoanOffer | null> {
-        return await this.repo.findOne({ where: { id } });
+        return await this.loanOfferRepository.findOne({
+            where: { id },
+        });
     }
 
     async findByLoanId(loanId: number): Promise<LoanOffer[]> {
-        return await this.repo.find({ where: { loanId }, order: { createdAt: 'DESC' } });
+        return await this.loanOfferRepository.find({
+            where: { loanId },
+            order: { createdAt: 'DESC' },
+        });
     }
 
-    async findByLenderId(lenderId: number, limit: number = 20, offset: number = 0): Promise<[LoanOffer[], number]> {
-        return await this.repo.findAndCount({
+    async findByLenderId(lenderId: number): Promise<LoanOffer[]> {
+        return await this.loanOfferRepository.find({
             where: { lenderId },
+            order: { createdAt: 'DESC' },
+        });
+    }
+
+    async findByLoanIdAndLenderId(loanId: number, lenderId: number): Promise<LoanOffer | null> {
+        return await this.loanOfferRepository.findOne({
+            where: { loanId, lenderId },
+        });
+    }
+
+    async findAll(limit: number = 10, offset: number = 0): Promise<[LoanOffer[], number]> {
+        return await this.loanOfferRepository.findAndCount({
             take: limit,
             skip: offset,
             order: { createdAt: 'DESC' },
         });
     }
 
-    async findByLoanAndLender(loanId: number, lenderId: number): Promise<LoanOffer | null> {
-        return await this.repo.findOne({ where: { loanId, lenderId } });
-    }
-
-    async sumAmountByLoanId(loanId: number): Promise<number> {
-        const result = await this.repo
-            .createQueryBuilder('offer')
-            .select('SUM(offer.amount)', 'total')
-            .where('offer.loanId = :loanId', { loanId })
-            .getRawOne();
-        return result?.total || 0;
-    }
-
-    async countByLoanId(loanId: number): Promise<number> {
-        return await this.repo.count({ where: { loanId } });
-    }
-
-    async delete(id: number): Promise<boolean> {
-        const result = await this.repo.delete(id);
-        return (result.affected ?? 0) > 0;
+    async delete(id: number): Promise<void> {
+        await this.loanOfferRepository.delete(id);
     }
 }

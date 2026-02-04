@@ -5,8 +5,8 @@ export type RiskTier = 'LOW' | 'MEDIUM' | 'HIGH';
 
 @Entity('customers')
 export class Customer {
-  @PrimaryGeneratedColumn()
-  id!: number;
+  @PrimaryGeneratedColumn('uuid')
+  id!: string;
 
   @Column({ name: 'mobile_number' })
   mobileNumber!: string;

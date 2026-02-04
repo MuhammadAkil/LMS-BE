@@ -14,7 +14,7 @@ import { JwtTokenUtil } from '../util/JwtTokenUtil';
 export class CustomerService {
   private readonly customerRepository: CustomerRepository;
   private readonly customerAuthSessionRepository: CustomerAuthSessionRepository;
-  private readonly DEFAULT_CUSTOMER_STATUS = 'ACTIVE'; // Mongo-friendly
+  private readonly DEFAULT_CUSTOMER_STATUS = 'ACTIVE';
 
   constructor() {
     this.customerRepository = new CustomerRepository();
@@ -49,11 +49,11 @@ export class CustomerService {
 
     console.log('Customer signed up successfully with email: {}', signupRequest.email);
 
-    return ModuleResponse.generateCreateResponse(savedCustomer.id.toHexString());
+    return ModuleResponse.generateCreateResponse(savedCustomer.id);
   }
 
   async getCustomerByMobileNumber(mobileNumber: string): Promise<Customer | null> {
-    return await this.customerRepository.findByEmail(mobileNumber);
+    return await this.customerRepository.findByMobileNumber(mobileNumber);
   }
 
   async login(loginRequest: LoginRequest): Promise<ModuleResponse> {
@@ -66,26 +66,26 @@ export class CustomerService {
 
     const isPasswordValid = await bcrypt.compare(loginRequest.password, customer.password);
     if (!isPasswordValid) {
-      console.log('Invalid password attempt for customer: {}', customer.id.toHexString());
+      console.log('Invalid password attempt for customer: {}', customer.id);
       return ModuleResponse.generateCustomResponse(401, StateMessages.INVALID_CREDENTIALS);
     }
 
     if (customer.status !== this.DEFAULT_CUSTOMER_STATUS) {
-      console.log('Login attempt for inactive customer: {}', customer.id.toHexString());
+      console.log('Login attempt for inactive customer: {}', customer.id);
       return ModuleResponse.generateCustomResponse(403, 'Customer account is not active');
     }
 
     const existingSession = await this.customerAuthSessionRepository.findByCustomerId(customer.id);
     if (existingSession) {
       await this.customerAuthSessionRepository.delete(existingSession);
-      console.log('Deleted existing session for customer: {}', customer.id.toHexString());
+      console.log('Deleted existing session for customer: {}', customer.id);
     }
 
     const jwtToken = JwtTokenUtil.generateToken(customer.id as any, customer.email, 1); // roleId=1 for customer
     const expiresAt = JwtTokenUtil.getTokenExpirationDate();
 
     const session = new CustomerAuthSession();
-    session.customerId = customer.id.toHexString();
+    session.customerId = customer.id;
     session.jwtToken = jwtToken;
     session.expiresAt = expiresAt;
     session.createdAt = new Date();
@@ -101,7 +101,7 @@ export class CustomerService {
       expiresAt,
     };
 
-    console.log('Customer logged in successfully: {}', customer.id.toHexString());
+    console.log('Customer logged in successfully: {}', customer.id);
 
     return ModuleResponse.generateSuccessResponse(loginResponse);
   }

@@ -6,22 +6,21 @@ import {
   Index,
 } from 'typeorm';
 
-@Entity('loan_offers')
+@Entity('reminders')
 @Index(['loanId'])
-@Index(['lenderId'])
-@Index(['createdAt'])
-export class LoanOffer {
+@Index(['sentAt'])
+export class Reminder {
   @PrimaryGeneratedColumn({ type: 'bigint' })
   id!: number;
 
   @Column({ type: 'bigint' })
   loanId!: number; // References loans.id
 
-  @Column({ type: 'bigint' })
-  lenderId!: number; // References users.id
+  @Column({ type: 'datetime' })
+  sentAt!: Date;
 
-  @Column({ type: 'decimal', precision: 10, scale: 2 })
-  amount!: number;
+  @Column({ type: 'varchar', length: 50 })
+  channel!: string; // EMAIL, SMS, etc.
 
   @CreateDateColumn()
   createdAt!: Date;

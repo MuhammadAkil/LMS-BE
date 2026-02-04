@@ -4,20 +4,20 @@ import {
     PrimaryGeneratedColumn,
     CreateDateColumn,
     UpdateDateColumn,
-    ManyToOne,
-    JoinColumn,
     Index,
 } from 'typeorm';
 
 @Entity('loan_applications')
-@Index(['borrowerId', 'statusId'])
+@Index(['borrowerId'])
 @Index(['statusId'])
+@Index(['createdAt'])
 export class LoanApplication {
     @PrimaryGeneratedColumn({ type: 'bigint' })
     id!: number;
 
     @Column({ type: 'bigint' })
-    borrowerId!: number;
+    borrowerId!: number; // References users.id
+
 
     @Column({ type: 'decimal', precision: 10, scale: 2 })
     amount!: number;
@@ -28,26 +28,11 @@ export class LoanApplication {
     @Column({ type: 'varchar', length: 255, nullable: true })
     purpose?: string;
 
-    @Column({ type: 'varchar', length: 50, nullable: true })
-    purposeCode?: string;
-
-    @Column({ type: 'text', nullable: true })
-    description?: string;
-
     @Column({ type: 'int' })
-    statusId!: number;
+    statusId!: number; // References loan_application_statuses
 
     @Column({ type: 'decimal', precision: 5, scale: 2, default: 0 })
     fundedPercent!: number;
-
-    @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
-    fundedAmount!: number;
-
-    @Column({ type: 'bigint', nullable: true })
-    commissionPaymentId?: number;
-
-    @Column({ type: 'varchar', length: 50, default: 'PENDING' })
-    commissionStatus!: string;
 
     @CreateDateColumn()
     createdAt!: Date;
