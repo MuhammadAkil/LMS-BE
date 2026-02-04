@@ -29,6 +29,8 @@
         "seed:splash": "ts-node src/scripts/seedSplashScreen.ts"
     },
     "dependencies": {
+        "@nestjs/common": "^11.1.13",
+        "@nestjs/typeorm": "^11.0.0",
         "axios": "^1.6.2",
         "bcrypt": "^5.1.1",
         "class-transformer": "^0.5.1",
@@ -50,7 +52,7 @@
         "routing-controllers-openapi": "^4.0.0",
         "swagger-jsdoc": "^6.2.8",
         "swagger-ui-express": "^4.5.0",
-        "typeorm": "^0.3.17",
+        "typeorm": "^0.3.28",
         "winston": "^3.11.0",
         "winston-daily-rotate-file": "^4.7.1"
     },
