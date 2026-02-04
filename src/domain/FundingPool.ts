@@ -16,7 +16,7 @@ export class FundingPool {
      * Calculated: pool coverage
      * What % of requested amount is in pool?
      */
-    get pool_coverage_percent(amount_requested: number): number {
+    getPoolCoveragePercent(amount_requested: number): number {
         if (amount_requested === 0) return 0;
         return (this.total_pool_amount / amount_requested) * 100;
     }

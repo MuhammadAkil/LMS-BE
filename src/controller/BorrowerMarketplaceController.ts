@@ -20,11 +20,10 @@ import {
     Post,
     Param,
     Body,
-    UseGuards,
     Req,
-    BadRequestException,
     HttpCode,
-} from '@nestjs/common';
+    UseBefore,
+} from 'routing-controllers';
 import { MarketplaceRequest } from '../common/MarketplaceRequest';
 import { MarketplaceBidService } from '../service/MarketplaceBidService';
 import { FundingAllocationService } from '../service/FundingAllocationService';
@@ -57,7 +56,7 @@ export class BorrowerMarketplaceController {
      * - Funding window info
      */
     @Get(':id/bids')
-    @UseGuards(BorrowerOwnershipGuard)
+    @UseBefore(BorrowerOwnershipGuard)
     async getBidsForLoan(
         @Param('id') loanRequestId: string,
         @Req() req: MarketplaceRequest,
@@ -95,7 +94,7 @@ export class BorrowerMarketplaceController {
      * Used to determine if borrower can accept funding
      */
     @Get(':id/funding-status')
-    @UseGuards(BorrowerOwnershipGuard)
+    @UseBefore(BorrowerOwnershipGuard)
     async getFundingStatus(
         @Param('id') loanRequestId: string,
         @Req() req: MarketplaceRequest,
@@ -136,7 +135,7 @@ export class BorrowerMarketplaceController {
      * - bid_ids: string[] (optional - specific bids to accept)
      */
     @Post(':id/accept-funding')
-    @UseGuards(BorrowerOwnershipGuard, FundingWindowGuard)
+    @UseBefore(BorrowerOwnershipGuard, FundingWindowGuard)
     @HttpCode(200)
     async acceptFunding(
         @Param('id') loanRequestId: string,
@@ -147,7 +146,7 @@ export class BorrowerMarketplaceController {
         const userId = req.user.id;
 
         if (!loanRequest.is_minimum_threshold_met) {
-            throw new BadRequestException(
+            throw new Error(
                 `Minimum funding threshold not met. Required: ${loanRequest.min_funding_threshold}, Current: ${loanRequest.amount_funded}`,
             );
         }

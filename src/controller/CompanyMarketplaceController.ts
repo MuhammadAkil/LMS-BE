@@ -20,12 +20,12 @@ import {
     Get,
     Post,
     Body,
-    UseGuards,
     Req,
     HttpCode,
-    Query,
+    QueryParam,
     Param,
-} from '@nestjs/common';
+    UseBefore,
+} from 'routing-controllers';
 import { MarketplaceRequest } from '../common/MarketplaceRequest';
 import { MarketplaceBidService } from '../service/MarketplaceBidService';
 import { AgreementGuard, MarketplaceRuleGuard } from '../middleware/MarketplaceGuards';
@@ -63,7 +63,7 @@ export class CompanyMarketplaceController {
      * - locked_funds: true
      */
     @Post('auto-bid')
-    @UseGuards(AgreementGuard, MarketplaceRuleGuard)
+    @UseBefore(AgreementGuard, MarketplaceRuleGuard)
     @HttpCode(201)
     async createAutoBid(
         @Body() request: CreateCompanyAutoBidRequest,
@@ -108,9 +108,9 @@ export class CompanyMarketplaceController {
     @Get('activity')
     async getCompanyActivity(
         @Req() req: MarketplaceRequest,
-        @Query('status') status?: string,
-        @Query('limit') limit: number = 50,
-        @Query('offset') offset: number = 0,
+        @QueryParam('status') status?: string,
+        @QueryParam('limit') limit: number = 50,
+        @QueryParam('offset') offset: number = 0,
     ): Promise<CompanyActivityResponse[]> {
         const companyId = req.user.id;
 

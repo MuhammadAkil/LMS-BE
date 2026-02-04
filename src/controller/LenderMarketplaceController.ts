@@ -22,11 +22,10 @@ import {
     Delete,
     Param,
     Body,
-    UseGuards,
     Req,
     HttpCode,
-    Inject,
-} from '@nestjs/common';
+    UseBefore,
+} from 'routing-controllers';
 import { MarketplaceRequest } from '../common/MarketplaceRequest';
 import { MarketplaceBidService } from '../service/MarketplaceBidService';
 import { BidOwnershipGuard, CapitalLockGuard, MarketplaceRuleGuard } from '../middleware/MarketplaceGuards';
@@ -60,7 +59,7 @@ export class LenderMarketplaceController {
      * - locked_funds: true
      */
     @Post('marketplace/bids')
-    @UseGuards(MarketplaceRuleGuard)
+    @UseBefore(MarketplaceRuleGuard)
     @HttpCode(201)
     async createBid(
         @Body() request: CreateBidRequest,
@@ -125,7 +124,7 @@ export class LenderMarketplaceController {
      * Response: Confirmation with updated bid status
      */
     @Delete('marketplace/bids/:id')
-    @UseGuards(BidOwnershipGuard, CapitalLockGuard)
+    @UseBefore(BidOwnershipGuard, CapitalLockGuard)
     @HttpCode(200)
     async withdrawBid(
         @Param('id') bidId: string,

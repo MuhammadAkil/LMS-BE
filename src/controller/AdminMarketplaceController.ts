@@ -21,10 +21,10 @@ import {
     Put,
     Post,
     Body,
-    UseGuards,
     Req,
     HttpCode,
-} from '@nestjs/common';
+    UseBefore,
+} from 'routing-controllers';
 import { MarketplaceRequest } from '../common/MarketplaceRequest';
 import { MarketplaceStatsService } from '../service/MarketplaceStatsService';
 import { MarketplaceRuleService } from '../service/MarketplaceRuleService';
