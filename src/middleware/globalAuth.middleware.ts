@@ -88,8 +88,8 @@ export class GlobalAuthMiddleware implements ExpressMiddlewareInterface {
         }
 
         try {
-            // Routes that require User (admin) JWT: /admin/*
-            const isUserAuthRoute = path.startsWith('/admin');
+            // Routes that require User JWT: /admin/* and /payments/*
+            const isUserAuthRoute = path.startsWith('/admin') || path.startsWith('/payments');
 
             if (isUserAuthRoute) {
                 // User JWT validation

@@ -28,6 +28,19 @@ export class PaymentRepository {
         });
     }
 
+    async findBySessionId(sessionId: string): Promise<Payment | null> {
+        return await this.paymentRepository.findOne({
+            where: { sessionId },
+        });
+    }
+
+    async findByUserIdAndCourseId(userId: number, courseId: number): Promise<Payment | null> {
+        return await this.paymentRepository.findOne({
+            where: { userId, courseId },
+            order: { createdAt: 'DESC' },
+        });
+    }
+
     async findByStatus(statusId: number): Promise<Payment[]> {
         return await this.paymentRepository.find({
             where: { statusId },

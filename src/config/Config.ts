@@ -65,6 +65,49 @@ const conf = convict({
             env: "JWT_EXPIRATION",
         },
     },
+
+    // Przelewy24 (P24) payment gateway
+    p24: {
+        merchantId: {
+            format: "int",
+            default: 0,
+            env: "P24_MERCHANT_ID",
+        },
+        posId: {
+            format: "int",
+            default: 0,
+            env: "P24_POS_ID",
+        },
+        apiKey: {
+            format: "*",
+            default: "",
+            env: "P24_API_KEY",
+        },
+        crc: {
+            format: "*",
+            default: "",
+            env: "P24_CRC",
+        },
+        orderKey: {
+            format: "*",
+            default: "",
+            env: "P24_ORDER_KEY",
+        },
+        apiUrl: {
+            format: "*",
+            default: "https://sandbox.przelewy24.pl",
+            env: "P24_API_URL",
+        },
+    },
+
+    // App URL for payment return/status URLs (must be reachable by user and P24)
+    app: {
+        baseUrl: {
+            format: "*",
+            default: "http://localhost:3009",
+            env: "APP_BASE_URL",
+        },
+    },
 });
 
 // Validate configuration strictness

@@ -29,6 +29,19 @@ expressApp.get('/health', (_req, res) => {
     res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
+// Przelewy24 webhook (public, no auth) — must be reachable by P24 servers
+expressApp.post('/webhook/p24', async (req, res) => {
+    try {
+        const { LmsPaymentsService } = await import('./service/LmsPaymentsService');
+        const service = new LmsPaymentsService();
+        await service.handleWebhook(req.body);
+        res.status(200).send('OK');
+    } catch (err: any) {
+        console.error('P24 webhook error:', err);
+        res.status(400).send(err?.message ?? 'Bad Request');
+    }
+});
+
 // Setup routing-controllers with auto-discovery
 // Auto-discovers all controllers in the controller directory
 const app = useExpressServer(expressApp, {
