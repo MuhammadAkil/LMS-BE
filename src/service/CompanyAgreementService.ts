@@ -147,15 +147,14 @@ export class CompanyAgreementService {
                 }
             );
 
-            // 4. Notify company user
             await this.auditService.notifyUser(userId, 'AGREEMENT_SIGNED', {
+                title: 'Agreement Signed',
+                message: 'Management agreement has been successfully signed. Operational actions are now enabled.',
                 agreementId: request.agreementId,
                 contractId,
-                message: 'Management agreement has been successfully signed. Operational actions are now enabled.',
                 timestamp: now,
             });
 
-            // 5. Notify admin users
             const adminUsers = await queryRunner.query(
                 `
         SELECT id FROM users WHERE role_id = 1 LIMIT 10
@@ -168,10 +167,11 @@ export class CompanyAgreementService {
                     adminIds,
                     'COMPANY_AGREEMENT_SIGNED',
                     {
+                        title: 'Company agreement signed',
+                        message: `Company ${companyId} has signed their management agreement`,
                         companyId,
                         agreementId: request.agreementId,
                         contractId,
-                        message: `Company ${companyId} has signed their management agreement`,
                         timestamp: now,
                     }
                 );

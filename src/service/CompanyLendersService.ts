@@ -149,8 +149,9 @@ export class CompanyLendersService {
 
             // Notify lender about linkage
             await this.auditService.notifyUser(request.lenderId, 'COMPANY_LINKED', {
-                companyId,
+                title: 'Company linked',
                 message: 'You have been linked to a new company',
+                companyId,
                 amountLimit: request.amountLimit,
                 timestamp: new Date(),
             });

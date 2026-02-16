@@ -1,6 +1,6 @@
 import { AppDataSource } from '../config/database';
 import { Notification } from '../domain/Notification';
-import { Between } from 'typeorm';
+import { Between, In } from 'typeorm';
 
 export class NotificationRepository {
   private repo = AppDataSource.getRepository(Notification);
@@ -44,7 +44,8 @@ export class NotificationRepository {
   }
 
   async markMultipleAsRead(ids: number[]): Promise<void> {
-    await this.repo.update(ids, {
+    if (ids.length === 0) return;
+    await this.repo.update({ id: In(ids) }, {
       read: true,
       readAt: new Date(),
     });

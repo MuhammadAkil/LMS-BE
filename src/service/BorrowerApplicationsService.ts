@@ -1,6 +1,6 @@
 import { AuditLogRepository } from '../repository/AuditLogRepository';
-import { NotificationRepository } from '../repository/NotificationRepository';
 import { LoanApplicationRepository } from '../repository/LoanApplicationRepository';
+import { LmsNotificationService } from './LmsNotificationService';
 import { LoanRepository } from '../repository/LoanRepository';
 import { LoanOfferRepository } from '../repository/LoanOfferRepository';
 import { LevelRulesRepository } from '../repository/LevelRulesRepository';
@@ -32,7 +32,7 @@ import {
  */
 export class BorrowerApplicationsService {
     private auditRepo: AuditLogRepository;
-    private notificationRepo: NotificationRepository;
+    private notificationService: LmsNotificationService;
     private loanAppRepo: LoanApplicationRepository;
     private loanRepo: LoanRepository;
     private loanOfferRepo: LoanOfferRepository;
@@ -41,7 +41,7 @@ export class BorrowerApplicationsService {
 
     constructor() {
         this.auditRepo = new AuditLogRepository();
-        this.notificationRepo = new NotificationRepository();
+        this.notificationService = new LmsNotificationService();
         this.loanAppRepo = new LoanApplicationRepository();
         this.loanRepo = new LoanRepository();
         this.loanOfferRepo = new LoanOfferRepository();
@@ -133,14 +133,13 @@ export class BorrowerApplicationsService {
                 createdAt: new Date(),
             } as any);
 
-            // Notification
-            await this.notificationRepo.create({
-                userId: borrowerIdNum,
-                type: 'APPLICATION_CREATED',
-                title: 'Application Created',
-                message: `Your loan application for ${request.amount} has been created successfully`,
-                createdAt: new Date(),
-            } as any);
+            await this.notificationService.notify(
+                borrowerIdNum,
+                'APPLICATION_CREATED',
+                'Application Created',
+                `Your loan application for ${request.amount} has been created successfully`,
+                { amount: String(request.amount) }
+            );
 
             const commissionRequired = request.amount * ((levelRules.commissionPercent || 2) / 100);
 
@@ -371,14 +370,13 @@ export class BorrowerApplicationsService {
                 createdAt: new Date(),
             } as any);
 
-            // Notification
-            await this.notificationRepo.create({
-                userId: borrowerIdNum,
-                type: 'APPLICATION_CANCELLED',
-                title: 'Application Cancelled',
-                message: `Your loan application has been cancelled. Reason: ${request.reason || 'N/A'}`,
-                createdAt: new Date(),
-            } as any);
+            await this.notificationService.notify(
+                borrowerIdNum,
+                'APPLICATION_CANCELLED',
+                'Application Cancelled',
+                `Your loan application has been cancelled. Reason: ${request.reason || 'N/A'}`,
+                { reason: request.reason || 'N/A' }
+            );
 
             return {
                 applicationId: appIdNum,
@@ -439,14 +437,13 @@ export class BorrowerApplicationsService {
                 createdAt: new Date(),
             } as any);
 
-            // Notification
-            await this.notificationRepo.create({
-                userId: borrowerIdNum,
-                type: 'APPLICATION_CLOSED',
-                title: 'Application Closed',
-                message: `Your loan application has been successfully closed with ${application.fundedPercent}% funding`,
-                createdAt: new Date(),
-            } as any);
+            await this.notificationService.notify(
+                borrowerIdNum,
+                'APPLICATION_CLOSED',
+                'Application Closed',
+                `Your loan application has been successfully closed with ${application.fundedPercent}% funding`,
+                { fundedPercent: String(application.fundedPercent) }
+            );
 
             return {
                 applicationId: appIdNum,

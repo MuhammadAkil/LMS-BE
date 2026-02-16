@@ -197,12 +197,12 @@ export class CompanyBulkService {
                 }
             );
 
-            // Notify user
             await this.auditService.notifyUser(userId, 'EXPORT_CREATED', {
+                title: 'Export created',
+                message: 'CSV export has been created',
                 exportId,
                 type: 'CSV',
                 itemCount: loanIds.length,
-                message: 'CSV export has been created',
                 timestamp: new Date(),
             });
 
@@ -293,10 +293,11 @@ export class CompanyBulkService {
 
             // Notify user
             await this.auditService.notifyUser(userId, 'EXPORT_CREATED', {
+                title: 'Export created',
+                message: 'XML export has been created',
                 exportId,
                 type: 'XML',
                 itemCount: loanIds.length,
-                message: 'XML export has been created',
                 timestamp: new Date(),
             });
 
@@ -414,10 +415,11 @@ export class CompanyBulkService {
                     adminUsers.map((u: any) => u.id),
                     'BULK_CLAIMS_CREATED',
                     {
+                        title: 'Bulk claims created',
+                        message: `Company created ${loanIds.length} claims for defaulted loans`,
                         companyId,
                         itemCount: loanIds.length,
                         reason: request.reason,
-                        message: `Company created ${loanIds.length} claims for defaulted loans`,
                         timestamp: new Date(),
                     }
                 );

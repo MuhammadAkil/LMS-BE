@@ -1,6 +1,7 @@
 import { AdminAuditService } from './AdminAuditService';
 import { CompanyRepository } from '../repository/CompanyRepository';
 import { UserRepository } from '../repository/UserRepository';
+import { LmsNotificationService } from './LmsNotificationService';
 import { CompanyListItemDto, CompanyDetailDto, ApproveCompanyRequest, RejectCompanyRequest, UpdateCompanyConditionsRequest } from '../dto/AdminDtos';
 
 /**
@@ -12,11 +13,13 @@ export class AdminCompaniesService {
   private readonly companyRepo: CompanyRepository;
   private readonly userRepo: UserRepository;
   private readonly auditService: AdminAuditService;
+  private readonly notificationService: LmsNotificationService;
 
   constructor() {
     this.companyRepo = new CompanyRepository();
     this.userRepo = new UserRepository();
     this.auditService = new AdminAuditService();
+    this.notificationService = new LmsNotificationService();
   }
 
   /**
@@ -94,7 +97,6 @@ export class AdminCompaniesService {
     company.approvedAt = new Date();
     await this.companyRepo.save(company);
 
-    // Log the action
     await this.auditService.logAction(
       adminId,
       'COMPANY_APPROVED',
@@ -105,6 +107,18 @@ export class AdminCompaniesService {
         comment: request.comment || 'No comment provided',
       }
     );
+
+    const [adminUsers] = await this.userRepo.findByRole(1, 20, 0);
+    const adminIds = adminUsers.map((u) => u.id);
+    if (adminIds.length > 0) {
+      await this.notificationService.notifyMultiple(
+        adminIds,
+        'COMPANY_APPROVED',
+        'Company approved',
+        `Company "${company.name}" has been approved.`,
+        { companyId, companyName: company.name }
+      );
+    }
 
     return {
       id: company.id,
@@ -146,7 +160,6 @@ export class AdminCompaniesService {
     company.statusId = 3;
     await this.companyRepo.save(company);
 
-    // Log the action
     await this.auditService.logAction(
       adminId,
       'COMPANY_REJECTED',
@@ -157,6 +170,18 @@ export class AdminCompaniesService {
         rejectionReason: request.comment,
       }
     );
+
+    const [adminUsers] = await this.userRepo.findByRole(1, 20, 0);
+    const adminIds = adminUsers.map((u) => u.id);
+    if (adminIds.length > 0) {
+      await this.notificationService.notifyMultiple(
+        adminIds,
+        'COMPANY_REJECTED',
+        'Company rejected',
+        `Company "${company.name}" has been rejected. Reason: ${request.comment}`,
+        { companyId, companyName: company.name, reason: request.comment }
+      );
+    }
 
     return {
       id: company.id,

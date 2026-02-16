@@ -1,6 +1,6 @@
 import { AuditLogRepository } from '../repository/AuditLogRepository';
-import { NotificationRepository } from '../repository/NotificationRepository';
 import { VerificationRepositoryBase } from '../repository/VerificationRepositoryBase';
+import { LmsNotificationService } from './LmsNotificationService';
 import { UserRepository } from '../repository/UserRepository';
 import { Verification } from '../domain/Verification';
 import {
@@ -19,13 +19,13 @@ import {
  */
 export class BorrowerVerificationService {
     private auditRepo: AuditLogRepository;
-    private notificationRepo: NotificationRepository;
+    private notificationService: LmsNotificationService;
     private verificationRepo: VerificationRepositoryBase;
     private userRepo: UserRepository;
 
     constructor() {
         this.auditRepo = new AuditLogRepository();
-        this.notificationRepo = new NotificationRepository();
+        this.notificationService = new LmsNotificationService();
         this.verificationRepo = new VerificationRepositoryBase();
         this.userRepo = new UserRepository();
     }
@@ -304,14 +304,13 @@ export class BorrowerVerificationService {
                 createdAt: new Date(),
             } as any);
 
-            // Notification
-            await this.notificationRepo.create({
-                userId: borrowerIdNum,
-                type: 'VERIFICATION_SUBMITTED',
-                title: 'Verification Submitted',
-                message: `Your ${request.verificationType} verification has been submitted for review`,
-                createdAt: new Date(),
-            } as any);
+            await this.notificationService.notify(
+                borrowerIdNum,
+                'VERIFICATION_SUBMITTED',
+                'Verification Submitted',
+                `Your ${request.verificationType} verification has been submitted for review`,
+                { verificationType: request.verificationType }
+            );
 
             return {
                 verificationId: savedVerification.id,

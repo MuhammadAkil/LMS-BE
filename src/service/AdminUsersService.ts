@@ -87,25 +87,26 @@ export class AdminUsersService {
       throw new Error('Failed to update user status');
     }
 
-    // Log the change
     await this.auditService.logAndNotify(
       adminId,
       'USER_STATUS_CHANGED',
       'USER',
       userId,
-      userId, // affectedUserId
-      'USER_STATUS_CHANGED', // notificationType
+      userId,
+      'USER_STATUS_CHANGED',
       {
+        title: 'Account status updated',
+        message: request.reason || `Your account status has been changed.`,
         oldStatusId: oldStatus,
         newStatusId: request.statusId,
         reason: request.reason,
         changedBy: adminId,
-      }, // notificationPayload
+      },
       {
         oldStatus,
         newStatus: request.statusId,
         reason: request.reason || 'No reason provided',
-      } // auditMetadata
+      }
     );
 
     return this.getUserById(userId);
@@ -136,25 +137,26 @@ export class AdminUsersService {
       throw new Error('Failed to update user level');
     }
 
-    // Log the change
     await this.auditService.logAndNotify(
       adminId,
       'USER_LEVEL_CHANGED',
       'USER',
       userId,
-      userId, // affectedUserId
-      'USER_LEVEL_CHANGED', // notificationType
+      userId,
+      'USER_LEVEL_CHANGED',
       {
+        title: 'Verification level updated',
+        message: request.reason || `Your verification level has been updated.`,
         oldLevel,
         newLevel: request.level,
         reason: request.reason,
         changedBy: adminId,
-      }, // notificationPayload
+      },
       {
         oldLevel,
         newLevel: request.level,
         reason: request.reason || 'Level upgraded by admin',
-      } // auditMetadata
+      }
     );
 
     return this.getUserById(userId);

@@ -376,8 +376,8 @@ export class DocumentDetailDto {
 // ==================== B-08: NOTIFICATIONS DTOs ====================
 
 export class NotificationListItemDto {
-    id!: number;
-    type!: string; // VERIFICATION_REQUIRED, PAYMENT_DUE, LOAN_APPROVED, etc.
+    id!: number | string; // number for local, string for push service (e.g. MongoDB ObjectId)
+    type!: string; // VERIFICATION_REQUIRED, PAYMENT_DUE, assignment_reminder, grade_posted, etc.
     title!: string;
     message!: string;
     isRead!: boolean;
@@ -393,13 +393,27 @@ export class NotificationListResponse {
 
 export class MarkNotificationReadRequest {
     @IsOptional()
-    @IsInt()
-    notificationId?: number; // If not provided, mark all as read
+    notificationId?: number | string; // If not provided, mark all as read. String for push service ids.
 }
 
 export class MarkNotificationReadResponse {
     markedCount!: number;
     message!: string;
+}
+
+/** Request body for registering FCM device token with the push notification service */
+export class RegisterDeviceTokenRequestDto {
+    @IsNotEmpty({ message: 'deviceId is required' })
+    @IsString()
+    deviceId!: string;
+
+    @IsNotEmpty({ message: 'platform is required' })
+    @IsString()
+    platform!: 'ios' | 'android' | 'web';
+
+    @IsNotEmpty({ message: 'fcmToken is required' })
+    @IsString()
+    fcmToken!: string;
 }
 
 // ==================== B-09: PROFILE DTOs ====================

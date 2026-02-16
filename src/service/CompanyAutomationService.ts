@@ -138,8 +138,9 @@ export class CompanyAutomationService {
 
             // Notify user
             await this.auditService.notifyUser(userId, 'AUTOMATION_RULE_CREATED', {
-                ruleId,
+                title: 'Automation rule created',
                 message: 'Automation rule has been created',
+                ruleId,
                 minLevel: request.minLevel,
                 maxAmount: request.maxAmount,
                 timestamp: new Date(),
@@ -316,8 +317,9 @@ export class CompanyAutomationService {
 
             // Notify user
             await this.auditService.notifyUser(userId, 'AUTOMATION_RULE_DELETED', {
-                ruleId,
+                title: 'Automation rule deleted',
                 message: 'Automation rule has been deleted',
+                ruleId,
                 timestamp: new Date(),
             });
         } finally {

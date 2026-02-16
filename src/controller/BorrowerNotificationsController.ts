@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { Controller, Get, Put, Param, Req, Res } from 'routing-controllers';
+import { Controller, Get, Put, Req, Res, Body } from 'routing-controllers';
 import { BorrowerNotificationsService } from '../service/BorrowerNotificationsService';
 import {
     NotificationListResponse,
@@ -61,33 +61,31 @@ export class BorrowerNotificationsController {
     }
 
     /**
-     * PUT /api/borrower/notifications/:id/read
-     * Mark specific notification as read
+     * PUT /api/borrower/notifications/read
+     * Mark multiple notifications as read by ids (body: { ids: string[] })
      */
-    @Put('/:id/read')
-    async markNotificationRead(@Req() req: Request, @Res() res: Response): Promise<void> {
+    @Put('/read')
+    async markNotificationsRead(
+        @Req() req: Request,
+        @Res() res: Response,
+        @Body() body: { ids?: (number | string)[] }
+    ): Promise<void> {
         try {
             const user = (req as any).user;
             const borrowerId = user.id.toString();
-            const notificationId = parseInt(req.params.id, 10);
-
-            const request: MarkNotificationReadRequest = {
-                notificationId,
-            };
-
-            const response = await this.notificationsService.markNotificationRead(
+            const ids = Array.isArray(body?.ids) ? body.ids : [];
+            const response = await this.notificationsService.markNotificationsReadByIds(
                 borrowerId,
-                request
+                ids
             );
-
             res.status(200).json({
                 statusCode: '200',
-                statusMessage: 'Notification marked as read',
+                statusMessage: 'Notifications marked as read',
                 data: response,
                 timestamp: new Date().toISOString(),
             } as BorrowerApiResponse<MarkNotificationReadResponse>);
         } catch (error: any) {
-            console.error('Error in markNotificationRead:', error);
+            console.error('Error in markNotificationsRead:', error);
             res.status(500).json({
                 statusCode: '500',
                 statusMessage: 'Internal server error',
@@ -124,6 +122,44 @@ export class BorrowerNotificationsController {
             } as BorrowerApiResponse<MarkNotificationReadResponse>);
         } catch (error: any) {
             console.error('Error in markAllNotificationsRead:', error);
+            res.status(500).json({
+                statusCode: '500',
+                statusMessage: 'Internal server error',
+                errors: [error.message],
+                timestamp: new Date().toISOString(),
+            });
+        }
+    }
+
+    /**
+     * PUT /api/borrower/notifications/:id/read
+     * Mark specific notification as read (id may be number or string from push service)
+     */
+    @Put('/:id/read')
+    async markNotificationRead(@Req() req: Request, @Res() res: Response): Promise<void> {
+        try {
+            const user = (req as any).user;
+            const borrowerId = user.id.toString();
+            const rawId = req.params.id;
+            const notificationId = /^\d+$/.test(rawId) ? parseInt(rawId, 10) : rawId;
+
+            const request: MarkNotificationReadRequest = {
+                notificationId,
+            };
+
+            const response = await this.notificationsService.markNotificationRead(
+                borrowerId,
+                request
+            );
+
+            res.status(200).json({
+                statusCode: '200',
+                statusMessage: 'Notification marked as read',
+                data: response,
+                timestamp: new Date().toISOString(),
+            } as BorrowerApiResponse<MarkNotificationReadResponse>);
+        } catch (error: any) {
+            console.error('Error in markNotificationRead:', error);
             res.status(500).json({
                 statusCode: '500',
                 statusMessage: 'Internal server error',

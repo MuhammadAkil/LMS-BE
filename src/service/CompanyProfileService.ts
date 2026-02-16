@@ -109,8 +109,9 @@ export class CompanyProfileService {
 
             // Notify about profile change
             await this.auditService.notifyUser(userId, 'COMPANY_PROFILE_UPDATED', {
-                field: 'bank_account',
+                title: 'Profile updated',
                 message: 'Bank account has been updated',
+                field: 'bank_account',
                 timestamp: new Date(),
             });
 

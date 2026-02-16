@@ -64,7 +64,7 @@ const conf = convict({
             default: 18000000, // 5 hours in milliseconds
             env: "JWT_EXPIRATION",
         },
-    }
+    },
 });
 
 // Validate configuration strictness

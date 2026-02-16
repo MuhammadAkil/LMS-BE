@@ -92,7 +92,7 @@ export class AdminVerificationsService {
       await this.userRepo.update(user.id, { level: newLevel });
     }
 
-    // Log the action
+    // Log the action and notify user (payload must include title/message for in-app list)
     await this.auditService.logAndNotify(
       adminId,
       'VERIFICATION_APPROVED',
@@ -101,6 +101,8 @@ export class AdminVerificationsService {
       verification.userId,
       'VERIFICATION_APPROVED',
       {
+        title: 'Verification Approved',
+        message: `Your ${this.getVerificationType(verification.typeId)} verification has been approved.`,
         verificationType: this.getVerificationType(verification.typeId),
         comment: request.comment || 'No comment',
         approvedBy: adminId,
@@ -148,7 +150,6 @@ export class AdminVerificationsService {
       throw new Error('Failed to reject verification');
     }
 
-    // Log the action
     await this.auditService.logAndNotify(
       adminId,
       'VERIFICATION_REJECTED',
@@ -157,6 +158,8 @@ export class AdminVerificationsService {
       verification.userId,
       'VERIFICATION_REJECTED',
       {
+        title: 'Verification Rejected',
+        message: `Your ${this.getVerificationType(verification.typeId)} verification was rejected. Reason: ${request.comment}`,
         verificationType: this.getVerificationType(verification.typeId),
         reason: request.comment,
         rejectedBy: adminId,
