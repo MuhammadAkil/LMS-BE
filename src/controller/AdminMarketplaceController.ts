@@ -34,7 +34,7 @@ import {
     AdminInterveneRequest,
 } from '../dto/MarketplaceDtos';
 
-@Controller('api/admin/marketplace')
+@Controller('/admin/marketplace')
 export class AdminMarketplaceController {
     constructor(
         private statsService: MarketplaceStatsService,

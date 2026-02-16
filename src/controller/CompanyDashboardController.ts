@@ -63,7 +63,7 @@ import {
  *
  * Audit: VIEW_COMPANY_DASHBOARD
  */
-@Controller('/api/company/dashboard')
+@Controller('/company/dashboard')
 @UseBefore(CompanyGuard, CompanyStatusGuard)
 export class CompanyDashboardController {
     private readonly dashboardService: CompanyDashboardService;
@@ -94,7 +94,7 @@ export class CompanyDashboardController {
  * - only bank_account editable
  * - audit: COMPANY_PROFILE_UPDATED
  */
-@Controller('/api/company/profile')
+@Controller('/company/profile')
 @UseBefore(CompanyGuard, CompanyReadonlyGuard)
 export class CompanyProfileController {
     private readonly profileService: CompanyProfileService;
@@ -142,7 +142,7 @@ export class CompanyProfileController {
  * - audit: AGREEMENT_SIGNED
  * - triggers notification
  */
-@Controller('/api/company/agreement')
+@Controller('/company/agreement')
 @UseBefore(CompanyGuard, CompanyReadonlyGuard)
 export class CompanyAgreementController {
     private readonly agreementService: CompanyAgreementService;
@@ -199,7 +199,7 @@ export class CompanyAgreementController {
  * - set amount_limit and active flag
  * - audit: LENDER_LINKED / LENDER_TOGGLED
  */
-@Controller('/api/company/lenders')
+@Controller('/company/lenders')
 @UseBefore(CompanyGuard, CompanyReadonlyGuard)
 export class CompanyLendersController {
     private readonly lendersService: CompanyLendersService;
@@ -277,7 +277,7 @@ export class CompanyLendersController {
  * - priority execution supported
  * - audit: AUTOMATION_RULE_UPDATED
  */
-@Controller('/api/company/automation')
+@Controller('/company/automation')
 @UseBefore(CompanyGuard, CompanyReadonlyGuard)
 export class CompanyAutomationController {
     private readonly automationService: CompanyAutomationService;
@@ -351,7 +351,7 @@ export class CompanyAutomationController {
  * - borrower PII masked
  * - read-only
  */
-@Controller('/api/company/loans')
+@Controller('/company/loans')
 @UseBefore(CompanyGuard, CompanyStatusGuard)
 export class CompanyLoansController {
     private readonly loansService: CompanyLoansService;
@@ -401,7 +401,7 @@ export class CompanyLoansController {
  * - claims only for DEFAULTED loans
  * - audit: BULK_ACTION_EXECUTED
  */
-@Controller('/api/company/bulk')
+@Controller('/company/bulk')
 @UseBefore(CompanyGuard, CompanyStatusGuard, AgreementSignatureGuard)
 export class CompanyBulkController {
     private readonly bulkService: CompanyBulkService;
@@ -478,7 +478,7 @@ export class CompanyBulkController {
  * - claims
  * - reminders logs
  */
-@Controller('/api/company/documents')
+@Controller('/company/documents')
 @UseBefore(CompanyGuard, CompanyStatusGuard)
 export class CompanyDocumentsController {
     private readonly documentsService: CompanyDocumentsService;
@@ -523,7 +523,7 @@ export class CompanyDocumentsController {
  * - only company-owned notifications
  * - audit: NOTIFICATION_READ
  */
-@Controller('/api/company/notifications')
+@Controller('/company/notifications')
 @UseBefore(CompanyGuard, CompanyReadonlyGuard)
 export class CompanyNotificationsController {
     private readonly notificationsService: CompanyNotificationsService;

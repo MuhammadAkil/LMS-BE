@@ -36,7 +36,7 @@ import {
     AcceptFundingResponse,
 } from '../dto/MarketplaceDtos';
 
-@Controller('api/borrower/applications')
+@Controller('/borrower/applications')
 export class BorrowerMarketplaceController {
     constructor(
         private bidService: MarketplaceBidService,

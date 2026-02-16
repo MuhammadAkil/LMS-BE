@@ -31,7 +31,7 @@ import { MarketplaceBidService } from '../service/MarketplaceBidService';
 import { BidOwnershipGuard, CapitalLockGuard, MarketplaceRuleGuard } from '../middleware/MarketplaceGuards';
 import { CreateBidRequest, BidResponse, LenderBidsResponse, WithdrawBidRequest } from '../dto/MarketplaceDtos';
 
-@Controller('api')
+@Controller('')
 export class LenderMarketplaceController {
     constructor(
         private bidService: MarketplaceBidService,

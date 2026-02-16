@@ -35,7 +35,7 @@ import {
     CompanyActivityResponse,
 } from '../dto/MarketplaceDtos';
 
-@Controller('api/company/marketplace')
+@Controller('/company/marketplace')
 export class CompanyMarketplaceController {
     constructor(
         private bidService: MarketplaceBidService,
