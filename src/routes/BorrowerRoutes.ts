@@ -8,6 +8,7 @@ import { BorrowerLoanHistoryController } from '../controller/BorrowerLoanHistory
 import { BorrowerDocumentsController } from '../controller/BorrowerDocumentsController';
 import { BorrowerNotificationsController } from '../controller/BorrowerNotificationsController';
 import { BorrowerProfileController } from '../controller/BorrowerProfileController';
+import { BorrowerMarketplaceService } from '../service/BorrowerMarketplaceService';
 
 import {
     BorrowerRoleGuard,
@@ -33,6 +34,7 @@ const loanHistoryController = new BorrowerLoanHistoryController();
 const documentsController = new BorrowerDocumentsController();
 const notificationsController = new BorrowerNotificationsController();
 const profileController = new BorrowerProfileController();
+const marketplaceService = new BorrowerMarketplaceService();
 
 // ============================================
 // GUARD CHAIN HELPERS
@@ -441,7 +443,62 @@ export function registerBorrowerRoutes(app: Express): void {
         async (req: Request, res: Response) => profileController.getActivityLog(req, res)
     );
 
-    console.log('✅ Borrower module routes registered successfully (25 endpoints)');
+    // ============================================
+    // B-08 (EXTRA): BULK NOTIFICATION READ
+    // ============================================
+
+    /**
+     * PUT /api/borrower/notifications/read
+     * Mark multiple notifications as read by IDs
+     * Body: { ids: (number|string)[] }
+     * Guards: Role, Status (ACTIVE), Verification (level 0)
+     * NOTE: Must be registered BEFORE /:id/read to avoid route conflict
+     */
+    app.put(
+        '/api/borrower/notifications/read',
+        ...borrowerGuardChain(false, 0),
+        async (req: Request, res: Response) => notificationsController.markNotificationsRead(req, res)
+    );
+
+    // ============================================
+    // B-10: MARKETPLACE (BORROWER-FACING)
+    // ============================================
+
+    /**
+     * GET /api/borrower/applications/:id/bids
+     * View all lender bids on a loan (lender identities masked)
+     * Guards: Role, Status (read-only), Verification (level 0)
+     */
+    app.get(
+        '/api/borrower/applications/:id/bids',
+        ...borrowerGuardChain(true, 0),
+        async (req: Request, res: Response) => marketplaceService.getBids(req, res)
+    );
+
+    /**
+     * GET /api/borrower/applications/:id/funding-status
+     * Get comprehensive funding status for a loan application
+     * Guards: Role, Status (read-only), Verification (level 0)
+     */
+    app.get(
+        '/api/borrower/applications/:id/funding-status',
+        ...borrowerGuardChain(true, 0),
+        async (req: Request, res: Response) => marketplaceService.getFundingStatus(req, res)
+    );
+
+    /**
+     * POST /api/borrower/applications/:id/accept-funding
+     * Accept funding — allocates bids, transitions loan to FUNDED
+     * Body: { loan_request_id, bid_ids? }
+     * Guards: Role, Status (ACTIVE), Verification (level 0)
+     */
+    app.post(
+        '/api/borrower/applications/:id/accept-funding',
+        ...borrowerGuardChain(false, 0),
+        async (req: Request, res: Response) => marketplaceService.acceptFunding(req, res)
+    );
+
+    console.log('✅ Borrower module routes registered successfully (31 endpoints)');
 }
 
 // ============================================

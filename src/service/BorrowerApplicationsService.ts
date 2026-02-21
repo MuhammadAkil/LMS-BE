@@ -121,6 +121,12 @@ export class BorrowerApplicationsService {
             application.fundedPercent = 0;
             application.fundedAmount = 0;
             application.commissionStatus = 'PENDING';
+            // Marketplace fields
+            (application as any).fundingWindowHours = request.fundingWindowHours ?? 72;
+            (application as any).minFundingThreshold = request.minFundingThreshold ?? 50;
+            (application as any).autoClose = request.autoClose ?? false;
+            (application as any).autoCloseThreshold = request.autoCloseThreshold ?? 100;
+            (application as any).isPublic = request.isPublic ?? true;
 
             const savedApp = await this.loanAppRepo.save(application);
 
@@ -157,6 +163,11 @@ export class BorrowerApplicationsService {
                 commissionRequired: commissionRequired,
                 commissionStatus: 'PENDING',
                 createdAt: savedApp.createdAt.toISOString(),
+                fundingWindowHours: (savedApp as any).fundingWindowHours ?? 72,
+                minFundingThreshold: (savedApp as any).minFundingThreshold ?? 50,
+                autoClose: (savedApp as any).autoClose ?? false,
+                autoCloseThreshold: (savedApp as any).autoCloseThreshold ?? 100,
+                isPublic: (savedApp as any).isPublic ?? true,
                 offers: [],
             };
         } catch (error: any) {

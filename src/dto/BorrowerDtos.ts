@@ -134,24 +134,60 @@ export class CreateApplicationRequest {
 
     @IsOptional()
     @IsString()
-    purpose?: string; // PERSONAL, BUSINESS, HOME_IMPROVEMENT, etc.
+    purpose?: string;
 
     @IsOptional()
     @IsString()
     description?: string;
+
+    // ---- Marketplace fields (optional) ----
+
+    /** Funding window duration in hours (24–168). Defaults to 72. */
+    @IsOptional()
+    @IsInt()
+    @Min(24)
+    @Max(168)
+    fundingWindowHours?: number;
+
+    /** Minimum funding threshold percentage (0–100) required before borrower can close. Defaults to 50. */
+    @IsOptional()
+    @Min(0)
+    @Max(100)
+    minFundingThreshold?: number;
+
+    /** Whether the loan auto-closes when autoCloseThreshold is reached. */
+    @IsOptional()
+    autoClose?: boolean;
+
+    /** Percentage at which the loan auto-closes (only used when autoClose=true). */
+    @IsOptional()
+    @Min(0)
+    @Max(100)
+    autoCloseThreshold?: number;
+
+    /** Whether the loan is publicly visible to all lenders. Defaults to true. */
+    @IsOptional()
+    isPublic?: boolean;
 }
 
 export class ApplicationListItemDto {
     id!: number;
     amount!: number;
     durationMonths!: number;
-    status!: string; // OPEN, FUNDED, ACTIVE, CLOSED, CANCELLED
+    status!: string;
     statusId!: number;
-    fundedPercent!: number; // 0-100
+    fundedPercent!: number;
     fundedAmount!: number;
+    remainingAmount?: number;
     createdAt!: string;
     expectedFundingDate?: string;
-    commissionStatus?: string; // PENDING, PAID
+    commissionStatus?: string;
+    // Marketplace fields
+    fundingWindowHours?: number;
+    minFundingThreshold?: number;
+    autoClose?: boolean;
+    autoCloseThreshold?: number;
+    isPublic?: boolean;
 }
 
 export class ApplicationDetailDto {
@@ -165,13 +201,19 @@ export class ApplicationDetailDto {
     remainingAmount!: number;
     purpose?: string;
     description?: string;
-    commissionRequired!: number; // In currency
+    commissionRequired!: number;
     commissionStatus!: string;
     createdAt!: string;
     expectedFundingDate?: string;
     activatedAt?: string;
     closedAt?: string;
     offers!: OfferSummaryDto[];
+    // Marketplace fields
+    fundingWindowHours?: number;
+    minFundingThreshold?: number;
+    autoClose?: boolean;
+    autoCloseThreshold?: number;
+    isPublic?: boolean;
 }
 
 export class OfferSummaryDto {
