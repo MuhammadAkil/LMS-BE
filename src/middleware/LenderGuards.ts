@@ -236,10 +236,8 @@ export async function LenderBankAccountGuard(
             return;
         }
 
-        // Check if user has verified bank account
-        // Assuming bank account info is in a related table or user profile
-        // This is a placeholder - adjust based on your schema
-        const hasBankAccount = fullUser.phone !== null; // Replace with actual bank account check
+        // Check if user has a bank account registered (stored as phone field in current schema)
+        const hasBankAccount = fullUser.phone != null && fullUser.phone.trim().length > 0;
 
         if (!hasBankAccount) {
             res.status(403).json({

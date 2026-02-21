@@ -21,6 +21,9 @@ import { LenderInvestmentsController } from '../controller/LenderInvestmentsCont
 import { LenderRemindersController, LenderExportsController } from '../controller/LenderExportsController';
 import { LenderManagementController } from '../controller/LenderManagementController';
 import { LenderVerificationController, LenderProfileController } from '../controller/LenderVerificationController';
+import { LenderNotificationsController } from '../controller/LenderNotificationsController';
+import { LenderDocumentsController } from '../controller/LenderDocumentsController';
+import { LenderBankAccountController } from '../controller/LenderBankAccountController';
 
 // Guards
 import {
@@ -47,6 +50,9 @@ const exportsController = new LenderExportsController();
 const managementController = new LenderManagementController();
 const verificationController = new LenderVerificationController();
 const profileController = new LenderProfileController();
+const notificationsController = new LenderNotificationsController();
+const documentsController = new LenderDocumentsController();
+const bankAccountController = new LenderBankAccountController();
 
 // ============================================
 // GUARD CHAIN HELPERS
@@ -400,6 +406,86 @@ export function registerLenderRoutes(app: Express): void {
         '/lender/profile',
         ...lenderGuardChain(false, 0),
         async (req: Request, res: Response) => profileController.updateProfile(req, res)
+    );
+
+    /**
+     * GET /lender/profile/activity
+     * Get lender activity log
+     * Guards: Role, Status (read-only), Verification (level 0)
+     */
+    app.get(
+        '/lender/profile/activity',
+        ...lenderGuardChain(true, 0),
+        async (req: Request, res: Response) => profileController.getActivityLog(req, res)
+    );
+
+    // ============================================
+    // L-10: NOTIFICATIONS
+    // ============================================
+
+    /**
+     * GET /lender/notifications
+     * Get lender notifications (paginated)
+     * Guards: Role, Status (read-only), Verification (level 0)
+     */
+    app.get(
+        '/lender/notifications',
+        ...lenderGuardChain(true, 0),
+        async (req: Request, res: Response) => notificationsController.getNotifications(req, res)
+    );
+
+    /**
+     * PATCH /lender/notifications/:id/read
+     * Mark notification as read
+     * Guards: Role, Status, Verification (level 0)
+     */
+    app.patch(
+        '/lender/notifications/:id/read',
+        ...lenderGuardChain(false, 0),
+        async (req: Request, res: Response) => notificationsController.markAsRead(req, res)
+    );
+
+    // ============================================
+    // L-11: DOCUMENT CENTER
+    // ============================================
+
+    /**
+     * GET /lender/documents
+     * Get all lender documents (aggregated)
+     * Query params: category (loan-agreement|management-agreement|claim|export), page, pageSize
+     * Guards: Role, Status (read-only), Verification (level 0)
+     */
+    app.get(
+        '/lender/documents',
+        ...lenderGuardChain(true, 0),
+        async (req: Request, res: Response) => documentsController.getDocuments(req, res)
+    );
+
+    // ============================================
+    // L-12: BANK ACCOUNTS
+    // ============================================
+
+    /**
+     * GET /lender/bank-accounts
+     * Get lender's bank accounts
+     * Guards: Role, Status (read-only), Verification (level 0)
+     */
+    app.get(
+        '/lender/bank-accounts',
+        ...lenderGuardChain(true, 0),
+        async (req: Request, res: Response) => bankAccountController.getBankAccounts(req, res)
+    );
+
+    /**
+     * POST /lender/bank-accounts
+     * Add a bank account
+     * Body: { accountNumber: string, bankName: string, accountHolder: string }
+     * Guards: Role, Status, Verification (level 0)
+     */
+    app.post(
+        '/lender/bank-accounts',
+        ...lenderGuardChain(false, 0),
+        async (req: Request, res: Response) => bankAccountController.addBankAccount(req, res)
     );
 
     console.log('✅ Lender module routes registered successfully');

@@ -5,6 +5,7 @@ import { SubmitVerificationRequest, UpdateLenderProfileRequest } from '../dto/Le
 import { AuthenticationMiddleware } from '../middleware/AuthenticationMiddleware';
 import { LenderRoleGuard } from '../middleware/LenderGuards';
 import { withLenderStatusGuard, withLenderVerificationGuard } from '../middleware/LenderGuardWrappers';
+import { AuditLogRepository } from '../repository/AuditLogRepository';
 
 /**
  * L-08: LENDER VERIFICATION CONTROLLER
@@ -225,6 +226,57 @@ export class LenderProfileController {
             res.status(500).json({
                 statusCode: '500',
                 statusMessage: 'Failed to update profile',
+                errors: [error.message],
+                timestamp: new Date().toISOString(),
+            });
+        }
+    }
+
+    /**
+     * GET /lender/profile/activity
+     * Get lender activity log (audit trail)
+     * Required guards: LenderRoleGuard, LenderStatusGuard(allowReadOnly=true)
+     */
+    @Get('/activity')
+    @UseBefore(withLenderStatusGuard(true), withLenderVerificationGuard(0))
+    async getActivityLog(@Req() req: Request, @Res() res: Response): Promise<void> {
+        try {
+            const lenderId = (req as any).user.id;
+            const page = Math.max(1, parseInt(req.query.page as string) || 1);
+            const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize as string) || 20));
+            const offset = (page - 1) * pageSize;
+
+            const auditRepo = new AuditLogRepository();
+            const [logs, totalItems] = await auditRepo.findByActor(lenderId, pageSize, offset);
+
+            const activities = logs.map((log: any) => ({
+                action: log.action || log.event || 'ACTION',
+                timestamp: log.createdAt?.toISOString?.() ?? new Date().toISOString(),
+                ipAddress: log.ipAddress || log.ip_address || null,
+                device: log.device || log.userAgent || null,
+                entity: log.entity || null,
+                entityId: log.entityId || null,
+            }));
+
+            res.status(200).json({
+                statusCode: '200',
+                statusMessage: 'Activity log retrieved successfully',
+                data: {
+                    activities,
+                    pagination: {
+                        page,
+                        pageSize,
+                        totalItems,
+                        totalPages: Math.ceil(totalItems / pageSize),
+                    },
+                },
+                timestamp: new Date().toISOString(),
+            });
+        } catch (error: any) {
+            console.error('Error in getActivityLog:', error);
+            res.status(500).json({
+                statusCode: '500',
+                statusMessage: 'Failed to retrieve activity log',
                 errors: [error.message],
                 timestamp: new Date().toISOString(),
             });
