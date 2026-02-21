@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, QueryParam, UseBefore, Req } from 'routing-controllers';
+import { Controller, Get, Post, Patch, Delete, Put, Body, Param, QueryParam, UseBefore, Req } from 'routing-controllers';
 import { Request } from 'express';
 import { AdminTemplatesService } from '../service/AdminTemplatesService';
 import { AdminGuard, SuperAdminGuard, CriticalOperationGuard } from '../middleware/AdminGuards';
@@ -241,5 +241,44 @@ export class AdminTemplatesController {
       throw new Error('Admin user ID not found in request');
     }
     await this.templatesService.deleteTemplate(templateId, adminId, force || false);
+  }
+
+  /**
+   * PUT /admin/templates/:id/submit
+   * Submit template for approval (DRAFT → PENDING_APPROVAL)
+   */
+  @Put('/:id/submit')
+  async submitForApproval(@Param('id') templateId: number, @Req() req: Request): Promise<any> {
+    const adminId = (req.user as any)?.id || (req.user as any)?.userId;
+    const { ApprovalWorkflowService } = await import('../service/ApprovalWorkflowService');
+    const approvalService = new ApprovalWorkflowService();
+    await approvalService.submitForApproval('TEMPLATE', templateId, adminId);
+    return { id: templateId, status: 'PENDING_APPROVAL' };
+  }
+
+  /**
+   * PUT /admin/templates/:id/approve
+   * Approve a template (PENDING_APPROVAL → APPROVED)
+   */
+  @Put('/:id/approve')
+  async approveTemplate(@Param('id') templateId: number, @Body() body: { comment?: string }, @Req() req: Request): Promise<any> {
+    const adminId = (req.user as any)?.id || (req.user as any)?.userId;
+    const { ApprovalWorkflowService } = await import('../service/ApprovalWorkflowService');
+    const approvalService = new ApprovalWorkflowService();
+    await approvalService.approve('TEMPLATE', templateId, adminId, body.comment);
+    return { id: templateId, status: 'APPROVED' };
+  }
+
+  /**
+   * PUT /admin/templates/:id/reject
+   * Reject a template (PENDING_APPROVAL → REJECTED)
+   */
+  @Put('/:id/reject')
+  async rejectTemplate(@Param('id') templateId: number, @Body() body: { comment: string }, @Req() req: Request): Promise<any> {
+    const adminId = (req.user as any)?.id || (req.user as any)?.userId;
+    const { ApprovalWorkflowService } = await import('../service/ApprovalWorkflowService');
+    const approvalService = new ApprovalWorkflowService();
+    await approvalService.reject('TEMPLATE', templateId, adminId, body.comment);
+    return { id: templateId, status: 'REJECTED' };
   }
 }

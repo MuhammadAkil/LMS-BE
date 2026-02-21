@@ -34,6 +34,24 @@ export class Loan {
   @Column({ type: 'date' })
   dueDate!: Date;
 
+  @Column({ type: 'decimal', precision: 5, scale: 4, nullable: true, name: 'interest_rate' })
+  interestRate?: number;
+
+  @Column({ type: 'varchar', length: 20, default: 'LUMP_SUM', name: 'repayment_type' })
+  repaymentType!: string; // LUMP_SUM | INSTALLMENTS
+
+  @Column({ type: 'int', nullable: true, name: 'installment_count' })
+  installmentCount?: number;
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0, name: 'voluntary_commission' })
+  voluntaryCommission!: number;
+
+  @Column({ type: 'boolean', default: false, name: 'lender_data_revealed' })
+  lenderDataRevealed!: boolean;
+
+  @Column({ type: 'datetime', nullable: true, name: 'lender_data_revealed_at' })
+  lenderDataRevealedAt?: Date;
+
   @CreateDateColumn()
   createdAt!: Date;
 

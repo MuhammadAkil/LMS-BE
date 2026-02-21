@@ -30,8 +30,23 @@ export class User {
     @Column({ type: 'int', default: 0, name: 'level' })
     level!: number;
 
+    @Column({ type: 'varchar', length: 100, nullable: true, name: 'first_name' })
+    firstName?: string;
+
+    @Column({ type: 'varchar', length: 100, nullable: true, name: 'last_name' })
+    lastName?: string;
+
     @Column({ type: 'varchar', length: 30, nullable: true, name: 'phone' })
     phone?: string;
+
+    @Column({ type: 'varchar', length: 34, nullable: true, name: 'bank_account' })
+    bankAccount?: string; // IBAN
+
+    @Column({ type: 'varchar', length: 11, nullable: true, name: 'pesel' })
+    pesel?: string;
+
+    @Column({ type: 'text', nullable: true, name: 'address' })
+    address?: string;
 
     /**
      * FK to companies.id — set when this user account owns/manages a company.

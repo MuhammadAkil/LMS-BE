@@ -14,10 +14,24 @@ export class LoanApplicationRepository {
         });
     }
 
-    async findByBorrowerId(borrowerId: number): Promise<LoanApplication[]> {
-        return await this.loanApplicationRepository.find({
+    async findByBorrowerId(borrowerId: number, limit?: number, offset?: number): Promise<[LoanApplication[], number]> {
+        return await this.loanApplicationRepository.findAndCount({
             where: { borrowerId },
             order: { createdAt: 'DESC' },
+            take: limit,
+            skip: offset,
+        });
+    }
+
+    async findOpenByBorrowerId(borrowerId: number): Promise<LoanApplication | null> {
+        return await this.loanApplicationRepository.findOne({
+            where: { borrowerId, statusId: 1 },
+        });
+    }
+
+    async countActiveByBorrower(borrowerId: number): Promise<number> {
+        return await this.loanApplicationRepository.count({
+            where: { borrowerId, statusId: 1 },
         });
     }
 

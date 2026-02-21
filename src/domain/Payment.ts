@@ -23,6 +23,12 @@ export class Payment {
   @Column({ type: 'bigint', nullable: true })
   loanId?: number; // References loans.id
 
+  @Column({ type: 'bigint', nullable: true, name: 'application_id' })
+  applicationId?: number; // References loan_applications.id
+
+  @Column({ type: 'varchar', length: 30, nullable: true, name: 'payment_step' })
+  paymentStep?: string; // PORTAL_COMMISSION | VOLUNTARY_COMMISSION | LOAN_REPAYMENT
+
   @Column({ type: 'bigint', nullable: true })
   courseId?: number; // References courses (LMS)
 

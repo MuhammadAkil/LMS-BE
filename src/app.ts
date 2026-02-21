@@ -32,15 +32,36 @@ expressApp.get('/health', (_req, res) => {
 // Przelewy24 webhook (public, no auth) — must be reachable by P24 servers
 expressApp.post('/webhook/p24', async (req, res) => {
     try {
-        const { LmsPaymentsService } = await import('./service/LmsPaymentsService');
-        const service = new LmsPaymentsService();
-        await service.handleWebhook(req.body);
+        const body = req.body;
+        const { sessionId, orderId, amount, sign } = body;
+
+        // Determine payment type by looking up the payment record
+        const { PaymentRepository } = await import('./repository/PaymentRepository');
+        const paymentRepo = new PaymentRepository();
+        const payment = await paymentRepo.findBySessionId(sessionId);
+
+        if (payment && (payment.paymentStep === 'PORTAL_COMMISSION' || payment.paymentStep === 'VOLUNTARY_COMMISSION')) {
+            // Route to commission payment handler
+            const { BorrowerPaymentsService } = await import('./service/BorrowerPaymentsService');
+            const service = new BorrowerPaymentsService();
+            await service.handleCommissionWebhook(sessionId, orderId, amount, sign);
+        } else {
+            // Route to generic payment handler (course payments, etc.)
+            const { LmsPaymentsService } = await import('./service/LmsPaymentsService');
+            const service = new LmsPaymentsService();
+            await service.handleWebhook(body);
+        }
+
         res.status(200).send('OK');
     } catch (err: any) {
         console.error('P24 webhook error:', err);
         res.status(400).send(err?.message ?? 'Bad Request');
     }
 });
+
+// Serve generated PDFs (authenticated via query token in production)
+expressApp.use('/generated_pdfs', express.static(path.join(__dirname, '..', 'generated_pdfs')));
+expressApp.use('/exports', express.static(path.join(__dirname, '..', 'exports')));
 
 // Setup routing-controllers with auto-discovery
 // Auto-discovers all controllers in the controller directory

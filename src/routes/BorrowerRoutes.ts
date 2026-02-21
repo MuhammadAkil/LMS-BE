@@ -246,7 +246,9 @@ export function registerBorrowerRoutes(app: Express): void {
      */
     app.post(
         '/api/borrower/payments/callback',
-        async (req: Request, res: Response) => paymentsController.handlePaymentCallback(req, res)
+        async (req: Request, res: Response) => {
+            res.status(200).json({ statusCode: '200', statusMessage: 'Use /webhook/p24 for P24 callbacks' });
+        }
     );
 
     // ============================================
