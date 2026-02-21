@@ -18,7 +18,7 @@ export class VerificationRepository {
       where: { userId },
       take: limit,
       skip: offset,
-      order: { createdAt: 'DESC' },
+      order: { submittedAt: 'DESC' },
     });
   }
 
@@ -27,7 +27,7 @@ export class VerificationRepository {
       where: { statusId },
       take: limit,
       skip: offset,
-      order: { createdAt: 'DESC' },
+      order: { submittedAt: 'DESC' },
     });
   }
 
@@ -36,7 +36,7 @@ export class VerificationRepository {
       where: { typeId },
       take: limit,
       skip: offset,
-      order: { createdAt: 'DESC' },
+      order: { submittedAt: 'DESC' },
     });
   }
 
@@ -53,7 +53,7 @@ export class VerificationRepository {
   async findByUserAndType(userId: number, typeId: number): Promise<Verification | null> {
     return await this.repo.findOne({
       where: { userId, typeId },
-      order: { createdAt: 'DESC' },
+      order: { submittedAt: 'DESC' },
     });
   }
 
@@ -61,7 +61,7 @@ export class VerificationRepository {
     return await this.repo.findAndCount({
       take: limit,
       skip: offset,
-      order: { createdAt: 'DESC' },
+      order: { submittedAt: 'DESC' },
     });
   }
 
@@ -70,7 +70,7 @@ export class VerificationRepository {
       where: { statusId: In(statusIds) },
       take: limit,
       skip: offset,
-      order: { createdAt: 'DESC' },
+      order: { submittedAt: 'DESC' },
     });
   }
 

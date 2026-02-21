@@ -25,6 +25,9 @@ export class Export {
   @Column({ type: 'int', nullable: true, name: 'record_count' })
   recordCount?: number;
 
+  @Column({ type: 'text', nullable: true, name: 'metadata' })
+  metadata?: string;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 }

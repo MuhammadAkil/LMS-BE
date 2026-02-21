@@ -15,28 +15,28 @@ export class VerificationRepositoryBase {
     async findByUserId(userId: number): Promise<Verification[]> {
         return await this.repo.find({
             where: { userId },
-            order: { createdAt: 'DESC' },
+            order: { submittedAt: 'DESC' },
         });
     }
 
     async findByUserAndType(userId: number, typeId: number): Promise<Verification | null> {
         return await this.repo.findOne({
             where: { userId, typeId },
-            order: { createdAt: 'DESC' },
+            order: { submittedAt: 'DESC' },
         });
     }
 
     async findApprovedByUser(userId: number): Promise<Verification[]> {
         return await this.repo.find({
             where: { userId, statusId: 2 }, // APPROVED status
-            order: { createdAt: 'DESC' },
+            order: { submittedAt: 'DESC' },
         });
     }
 
     async findPendingByUser(userId: number): Promise<Verification[]> {
         return await this.repo.find({
             where: { userId, statusId: 1 }, // PENDING status
-            order: { createdAt: 'DESC' },
+            order: { submittedAt: 'DESC' },
         });
     }
 
@@ -45,7 +45,7 @@ export class VerificationRepositoryBase {
             where: { statusId: 1 }, // PENDING status
             take: limit,
             skip: offset,
-            order: { createdAt: 'ASC' }, // FIFO
+            order: { submittedAt: 'ASC' }, // FIFO
         });
     }
 

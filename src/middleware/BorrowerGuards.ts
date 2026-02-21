@@ -139,7 +139,7 @@ export function BorrowerStatusGuard(allowReadOnly: boolean = false) {
  *
  * @param requiredLevel - Minimum verification level required (0-3)
  */
-export async function BorrowerVerificationGuard(requiredLevel: number = 0) {
+export function BorrowerVerificationGuard(requiredLevel: number = 0) {
     return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         const user = (req as any).user;
 

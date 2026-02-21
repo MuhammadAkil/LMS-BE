@@ -80,7 +80,7 @@ export class BorrowerVerificationService {
                     id: v.id,
                     type: typeMap[v.typeId] || `TYPE_${v.typeId}`,
                     status: statusMap[v.statusId] || 'UNKNOWN',
-                    submittedAt: v.createdAt?.toISOString(),
+                    submittedAt: v.submittedAt?.toISOString(),
                     approvedAt: v.reviewedAt?.toISOString(),
                     rejectionReason: v.reviewComment,
                 };
@@ -291,7 +291,7 @@ export class BorrowerVerificationService {
             verification.typeId = typeId;
             verification.statusId = 1; // PENDING
             verification.submittedAt = new Date();
-            verification.metadata = JSON.stringify(request.documents || []);
+            verification.metadata = { documents: request.documents || [] } as Record<string, any>;
 
             const savedVerification = await this.verificationRepo.save(verification);
 

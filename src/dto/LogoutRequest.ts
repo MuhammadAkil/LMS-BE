@@ -1,24 +1,35 @@
 import { Type } from 'class-transformer';
-import { IsInt, IsNotEmpty, Min } from 'class-validator';
+import { IsInt, IsOptional, Min, IsString } from 'class-validator';
 
 /**
- * Logout request DTO - userId in body
+ * Logout request DTO
+ * Accepts either userId (legacy) or jwt_token + email (frontend format)
  * @swagger
  * components:
  *   schemas:
  *     LogoutRequest:
  *       type: object
- *       required:
- *         - userId
  *       properties:
  *         userId:
  *           type: integer
  *           example: 1
+ *         jwt_token:
+ *           type: string
+ *         email:
+ *           type: string
  */
 export class LogoutRequest {
-  @IsNotEmpty({ message: 'userId is required' })
+  @IsOptional()
   @Type(() => Number)
   @IsInt({ message: 'userId must be an integer' })
   @Min(1, { message: 'userId must be a positive integer' })
-  userId!: number;
+  userId?: number;
+
+  @IsOptional()
+  @IsString()
+  jwt_token?: string;
+
+  @IsOptional()
+  @IsString()
+  email?: string;
 }

@@ -272,6 +272,11 @@ export class CompanyDetailDto {
   bankAccount?: string;
   conditions?: Record<string, any>;
   approvedAt?: Date;
+  commissionPct?: number;
+  minManagedAmount?: number;
+  metadata?: Record<string, any>;
+  createdAt?: Date;
+  updatedAt?: Date;
 }
 
 export class ApproveCompanyRequest {

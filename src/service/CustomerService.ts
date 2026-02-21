@@ -93,13 +93,7 @@ export class CustomerService {
 
     await this.customerAuthSessionRepository.save(session);
 
-    const loginResponse: LoginResponse = {
-      token: jwtToken,
-      userId: customer.id as any,
-      email: customer.email,
-      roleId: 1,
-      expiresAt,
-    };
+    const loginResponse = new LoginResponse(jwtToken, customer.id as any, customer.email, 1, expiresAt);
 
     console.log('Customer logged in successfully: {}', customer.id);
 

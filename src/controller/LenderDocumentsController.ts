@@ -1,14 +1,19 @@
+import { Controller, Get, Req, Res, UseBefore } from 'routing-controllers';
 import { Request, Response } from 'express';
 import { LoanOfferRepository } from '../repository/LoanOfferRepository';
 import { ManagementAgreementRepository } from '../repository/ManagementAgreementRepository';
 import { ClaimRepository } from '../repository/ClaimRepository';
 import { ExportRepository } from '../repository/ExportRepository';
+import { AuthenticationMiddleware } from '../middleware/AuthenticationMiddleware';
+import { LenderRoleGuard } from '../middleware/LenderGuards';
 
 /**
  * LENDER DOCUMENTS CONTROLLER
  * GET /lender/documents
  * Aggregates documents from: investments (contracts), management agreements, claims, exports
  */
+@Controller('/lender')
+@UseBefore(AuthenticationMiddleware.verifyToken, LenderRoleGuard)
 export class LenderDocumentsController {
     private loanOfferRepo: LoanOfferRepository;
     private managementAgreementRepo: ManagementAgreementRepository;
@@ -27,7 +32,8 @@ export class LenderDocumentsController {
      * Returns all documents for the lender, optionally filtered by category
      * Query params: category (loan-agreement|management-agreement|claim|export), page, pageSize
      */
-    async getDocuments(req: Request, res: Response): Promise<void> {
+    @Get('/documents')
+    async getDocuments(@Req() req: Request, @Res() res: Response): Promise<void> {
         try {
             const lenderId = (req as any).user?.id;
             if (!lenderId) {
@@ -40,8 +46,8 @@ export class LenderDocumentsController {
             }
 
             const category = (req.query.category as string) || 'all';
-            const page = Math.max(1, parseInt(req.query.page as string) || 1);
-            const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize as string) || 20));
+            const page = Math.max(1, parseInt((req.query.page as string) || '1'));
+            const pageSize = Math.min(100, Math.max(1, parseInt((req.query.pageSize as string) || '20')));
 
             const documents: object[] = [];
 

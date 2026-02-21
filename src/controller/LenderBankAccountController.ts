@@ -1,5 +1,8 @@
+import { Controller, Get, Post, Req, Res, UseBefore } from 'routing-controllers';
 import { Request, Response } from 'express';
 import { UserRepository } from '../repository/UserRepository';
+import { AuthenticationMiddleware } from '../middleware/AuthenticationMiddleware';
+import { LenderRoleGuard } from '../middleware/LenderGuards';
 
 /**
  * LENDER BANK ACCOUNT CONTROLLER
@@ -11,6 +14,8 @@ import { UserRepository } from '../repository/UserRepository';
  * A full bank_accounts table migration is a future enhancement.
  * This controller provides a clean API surface for the FE while using the existing schema.
  */
+@Controller('/lender')
+@UseBefore(AuthenticationMiddleware.verifyToken, LenderRoleGuard)
 export class LenderBankAccountController {
     private userRepo: UserRepository;
 
@@ -22,7 +27,8 @@ export class LenderBankAccountController {
      * GET /lender/bank-accounts
      * Returns the lender's bank account information
      */
-    async getBankAccounts(req: Request, res: Response): Promise<void> {
+    @Get('/bank-accounts')
+    async getBankAccounts(@Req() req: Request, @Res() res: Response): Promise<void> {
         try {
             const lenderId = (req as any).user?.id;
             if (!lenderId) {
@@ -82,7 +88,8 @@ export class LenderBankAccountController {
      * Add a bank account (stores account number in phone field as proxy)
      * Body: { accountNumber: string, bankName: string, accountHolder: string }
      */
-    async addBankAccount(req: Request, res: Response): Promise<void> {
+    @Post('/bank-accounts')
+    async addBankAccount(@Req() req: Request, @Res() res: Response): Promise<void> {
         try {
             const lenderId = (req as any).user?.id;
             if (!lenderId) {

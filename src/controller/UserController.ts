@@ -6,6 +6,7 @@ import {
   Req,
   Res,
 } from 'routing-controllers';
+import { JwtTokenUtil } from '../util/JwtTokenUtil';
 import { StatusCodes } from 'http-status-codes';
 import { Request, Response } from 'express';
 import { UserService } from '../service/UserService';
@@ -23,7 +24,7 @@ import { ModuleResponse } from '../dto/ModuleResponse';
  *   - name: Authentication
  *     description: User authentication endpoints
  */
-@JsonController('/user')
+@JsonController('/users')
 export class UserController {
   private readonly userService: UserService;
 
@@ -155,7 +156,23 @@ export class UserController {
     @Res() res: Response,
     @Body() body: LogoutRequest,
   ): Promise<void> {
-    const response = await this.userService.logout(body.userId);
+    let userId = body.userId;
+
+    // Frontend sends jwt_token instead of userId — extract userId from token
+    if (!userId && body.jwt_token) {
+      try {
+        userId = JwtTokenUtil.getUserIdFromToken(body.jwt_token) ?? undefined;
+      } catch {
+        // ignore decode errors — proceed with undefined userId
+      }
+    }
+
+    if (!userId) {
+      res.status(400).json({ statusCode: '400', statusMessage: 'userId or jwt_token is required' });
+      return;
+    }
+
+    const response = await this.userService.logout(userId);
     res.status(Number.parseInt(response.statusCode || '500', 10)).json(response);
   }
 }

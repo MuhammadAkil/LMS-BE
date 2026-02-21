@@ -16,12 +16,25 @@ declare global {
 }
 
 /**
- * Public routes that don't require authentication
- * These paths are relative to the routePrefix (/api) in useExpressServer
- * req.path in middleware is relative to routePrefix, so don't include /api here
+ * Public routes that don't require authentication.
+ * req.path in Express is the full path (e.g. /api/users/login),
+ * so we include both /api-prefixed and bare paths to be safe.
  */
 const getPublicRoutes = (): string[] => {
     return [
+        // With /api prefix (actual req.path value)
+        '/api/users/login',
+        '/api/users/signup',
+        '/api/users/logout',
+        '/api/user/login',
+        '/api/user/signup',
+        '/api/user/logout',
+        '/api/docs',
+        '/api/docs/**',
+        // Without /api prefix (fallback)
+        '/users/login',
+        '/users/signup',
+        '/users/logout',
         '/user/login',
         '/user/signup',
         '/user/logout',
@@ -38,8 +51,7 @@ const getPublicRoutes = (): string[] => {
 @Middleware({ type: 'before', priority: 1 })
 export class GlobalAuthMiddleware implements ExpressMiddlewareInterface {
     async use(req: Request, res: Response, next: NextFunction): Promise<void> {
-        // req.path in routing-controllers middleware is relative to routePrefix
-        // So for /api/user/login, req.path will be /user/login
+        // req.path is the full path including /api prefix (e.g. /api/users/login)
         const path = req.path;
 
         // Debug: log path to understand what we're receiving
@@ -88,11 +100,21 @@ export class GlobalAuthMiddleware implements ExpressMiddlewareInterface {
         }
 
         try {
-            // Routes that require User JWT: /admin/*, /payments/*, /company/*
+            // All LMS routes use User JWT — treat every authenticated route as a User route
             const isUserAuthRoute =
+                path.startsWith('/api/admin') ||
+                path.startsWith('/api/payments') ||
+                path.startsWith('/api/company') ||
+                path.startsWith('/api/lender') ||
+                path.startsWith('/api/borrower') ||
+                path.startsWith('/api/repayment') ||
+                // fallback without /api prefix
                 path.startsWith('/admin') ||
                 path.startsWith('/payments') ||
-                path.startsWith('/company');
+                path.startsWith('/company') ||
+                path.startsWith('/lender') ||
+                path.startsWith('/borrower') ||
+                path.startsWith('/repayment');
 
             if (isUserAuthRoute) {
                 // User JWT validation
@@ -145,7 +167,7 @@ export class GlobalAuthMiddleware implements ExpressMiddlewareInterface {
                     return;
                 }
 
-                // Attach user info to request for use in controllers
+                // Attach user info to request — set both id and userId so all guards work
                 const userDetails: CustomUserDetails = {
                     id: user.id,
                     userId: user.id,
@@ -154,6 +176,8 @@ export class GlobalAuthMiddleware implements ExpressMiddlewareInterface {
                     isSuperAdmin: user.isSuperAdmin ?? false,
                     twoFAVerified: false,
                 };
+                // Also expose roleId directly on the object for guards that read user.roleId
+                (userDetails as any).roleId = user.roleId;
 
                 // For COMPANY role (roleId === 4), resolve companyId from the user record
                 if (user.roleId === 4) {

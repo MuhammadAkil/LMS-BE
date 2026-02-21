@@ -42,6 +42,15 @@ export class LoanOfferRepository {
         });
     }
 
+    async sumAmountByLoanId(loanId: number): Promise<number> {
+        const result = await this.loanOfferRepository
+            .createQueryBuilder('offer')
+            .select('COALESCE(SUM(offer.amount), 0)', 'total')
+            .where('offer.loanId = :loanId', { loanId })
+            .getRawOne();
+        return parseFloat(result?.total ?? '0');
+    }
+
     async delete(id: number): Promise<void> {
         await this.loanOfferRepository.delete(id);
     }

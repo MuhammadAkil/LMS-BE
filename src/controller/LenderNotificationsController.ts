@@ -1,12 +1,17 @@
+import { Controller, Get, Patch, Req, Res, UseBefore } from 'routing-controllers';
 import { Request, Response } from 'express';
 import { NotificationRepository } from '../repository/NotificationRepository';
 import { Notification } from '../domain/Notification';
+import { AuthenticationMiddleware } from '../middleware/AuthenticationMiddleware';
+import { LenderRoleGuard } from '../middleware/LenderGuards';
 
 /**
  * LENDER NOTIFICATIONS CONTROLLER
  * GET   /lender/notifications
  * PATCH /lender/notifications/:id/read
  */
+@Controller('/lender')
+@UseBefore(AuthenticationMiddleware.verifyToken, LenderRoleGuard)
 export class LenderNotificationsController {
     private notificationRepo: NotificationRepository;
 
@@ -40,7 +45,8 @@ export class LenderNotificationsController {
      * GET /lender/notifications
      * Returns paginated notifications for the authenticated lender
      */
-    async getNotifications(req: Request, res: Response): Promise<void> {
+    @Get('/notifications')
+    async getNotifications(@Req() req: Request, @Res() res: Response): Promise<void> {
         try {
             const lenderId = (req as any).user?.id;
             if (!lenderId) {
@@ -52,8 +58,8 @@ export class LenderNotificationsController {
                 return;
             }
 
-            const page = Math.max(1, parseInt(req.query.page as string) || 1);
-            const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize as string) || 20));
+            const page = Math.max(1, parseInt((req.query.page as string) || '1'));
+            const pageSize = Math.min(100, Math.max(1, parseInt((req.query.pageSize as string) || '20')));
             const offset = (page - 1) * pageSize;
 
             const [notifications, totalItems] = await this.notificationRepo.findByUserId(
@@ -95,7 +101,8 @@ export class LenderNotificationsController {
      * PATCH /lender/notifications/:id/read
      * Mark a specific notification as read
      */
-    async markAsRead(req: Request, res: Response): Promise<void> {
+    @Patch('/notifications/:id/read')
+    async markAsRead(@Req() req: Request, @Res() res: Response): Promise<void> {
         try {
             const lenderId = (req as any).user?.id;
             if (!lenderId) {

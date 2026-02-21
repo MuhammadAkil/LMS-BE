@@ -9,7 +9,7 @@ export const AppDataSource = new DataSource({
   password: config.mysql.password,
   database: config.mysql.database,
   entities: [__dirname + '/../domain/**/*.{ts,js}'],
-  synchronize: false, // Set to true only for development, not for production
+  synchronize: true, // Auto-creates tables in development — set to false in production
   logging: config.env === 'development',
   timezone: '+00:00', // UTC timezone
   connectorPackage: 'mysql2',

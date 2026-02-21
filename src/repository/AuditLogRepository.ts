@@ -5,8 +5,14 @@ import { Between, IsNull, Not } from 'typeorm';
 export class AuditLogRepository {
   private repo = AppDataSource.getRepository(AuditLog);
 
-  async create(auditLog: AuditLog): Promise<AuditLog> {
-    return await this.repo.save(auditLog);
+  async create(auditLog: Partial<AuditLog> & { actorId?: number }): Promise<AuditLog> {
+    const { actorId, createdAt, ...rest } = auditLog as any;
+    const entity = this.repo.create({
+      ...rest,
+      // Support both actorId (legacy callers) and userId
+      userId: rest.userId ?? actorId,
+    });
+    return await this.repo.save(entity) as unknown as AuditLog;
   }
 
   async findById(id: number): Promise<AuditLog | null> {

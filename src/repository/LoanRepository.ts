@@ -27,6 +27,15 @@ export class LoanRepository {
         });
     }
 
+    async findActiveByBorrowerId(borrowerId: number, limit?: number, offset?: number): Promise<[Loan[], number]> {
+        return await this.loanRepository.findAndCount({
+            where: { borrowerId, statusId: 2 }, // statusId 2 = ACTIVE
+            order: { createdAt: 'DESC' },
+            take: limit,
+            skip: offset,
+        });
+    }
+
     async findByStatus(statusId: number): Promise<Loan[]> {
         return await this.loanRepository.find({
             where: { statusId },

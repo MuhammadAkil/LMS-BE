@@ -48,7 +48,7 @@ const marketplaceService = new BorrowerMarketplaceService();
  */
 const borrowerGuardChain = (allowReadOnly: boolean = false, requiredLevel: number = 0) => {
     return [
-        AuthenticationMiddleware,
+        AuthenticationMiddleware.verifyToken,
         BorrowerRoleGuard,
         BorrowerStatusGuard(allowReadOnly),
         BorrowerVerificationGuard(requiredLevel),
@@ -61,7 +61,7 @@ const borrowerGuardChain = (allowReadOnly: boolean = false, requiredLevel: numbe
  */
 const borrowerInvestmentGuardChain = (requiredLevel: number = 0) => {
     return [
-        AuthenticationMiddleware,
+        AuthenticationMiddleware.verifyToken,
         BorrowerRoleGuard,
         BorrowerStatusGuard(false), // Must be ACTIVE
         BorrowerVerificationGuard(requiredLevel), // Must meet verification level
@@ -459,7 +459,7 @@ export function registerBorrowerRoutes(app: Express): void {
     app.put(
         '/api/borrower/notifications/read',
         ...borrowerGuardChain(false, 0),
-        async (req: Request, res: Response) => notificationsController.markNotificationsRead(req, res)
+        async (req: Request, res: Response) => notificationsController.markNotificationsRead(req, res, req.body)
     );
 
     // ============================================

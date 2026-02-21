@@ -81,15 +81,15 @@ export class BorrowerApplicationsService {
                 throw new Error('User not found');
             }
 
-            // Fetch level rules for the user's verification level
-            const levelRules = await this.levelRulesRepo.findByLevel(user.level);
+            // Fetch level rules for the user's verification level (fall back to level 0 if not found)
+            let levelRules = await this.levelRulesRepo.findByLevel(user.level);
             if (!levelRules) {
-                throw new Error('Verification level not configured');
+                levelRules = await this.levelRulesRepo.findByLevel(0);
             }
 
             // Validation 1: Amount within limits for verification level
-            const maxAmount = levelRules.maxLoanAmount || 100000;
-            const minAmount = levelRules.minAmount || 1000;
+            const maxAmount = levelRules?.maxLoanAmount || 50000;
+            const minAmount = levelRules?.minAmount || 500;
             if (request.amount > maxAmount) {
                 throw new Error(`Loan amount cannot exceed ${maxAmount} for your verification level`);
             }
@@ -104,7 +104,7 @@ export class BorrowerApplicationsService {
             }
 
             // Validation 3: Check max active applications
-            const maxApplications = levelRules.maxApplications || 5;
+            const maxApplications = levelRules?.maxApplications || 5;
             const activeCount = await this.loanAppRepo.countActiveByBorrower(borrowerIdNum);
             if (activeCount >= maxApplications) {
                 throw new Error(`Maximum ${maxApplications} active applications allowed for your level`);
@@ -147,7 +147,7 @@ export class BorrowerApplicationsService {
                 { amount: String(request.amount) }
             );
 
-            const commissionRequired = request.amount * ((levelRules.commissionPercent || 2) / 100);
+            const commissionRequired = request.amount * ((levelRules?.commissionPercent || 2) / 100);
 
             return {
                 id: savedApp.id,
@@ -305,6 +305,8 @@ export class BorrowerApplicationsService {
                     id: offer.id,
                     lenderId: offer.lenderId,
                     amount: offer.amount,
+                    annualRate: 0,
+                    status: 'OPEN',
                     createdAt: offer.createdAt.toISOString(),
                 }));
             }

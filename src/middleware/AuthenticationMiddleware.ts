@@ -12,6 +12,17 @@ export class AuthenticationMiddleware {
      * Middleware function to be used with Express
      */
     static verifyToken(req: Request, res: Response, next: NextFunction): void {
+        // GlobalAuthMiddleware already validated the token and set req.user with full user details.
+        // If req.user is already populated with an id, skip re-processing to avoid overwriting it.
+        const existing = (req as any).user;
+        if (existing && (existing.id || existing.userId)) {
+            // Ensure both id and userId are set so all guards work regardless of which field they read
+            if (!existing.id && existing.userId) existing.id = existing.userId;
+            if (!existing.userId && existing.id) existing.userId = existing.id;
+            next();
+            return;
+        }
+
         const authHeader = req.headers.authorization;
 
         if (!authHeader) {
@@ -32,7 +43,6 @@ export class AuthenticationMiddleware {
             return;
         }
 
-        // Validate token
         if (!JwtTokenUtil.validateToken(token)) {
             res.status(401).json({
                 statusCode: '401',
@@ -42,13 +52,13 @@ export class AuthenticationMiddleware {
         }
 
         try {
-            // Extract claims from token
             const userId = JwtTokenUtil.getUserIdFromToken(token);
             const email = JwtTokenUtil.getEmailFromToken(token);
             const roleId = JwtTokenUtil.getRoleIdFromToken(token);
 
-            // Attach user info to request object
+            // Set both id and userId so all downstream guards work
             (req as any).user = {
+                id: userId,
                 userId,
                 email,
                 roleId,
@@ -95,6 +105,7 @@ export class AuthenticationMiddleware {
             const roleId = JwtTokenUtil.getRoleIdFromToken(token);
 
             (req as any).user = {
+                id: userId,
                 userId,
                 email,
                 roleId,
