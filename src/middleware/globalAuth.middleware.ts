@@ -88,8 +88,11 @@ export class GlobalAuthMiddleware implements ExpressMiddlewareInterface {
         }
 
         try {
-            // Routes that require User JWT: /admin/* and /payments/*
-            const isUserAuthRoute = path.startsWith('/admin') || path.startsWith('/payments');
+            // Routes that require User JWT: /admin/*, /payments/*, /company/*
+            const isUserAuthRoute =
+                path.startsWith('/admin') ||
+                path.startsWith('/payments') ||
+                path.startsWith('/company');
 
             if (isUserAuthRoute) {
                 // User JWT validation
@@ -151,24 +154,21 @@ export class GlobalAuthMiddleware implements ExpressMiddlewareInterface {
                     isSuperAdmin: false,
                     twoFAVerified: false,
                 };
+
+                // For COMPANY role (roleId === 4), resolve companyId from the user record
+                if (user.roleId === 4) {
+                    userDetails.companyId = user.companyId ?? undefined;
+                }
+
                 req.user = userDetails;
                 console.log(`Authenticated user request for user: ${email}, path: ${path}`);
                 next();
             } else {
                 // Regular routes use Customer authentication
-                // Try to get mobile number from token (if Customer token format)
                 try {
-                    // For now, if it's not an admin route, we'll try Customer authentication
-                    // This assumes Customer tokens have a different format or we need to check both
-                    // Since Customer authentication methods don't exist in JwtTokenUtil,
-                    // we'll skip Customer auth for now and let the route handlers deal with it
-                    // or implement Customer token validation separately
-                    
-                    // For non-admin routes, we'll allow them through if token is valid
-                    // The specific route handlers can implement their own auth if needed
                     const decoded = JwtTokenUtil.decodeToken(token);
-                    
-                    // If token has userId, it's a User token - not valid for Customer routes
+
+                    // If token has userId, it's a User token — not valid for Customer routes
                     if (decoded.userId) {
                         res.status(401).json({
                             statusCode: '401',
@@ -179,7 +179,6 @@ export class GlobalAuthMiddleware implements ExpressMiddlewareInterface {
                     }
 
                     // For Customer routes, we'd need Customer-specific token validation
-                    // For now, we'll let it pass if token is valid
                     // TODO: Implement Customer token validation when Customer auth is needed
                     next();
                 } catch (error: any) {

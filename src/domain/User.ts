@@ -33,6 +33,13 @@ export class User {
     @Column({ type: 'varchar', length: 30, nullable: true, name: 'phone' })
     phone?: string;
 
+    /**
+     * FK to companies.id — set when this user account owns/manages a company.
+     * roleId 4 (COMPANY) users must have this populated.
+     */
+    @Column({ type: 'bigint', nullable: true, name: 'company_id' })
+    companyId?: number;
+
     @CreateDateColumn({ name: 'created_at' })
     createdAt!: Date;
 

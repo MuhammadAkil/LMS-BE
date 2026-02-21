@@ -19,27 +19,115 @@ import {
     Controller,
     Get,
     Post,
+    Put,
     Body,
     Req,
     HttpCode,
     QueryParam,
-    Param,
     UseBefore,
 } from 'routing-controllers';
+import { IsBoolean, IsEnum, IsInt, IsNumber, IsOptional, Min, Max, IsNotEmpty } from 'class-validator';
+import { Request } from 'express';
 import { MarketplaceRequest } from '../common/MarketplaceRequest';
 import { MarketplaceBidService } from '../service/MarketplaceBidService';
 import { AgreementGuard, MarketplaceRuleGuard } from '../middleware/MarketplaceGuards';
+import { CompanyGuard, CompanyStatusGuard, AgreementSignatureGuard } from '../middleware/CompanyGuards';
 import {
     CreateCompanyAutoBidRequest,
     BidResponse,
     CompanyActivityResponse,
 } from '../dto/MarketplaceDtos';
+import { CompanyRepository } from '../repository/CompanyRepository';
+
+enum BorrowerTrustLevel {
+    A = 'A', B = 'B', C = 'C', D = 'D', E = 'E', F = 'F',
+}
+
+export class SaveAutoBidConfigRequest {
+    @IsBoolean()
+    @IsNotEmpty()
+    enabled!: boolean;
+
+    @IsNumber()
+    @Min(10000)
+    capitalPool!: number;
+
+    @IsNumber()
+    @Min(100)
+    maxBidPerLoan!: number;
+
+    @IsNumber()
+    @Min(100)
+    maxExposurePerBorrower!: number;
+
+    @IsEnum(BorrowerTrustLevel)
+    @IsNotEmpty()
+    minimumBorrowerLevel!: string;
+
+    @IsInt()
+    @Min(1)
+    durationMin!: number;
+
+    @IsInt()
+    @Max(36)
+    durationMax!: number;
+
+    @IsBoolean()
+    @IsOptional()
+    timeBasedBidding?: boolean;
+}
 
 @Controller('/company/marketplace')
 export class CompanyMarketplaceController {
+    private companyRepo = new CompanyRepository();
+
     constructor(
         private bidService: MarketplaceBidService,
     ) { }
+
+    /**
+     * GET /api/company/marketplace/config
+     * Returns the company's saved auto-bid configuration.
+     */
+    @Get('config')
+    @UseBefore(CompanyGuard, CompanyStatusGuard, AgreementSignatureGuard)
+    async getAutoBidConfig(@Req() req: Request): Promise<any> {
+        const companyId = (req as any).user?.companyId;
+        const company = await this.companyRepo.findById(companyId);
+        if (!company) {
+            return { statusCode: '404', statusMessage: 'Company not found' };
+        }
+        return {
+            data: company.autoBidConfig ?? {
+                enabled: false,
+                capitalPool: 250000,
+                maxBidPerLoan: 10000,
+                maxExposurePerBorrower: 50000,
+                minimumBorrowerLevel: 'B',
+                durationMin: 1,
+                durationMax: 6,
+                timeBasedBidding: false,
+            },
+        };
+    }
+
+    /**
+     * PUT /api/company/marketplace/config
+     * Saves the company's auto-bid configuration.
+     */
+    @Put('config')
+    @UseBefore(CompanyGuard, CompanyStatusGuard, AgreementSignatureGuard)
+    async saveAutoBidConfig(
+        @Body() body: SaveAutoBidConfigRequest,
+        @Req() req: Request,
+    ): Promise<any> {
+        const companyId = (req as any).user?.companyId;
+        const updated = await this.companyRepo.update(companyId, { autoBidConfig: body });
+        if (!updated) {
+            return { statusCode: '404', statusMessage: 'Company not found' };
+        }
+        return { data: updated.autoBidConfig };
+    }
 
     /**
      * POST /api/company/marketplace/auto-bid

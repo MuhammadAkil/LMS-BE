@@ -34,6 +34,13 @@ export class Company {
   @Column({ type: 'json', nullable: true, name: 'conditions_json' })
   conditionsJson?: any; // Storing as JSON
 
+  /**
+   * Persisted auto-bid configuration for the marketplace automation screen.
+   * Stores the full CompanyAutoBidConfig JSON blob.
+   */
+  @Column({ type: 'json', nullable: true, name: 'auto_bid_config' })
+  autoBidConfig?: any;
+
   @Column({ type: 'datetime', nullable: true, name: 'approved_at' })
   approvedAt?: Date;
 
