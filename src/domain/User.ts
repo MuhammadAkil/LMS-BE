@@ -40,6 +40,9 @@ export class User {
     @Column({ type: 'bigint', nullable: true, name: 'company_id' })
     companyId?: number;
 
+    @Column({ type: 'boolean', default: false, name: 'is_super_admin' })
+    isSuperAdmin!: boolean;
+
     @CreateDateColumn({ name: 'created_at' })
     createdAt!: Date;
 

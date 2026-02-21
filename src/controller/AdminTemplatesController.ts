@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Patch, Delete, Body, Param, QueryParam, UseBefore, Req } from 'routing-controllers';
 import { Request } from 'express';
 import { AdminTemplatesService } from '../service/AdminTemplatesService';
-import { SuperAdminGuard, CriticalOperationGuard } from '../middleware/AdminGuards';
+import { AdminGuard, SuperAdminGuard, CriticalOperationGuard } from '../middleware/AdminGuards';
 import {
   TemplateDto,
   CreateTemplateRequest,
@@ -26,7 +26,7 @@ import {
  * - POST   /admin/templates/:id/restore   -> Restore deprecated template (SuperAdminGuard)
  */
 @Controller('/admin/templates')
-@UseBefore(AdminTemplatesController)
+@UseBefore(AdminGuard)
 export class AdminTemplatesController {
   private readonly templatesService: AdminTemplatesService;
 

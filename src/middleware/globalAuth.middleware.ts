@@ -151,7 +151,7 @@ export class GlobalAuthMiddleware implements ExpressMiddlewareInterface {
                     userId: user.id,
                     email: user.email,
                     roleId: user.roleId,
-                    isSuperAdmin: false,
+                    isSuperAdmin: user.isSuperAdmin ?? false,
                     twoFAVerified: false,
                 };
 

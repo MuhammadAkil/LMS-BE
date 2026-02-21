@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Delete, Body, Param, QueryParam, UseBefore, Req } from 'routing-controllers';
 import { Request } from 'express';
 import { AdminExportsService } from '../service/AdminExportsService';
-import { SuperAdminGuard, CriticalOperationGuard } from '../middleware/AdminGuards';
+import { AdminGuard, SuperAdminGuard, CriticalOperationGuard } from '../middleware/AdminGuards';
 import {
   ExportListItemDto,
   GenerateXMLExportRequest,
@@ -24,7 +24,7 @@ import {
  * - DELETE /admin/exports/:id             -> Delete export (AdminGuard)
  */
 @Controller('/admin/exports')
-@UseBefore(AdminExportsController)
+@UseBefore(AdminGuard)
 export class AdminExportsController {
   private readonly exportsService: AdminExportsService;
 

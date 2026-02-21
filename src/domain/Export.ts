@@ -14,17 +14,17 @@ export class Export {
   id!: number;
 
   @Column({ type: 'int', name: 'export_type_id' })
-  typeId!: number; // References export_types (XML, CSV, LAWSUITS)
+  typeId!: number;
 
   @Column({ type: 'bigint', name: 'created_by' })
-  createdBy!: number; // References users.id
+  createdBy!: number;
 
   @Column({ type: 'varchar', length: 255, nullable: true, name: 'file_path' })
-  filePath?: string; // S3 or local file path
+  filePath?: string;
+
+  @Column({ type: 'int', nullable: true, name: 'record_count' })
+  recordCount?: number;
 
   @CreateDateColumn({ name: 'created_at' })
-  createdAt!: Date;
-
-  @CreateDateColumn()
   createdAt!: Date;
 }

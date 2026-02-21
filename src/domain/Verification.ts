@@ -18,17 +18,23 @@ export class Verification {
   userId!: number;
 
   @Column({ type: 'int', name: 'verification_type_id' })
-  typeId!: number; // References verification_types
+  typeId!: number;
 
   @Column({ type: 'int', name: 'status_id' })
-  statusId!: number; // References verification_statuses
+  statusId!: number;
 
   @Column({ type: 'datetime', name: 'created_at' })
   submittedAt!: Date;
 
   @Column({ type: 'bigint', nullable: true, name: 'reviewed_by' })
-  reviewedBy?: number; // References users.id
+  reviewedBy?: number;
 
   @Column({ type: 'datetime', nullable: true, name: 'reviewed_at' })
   reviewedAt?: Date;
+
+  @Column({ type: 'text', nullable: true, name: 'review_comment' })
+  reviewComment?: string;
+
+  @Column({ type: 'json', nullable: true, name: 'metadata' })
+  metadata?: Record<string, any>;
 }

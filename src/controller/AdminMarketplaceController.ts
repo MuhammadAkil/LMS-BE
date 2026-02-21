@@ -33,8 +33,10 @@ import {
     UpdateMarketplaceRuleRequest,
     AdminInterveneRequest,
 } from '../dto/MarketplaceDtos';
+import { AdminGuard } from '../middleware/AdminGuards';
 
 @Controller('/admin/marketplace')
+@UseBefore(AdminGuard)
 export class AdminMarketplaceController {
     constructor(
         private statsService: MarketplaceStatsService,
