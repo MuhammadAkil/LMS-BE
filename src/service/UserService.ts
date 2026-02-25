@@ -1,6 +1,7 @@
 import * as bcrypt from 'bcrypt';
 import { UserRepository } from '../repository/UserRepository';
 import { UserSessionRepository } from '../repository/UserSessionRepository';
+import { CompanyRepository } from '../repository/CompanyRepository';
 import { User } from '../domain/User';
 import { UserSession } from '../domain/UserSession';
 import { LoginRequest } from '../dto/LoginRequest';
@@ -104,6 +105,29 @@ export class UserService {
                 });
             }
 
+            // COMPANY role (4): resolve company and enforce suspended lockout
+            const COMPANY_ROLE_ID = 4;
+            let companyId: number | undefined;
+            let companyStatus: string | undefined;
+            let conditionsStatus: string | undefined;
+            if (user.roleId === COMPANY_ROLE_ID && user.companyId) {
+                const companyRepo = new CompanyRepository();
+                const company = await companyRepo.findById(user.companyId);
+                if (company) {
+                    companyId = company.id;
+                    // Company record status (companies.status_id): 1=pending, 2=approved/active, 3=suspended
+                    const cStatusId = company.statusId;
+                    companyStatus = cStatusId === 1 ? 'pending_approval' : cStatusId === 2 ? 'active' : 'suspended';
+                    conditionsStatus = company.conditionsStatus ?? (company.conditionsLockedAt ? 'approved' : (company.conditionsJson ? 'pending_approval' : 'not_submitted'));
+                    if (companyStatus === 'suspended') {
+                        return ModuleResponse.generateCustomResponse(423, 'Your company account has been suspended. Contact admin.', {
+                            errorCode: 'COMPANY_SUSPENDED',
+                            detail: 'Your company account has been suspended. Contact admin.',
+                        });
+                    }
+                }
+            }
+
             // Generate JWT token
             const jwtToken = JwtTokenUtil.generateToken(user.id, user.email, user.roleId);
             const expiresAt = new Date(Date.now() + JwtTokenUtil.getTokenExpiration());
@@ -129,7 +153,10 @@ export class UserService {
                 undefined,
                 accountStatus,
                 user.level ?? 0,
-                verificationStatus
+                verificationStatus,
+                companyId,
+                companyStatus,
+                conditionsStatus
             );
 
             console.log(`User logged in successfully: ${user.email}`);

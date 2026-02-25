@@ -39,6 +39,12 @@ export class LoginResponse {
   /** not_started | in_progress | pending_approval | approved — for borrower redirect/banners */
   verificationStatus!: string;
   expiresAt!: Date;
+  /** Company role only: company record id */
+  companyId?: number;
+  /** Company role only: pending_approval | active | suspended */
+  companyStatus?: string;
+  /** Company role only: not_submitted | pending_approval | approved | revision_required */
+  conditionsStatus?: string;
 
   constructor(
     token: string,
@@ -49,7 +55,10 @@ export class LoginResponse {
     role?: string,
     accountStatus?: string,
     verificationLevel?: number,
-    verificationStatus?: string
+    verificationStatus?: string,
+    companyId?: number,
+    companyStatus?: string,
+    conditionsStatus?: string
   ) {
     this.jwtToken = token;
     this.token = token;
@@ -62,6 +71,9 @@ export class LoginResponse {
     this.verificationLevel = verificationLevel ?? 0;
     this.verificationStatus = verificationStatus ?? (verificationLevel && verificationLevel > 0 ? 'approved' : 'not_started');
     this.expiresAt = expiresAt;
+    this.companyId = companyId;
+    this.companyStatus = companyStatus;
+    this.conditionsStatus = conditionsStatus;
   }
 
   private static roleIdToName(roleId: number): string {

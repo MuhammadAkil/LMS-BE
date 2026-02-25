@@ -37,30 +37,40 @@ export class CompanyLendersService {
           cl.company_id as companyId,
           cl.lender_id as lenderId,
           u.email as lenderEmail,
-          u.name as lenderName,
+          COALESCE(NULLIF(TRIM(u.name), ''), CONCAT(COALESCE(u.first_name,''), ' ', COALESCE(u.last_name,'')), u.email) as lenderName,
           cl.amount_limit as amountLimit,
           cl.active,
           cl.created_at as createdAt,
-          cl.updated_at as updatedAt
+          cl.updated_at as updatedAt,
+          ma.signed_at as agreementSignedAt,
+          ma.terminated_at as agreementTerminatedAt
         FROM company_lenders cl
         INNER JOIN users u ON cl.lender_id = u.id
+        LEFT JOIN management_agreements ma ON ma.lender_id = cl.lender_id AND ma.company_id = cl.company_id
         WHERE cl.company_id = ?
         ORDER BY cl.updated_at DESC
         `,
                 [companyId]
             );
 
-            return lenders.map((row: any) => ({
-                id: row.id,
-                companyId: row.companyId,
-                lenderId: row.lenderId,
-                lenderName: row.lenderName,
-                lenderEmail: row.lenderEmail,
-                amountLimit: parseFloat(row.amountLimit || 0),
-                active: Boolean(row.active),
-                createdAt: row.createdAt,
-                updatedAt: row.updatedAt,
-            }));
+            return lenders.map((row: any) => {
+                let agreementStatus: 'pending' | 'active' | 'terminated' = 'pending';
+                if (row.agreementTerminatedAt) agreementStatus = 'terminated';
+                else if (row.agreementSignedAt) agreementStatus = 'active';
+                return {
+                    id: row.id,
+                    companyId: row.companyId,
+                    lenderId: row.lenderId,
+                    lenderName: row.lenderName || row.lenderEmail,
+                    lenderEmail: row.lenderEmail,
+                    amountLimit: parseFloat(row.amountLimit || 0),
+                    active: Boolean(row.active),
+                    agreementStatus,
+                    agreementSignedAt: row.agreementSignedAt,
+                    createdAt: row.createdAt,
+                    updatedAt: row.updatedAt,
+                };
+            });
         } finally {
             await queryRunner.release();
         }
@@ -84,12 +94,12 @@ export class CompanyLendersService {
         const queryRunner = AppDataSource.createQueryRunner();
 
         try {
-            // Validate lender exists and is active
+            // Lender role_id = 3 (LENDER per LoginResponse role map)
             const lender = await queryRunner.query(
                 `
-        SELECT id, email, name, status_id
+        SELECT id, email, first_name, last_name, name, status_id
         FROM users
-        WHERE id = ? AND role_id = 2
+        WHERE id = ? AND role_id = 3
         `,
                 [request.lenderId]
             );
@@ -98,17 +108,38 @@ export class CompanyLendersService {
                 throw new Error('Lender not found or not a valid lender user');
             }
 
-            // Check if already linked
+            if (lender[0].status_id !== 2) {
+                throw new Error('Lender account is not active');
+            }
+
+            // Company min managed amount
+            const companyRow = await queryRunner.query(
+                `SELECT min_managed_amount FROM companies WHERE id = ?`,
+                [companyId]
+            );
+            const minAmount = companyRow?.[0]?.min_managed_amount != null ? Number(companyRow[0].min_managed_amount) : 0;
+            if (request.amountLimit < minAmount) {
+                throw new Error(`Managed amount must be at least ${minAmount} PLN`);
+            }
+
+            // Check if already linked to this company
             const existing = await queryRunner.query(
-                `
-        SELECT id FROM company_lenders
-        WHERE company_id = ? AND lender_id = ?
-        `,
+                `SELECT id FROM company_lenders WHERE company_id = ? AND lender_id = ?`,
                 [companyId, request.lenderId]
             );
-
             if (existing && existing.length > 0) {
                 throw new Error('Lender already linked to this company');
+            }
+
+            // Lender cannot be managed by another company (active agreement elsewhere)
+            const otherCompany = await queryRunner.query(
+                `SELECT ma.id FROM management_agreements ma
+                 WHERE ma.lender_id = ? AND ma.signed_at IS NOT NULL AND (ma.terminated_at IS NULL OR ma.terminated_at > NOW())
+                 AND ma.company_id != ?`,
+                [request.lenderId, companyId]
+            );
+            if (otherCompany && otherCompany.length > 0) {
+                throw new Error('Lender already has an active management agreement with another company');
             }
 
             // Insert company_lenders record
@@ -312,6 +343,39 @@ export class CompanyLendersService {
             }
 
             return record;
+        } finally {
+            await queryRunner.release();
+        }
+    }
+
+    /**
+     * Terminate agreement with lender. Stops future automation, marks agreement terminated, notifies lender.
+     * In-flight funded loans are not cancelled.
+     */
+    async terminateLender(companyId: number, userId: number, linkId: number): Promise<void> {
+        const queryRunner = AppDataSource.createQueryRunner();
+        try {
+            const row = await queryRunner.query(
+                `SELECT lender_id FROM company_lenders WHERE company_id = ? AND id = ?`,
+                [companyId, linkId]
+            );
+            if (!row || row.length === 0) throw new Error('Company lender link not found');
+            const lenderId = row[0].lender_id;
+            await queryRunner.query(
+                `UPDATE management_agreements SET terminated_at = NOW() WHERE company_id = ? AND lender_id = ?`,
+                [companyId, lenderId]
+            );
+            await queryRunner.query(
+                `UPDATE company_lenders SET active = 0, updated_at = NOW() WHERE company_id = ? AND id = ?`,
+                [companyId, linkId]
+            );
+            await this.auditService.logAction(userId, 'LENDER_AGREEMENT_TERMINATED', 'COMPANY_LENDER', linkId, { companyId, lenderId });
+            await this.auditService.notifyUser(lenderId, 'MANAGEMENT_AGREEMENT_TERMINATED', {
+                title: 'Management agreement terminated',
+                message: 'Your management agreement with the company has been terminated.',
+                companyId,
+                timestamp: new Date(),
+            });
         } finally {
             await queryRunner.release();
         }

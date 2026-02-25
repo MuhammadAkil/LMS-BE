@@ -34,6 +34,8 @@ export class CompanyProfileService {
           c.name,
           c.bank_account as bankAccount,
           c.status_id as statusId,
+          c.conditions_status as conditionsStatus,
+          c.conditions_locked_at as conditionsLockedAt,
           us.code as statusName,
           c.conditions_json as conditionsJson,
           c.approved_at as approvedAt,
@@ -50,6 +52,12 @@ export class CompanyProfileService {
                 throw new Error('Company not found');
             }
 
+            const hasSignedAgreement = await queryRunner.query(
+                `SELECT 1 FROM management_agreements WHERE company_id = ? AND signed_at IS NOT NULL LIMIT 1`,
+                [companyId]
+            );
+            const agreementSigned = hasSignedAgreement && hasSignedAgreement.length > 0;
+
             return {
                 id: company[0].id,
                 name: company[0].name,
@@ -57,6 +65,8 @@ export class CompanyProfileService {
                 statusId: company[0].statusId,
                 statusName: company[0].statusName,
                 conditionsJson: company[0].conditionsJson,
+                conditionsStatus: company[0].conditionsStatus ?? (company[0].conditionsLockedAt ? 'approved' : (company[0].conditionsJson ? 'pending_approval' : 'not_submitted')),
+                agreementSigned,
                 approvedAt: company[0].approvedAt,
                 createdAt: company[0].createdAt,
                 updatedAt: company[0].updatedAt,

@@ -96,6 +96,7 @@ export class AdminCompaniesService {
     company.statusId = 2;
     company.approvedAt = new Date();
     company.conditionsLockedAt = new Date();
+    company.conditionsStatus = 'approved';
     await this.companyRepo.save(company);
 
     await this.auditService.logAction(
