@@ -1,4 +1,4 @@
-import { Req, Res, Controller, Get, Param, QueryParam, HttpCode } from 'routing-controllers';
+import { Req, Res, Controller, Get, Post, Param, QueryParam, HttpCode } from 'routing-controllers';
 import { Request, Response } from 'express';
 import { BorrowerLoansService } from '../service/BorrowerLoansService';
 import {
@@ -35,7 +35,7 @@ export class BorrowerLoansController {
     @HttpCode(200)
     async getActiveLoansPaginated(@Req() req: Request, @Res() res: Response, @QueryParam('page') page?: number, @QueryParam('pageSize') pageSize?: number): Promise<any> {
         try {
-            const user = req.user;
+            const user = (req as any).user;
             const borrowerId = user.id.toString();
             const pageNum = page || 1;
             const pageSizeNum = pageSize || 10;
@@ -114,6 +114,37 @@ export class BorrowerLoansController {
             res.status(500).json({
                 statusCode: '500',
                 statusMessage: 'Internal server error',
+                errors: [error.message],
+                timestamp: new Date().toISOString(),
+            });
+        }
+    }
+
+    /**
+     * POST /api/borrower/loans/:id/repayments/:repaymentId/confirm
+     * Borrower marks an installment as paid (self-report).
+     */
+    @Post('/:id/repayments/:repaymentId/confirm')
+    async confirmRepayment(@Req() req: Request, @Res() res: Response): Promise<void> {
+        try {
+            const user = (req as any).user;
+            const borrowerId = user.id.toString();
+            const loanId = req.params.id;
+            const repaymentId = req.params.repaymentId;
+
+            const result = await this.loansService.confirmRepayment(borrowerId, loanId, repaymentId);
+
+            res.status(200).json({
+                statusCode: '200',
+                statusMessage: 'Repayment marked as paid',
+                data: result,
+                timestamp: new Date().toISOString(),
+            });
+        } catch (error: any) {
+            console.error('Error in confirmRepayment:', error);
+            res.status(400).json({
+                statusCode: '400',
+                statusMessage: error.message || 'Failed to confirm repayment',
                 errors: [error.message],
                 timestamp: new Date().toISOString(),
             });

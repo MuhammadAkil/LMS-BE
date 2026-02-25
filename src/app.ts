@@ -9,6 +9,7 @@ import config from './config/Config';
 import { AppDataSource } from './config/database';
 import { initializeSwagger } from './config/SwaggerConfig';
 import { GlobalAuthMiddleware } from './middleware/globalAuth.middleware';
+import { BorrowerGuardMiddleware } from './middleware/BorrowerGuardMiddleware';
 import { errorHandler } from './middleware/errorHandler';
 import path from 'path';
 
@@ -82,7 +83,7 @@ expressApp.use('/exports', express.static(path.join(__dirname, '..', 'exports'))
 const app = useExpressServer(expressApp, {
     routePrefix: INTERNAL_API_PREFIX,
     controllers: [path.join(__dirname, 'controller/**/*.{js,ts}')],
-    middlewares: [GlobalAuthMiddleware],
+    middlewares: [GlobalAuthMiddleware, BorrowerGuardMiddleware],
     defaultErrorHandler: false,
     validation: {
         whitelist: true,

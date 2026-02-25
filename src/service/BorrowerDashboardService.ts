@@ -1,5 +1,9 @@
 import { AuditLogRepository } from '../repository/AuditLogRepository';
 import { UserRepository } from '../repository/UserRepository';
+import { LevelRulesRepository } from '../repository/LevelRulesRepository';
+import { LoanApplicationRepository } from '../repository/LoanApplicationRepository';
+import { LoanRepository } from '../repository/LoanRepository';
+import { RepaymentRepository } from '../repository/RepaymentRepository';
 import {
     BorrowerDashboardStatsDto,
     BorrowerDashboardAlertsResponse,
@@ -8,65 +12,70 @@ import {
 
 /**
  * B-01: BORROWER DASHBOARD SERVICE
- * Provides dashboard statistics and alerts
- * Calculates: verification level, loan limits, active loans, next repayments
+ * Provides dashboard statistics and alerts from real DB data.
  */
 export class BorrowerDashboardService {
     private auditRepo: AuditLogRepository;
     private userRepo: UserRepository;
+    private levelRulesRepo: LevelRulesRepository;
+    private loanAppRepo: LoanApplicationRepository;
+    private loanRepo: LoanRepository;
+    private repaymentRepo: RepaymentRepository;
 
     constructor() {
         this.auditRepo = new AuditLogRepository();
         this.userRepo = new UserRepository();
+        this.levelRulesRepo = new LevelRulesRepository();
+        this.loanAppRepo = new LoanApplicationRepository();
+        this.loanRepo = new LoanRepository();
+        this.repaymentRepo = new RepaymentRepository();
     }
 
-    /**
-     * Get borrower dashboard statistics
-     *
-     * SQL:
-     * SELECT
-     *   u.level as verificationLevel,
-     *   lr.max_amount as availableLoanLimit,
-     *   COUNT(DISTINCT la.id) as activeLoanCount,
-     *   COUNT(DISTINCT lo.id) as activeInvestmentCount,
-     *   MIN(r.due_date) as nextRepaymentDueDate,
-     *   r.amount as nextRepaymentAmount,
-     *   SUM(CASE WHEN r.paid_at IS NULL THEN r.amount ELSE 0 END) as totalOutstanding
-     * FROM users u
-     * LEFT JOIN level_rules lr ON lr.level = u.level
-     * LEFT JOIN loan_applications la ON la.borrower_id = u.id AND la.status_id IN (2, 3)
-     * LEFT JOIN loan_offers lo ON lo.loan_id = la.id AND lo.status_id = 1
-     * LEFT JOIN loans l ON l.application_id = la.id AND l.status_id = 1
-     * LEFT JOIN repayments r ON r.loan_id = l.id AND r.paid_at IS NULL
-     * WHERE u.id = ?
-     */
     async getDashboardStats(borrowerId: string): Promise<BorrowerDashboardStatsDto> {
         try {
             const borrowerIdNum = parseInt(borrowerId, 10);
+            const user = await this.userRepo.findById(borrowerIdNum);
+            if (!user) throw new Error('User not found');
 
-            // TODO: Query database for statistics
-            // 1. Get user verification level
-            // 2. Get available loan limit from level_rules
-            // 3. Count active loan applications (status = FUNDED, ACTIVE)
-            // 4. Count active loan offers (investments)
-            // 5. Get next repayment due date and amount
-            // 6. Calculate total outstanding amount
+            const level = user.level ?? 0;
+            const levelRules = await this.levelRulesRepo.findByLevel(level);
+            const availableLoanLimit = Number(levelRules?.maxLoanAmount ?? 0);
+
+            const [openApps] = await this.loanAppRepo.findByBorrowerId(borrowerIdNum, 100, 0);
+            const openCount = openApps.filter((a) => a.statusId === 1).length;
+
+            const [activeLoans, activeLoanCount] = await this.loanRepo.findActiveByBorrowerId(borrowerIdNum, 100, 0);
+
+            let totalOutstandingAmount = 0;
+            let nextRepaymentDueDate: string | undefined;
+            let nextRepaymentAmount: number | undefined;
+
+            for (const loan of activeLoans) {
+                const repayments = await this.repaymentRepo.findByLoanId(loan.id);
+                const unpaid = repayments.filter((r) => !r.paidAt);
+                for (const r of unpaid) {
+                    totalOutstandingAmount += Number(r.amount);
+                    const dueStr = r.dueDate instanceof Date ? r.dueDate.toISOString().split('T')[0] : String(r.dueDate);
+                    if (!nextRepaymentDueDate || dueStr < nextRepaymentDueDate) {
+                        nextRepaymentDueDate = dueStr;
+                        nextRepaymentAmount = Number(r.amount);
+                    }
+                }
+            }
 
             const stats: BorrowerDashboardStatsDto = {
-                verificationLevel: 2,
-                availableLoanLimit: 50000,
-                activeLoanCount: 1,
-                activeInvestmentCount: 3,
-                nextRepaymentDueDate: '2026-02-15',
-                nextRepaymentAmount: 500,
-                totalOutstandingAmount: 4500,
+                verificationLevel: level,
+                availableLoanLimit,
+                activeLoanCount,
+                activeInvestmentCount: openCount,
+                nextRepaymentDueDate,
+                nextRepaymentAmount,
+                totalOutstandingAmount: Math.round(totalOutstandingAmount * 100) / 100,
                 timestamp: new Date().toISOString(),
             };
 
-            // Audit log
-            const userId = parseInt(borrowerId, 10);
             await this.auditRepo.create({
-                actorId: userId,
+                actorId: borrowerIdNum,
                 action: 'VIEW_BORROWER_DASHBOARD',
                 entity: 'DASHBOARD',
                 entityId: 0,
@@ -103,46 +112,58 @@ export class BorrowerDashboardService {
     async getAlerts(borrowerId: string): Promise<BorrowerDashboardAlertsResponse> {
         try {
             const borrowerIdNum = parseInt(borrowerId, 10);
-
-            // TODO: Query for all alert types
             const alerts: AlertDto[] = [];
             let criticalCount = 0;
             let highCount = 0;
 
-            // Alert 1: Pending verification
-            // TODO: Check user_verifications with status_id = PENDING
-            // If exists, add PENDING_VERIFICATION alert
+            const user = await this.userRepo.findById(borrowerIdNum);
+            if (user && (user.level ?? 0) === 0) {
+                alerts.push({
+                    id: 'ALERT_VERIFICATION',
+                    type: 'PENDING_VERIFICATION',
+                    severity: 'HIGH',
+                    title: 'Verification Required',
+                    description: 'Complete verification to create loan requests.',
+                    actionUrl: '/app/borrower/verification',
+                    createdAt: new Date().toISOString(),
+                });
+                highCount++;
+            }
 
-            // Alert 2: Overdue payments
-            // TODO: Check repayments with due_date < NOW() and paid_at IS NULL
-            // If exists, add PAYMENT_OVERDUE alert (CRITICAL)
+            const [activeLoans] = await this.loanRepo.findActiveByBorrowerId(borrowerIdNum, 100, 0);
+            const today = new Date().toISOString().split('T')[0];
+            for (const loan of activeLoans) {
+                const repayments = await this.repaymentRepo.findByLoanId(loan.id);
+                const overdue = repayments.filter((r) => !r.paidAt && (r.dueDate instanceof Date ? r.dueDate.toISOString().split('T')[0] : String(r.dueDate)) < today);
+                if (overdue.length > 0) {
+                    alerts.push({
+                        id: `ALERT_OVERDUE_${loan.id}`,
+                        type: 'PAYMENT_OVERDUE',
+                        severity: 'CRITICAL',
+                        title: 'Payment Overdue',
+                        description: `You have ${overdue.length} overdue payment(s) on loan #${loan.id}.`,
+                        actionUrl: `/app/borrower/loans/${loan.id}`,
+                        createdAt: new Date().toISOString(),
+                    });
+                    criticalCount++;
+                    break;
+                }
+            }
 
-            // Alert 3: Commission payment pending
-            // TODO: Check payments with payment_type_id = COMMISSION and status_id ≠ PAID
-            // If exists, add COMMISSION_PENDING alert
+            const [openApps] = await this.loanAppRepo.findByBorrowerId(borrowerIdNum, 50, 0);
+            const needsCommission = openApps.find((a) => a.statusId === 2 && a.commissionStatus !== 'PAID');
+            if (needsCommission) {
+                alerts.push({
+                    id: 'ALERT_COMMISSION',
+                    type: 'COMMISSION_PENDING',
+                    severity: 'MEDIUM',
+                    title: 'Commission Payment Due',
+                    description: 'Complete commission payment to activate your loan.',
+                    actionUrl: '/app/borrower/applications',
+                    createdAt: new Date().toISOString(),
+                });
+            }
 
-            // Sample alerts
-            alerts.push({
-                id: 'ALERT_001',
-                type: 'PENDING_VERIFICATION',
-                severity: 'HIGH',
-                title: 'Verification Pending',
-                description: 'Your KYC verification is pending review',
-                actionUrl: '/api/verification/status',
-                createdAt: new Date().toISOString(),
-            });
-
-            alerts.push({
-                id: 'ALERT_002',
-                type: 'COMMISSION_PENDING',
-                severity: 'MEDIUM',
-                title: 'Commission Payment Due',
-                description: 'Please complete commission payment to activate your loan',
-                actionUrl: '/api/payments/commission',
-                createdAt: new Date().toISOString(),
-            });
-
-            // Audit log
             await this.auditRepo.create({
                 actorId: borrowerIdNum,
                 action: 'VIEW_ALERTS',
@@ -161,5 +182,33 @@ export class BorrowerDashboardService {
             console.error('Error fetching alerts:', error);
             throw new Error('Failed to fetch alerts');
         }
+    }
+
+    /** Short list of open applications for dashboard (e.g. limit 10). */
+    async getOpenApplicationsForDashboard(borrowerId: string, limit: number = 10): Promise<any[]> {
+        const borrowerIdNum = parseInt(borrowerId, 10);
+        const [applications] = await this.loanAppRepo.findByBorrowerId(borrowerIdNum, limit, 0);
+        const open = applications.filter((a) => a.statusId === 1 || a.statusId === 2);
+        return open.map((a) => ({
+            id: a.id,
+            amount: Number(a.amount),
+            durationMonths: a.durationMonths,
+            statusId: a.statusId,
+            commissionStatus: a.commissionStatus,
+            createdAt: a.createdAt?.toISOString?.(),
+        }));
+    }
+
+    /** Short list of active loans for dashboard (e.g. limit 10). */
+    async getActiveLoansForDashboard(borrowerId: string, limit: number = 10): Promise<any[]> {
+        const borrowerIdNum = parseInt(borrowerId, 10);
+        const [loans] = await this.loanRepo.findActiveByBorrowerId(borrowerIdNum, limit, 0);
+        return loans.map((l) => ({
+            id: l.id,
+            applicationId: l.applicationId,
+            totalAmount: Number(l.totalAmount),
+            dueDate: l.dueDate instanceof Date ? l.dueDate.toISOString().split('T')[0] : l.dueDate,
+            createdAt: l.createdAt?.toISOString?.(),
+        }));
     }
 }

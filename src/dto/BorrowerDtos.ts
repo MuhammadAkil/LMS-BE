@@ -140,6 +140,11 @@ export class CreateApplicationRequest {
     @IsString()
     description?: string;
 
+    /** Voluntary lender fee in PLN (optional, default 0). Used in commission formula: (amount + voluntaryFee) × rate */
+    @IsOptional()
+    @Min(0)
+    voluntaryCommission?: number;
+
     // ---- Marketplace fields (optional) ----
 
     /** Funding window duration in hours (24–168). Defaults to 72. */
@@ -203,6 +208,8 @@ export class ApplicationDetailDto {
     description?: string;
     commissionRequired!: number;
     commissionStatus!: string;
+    voluntaryCommission?: number;
+    interestRate?: number;
     createdAt!: string;
     expectedFundingDate?: string;
     activatedAt?: string;
@@ -471,9 +478,12 @@ export class ProfileDto {
     statusId!: number;
     statusName!: string;
     verificationLevel!: number;
+    /** not_started | in_progress | pending_approval | approved */
+    verificationStatus!: string;
     createdAt!: string;
     updatedAt!: string;
     twoFAEnabled!: boolean;
+    availableLoanLimit?: number;
 }
 
 export class UpdateProfileRequest {

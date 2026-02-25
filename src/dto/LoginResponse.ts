@@ -36,6 +36,8 @@ export class LoginResponse {
   /** ACTIVE | PENDING | BLOCKED | FROZEN */
   accountStatus!: string;
   verificationLevel!: number;
+  /** not_started | in_progress | pending_approval | approved — for borrower redirect/banners */
+  verificationStatus!: string;
   expiresAt!: Date;
 
   constructor(
@@ -46,7 +48,8 @@ export class LoginResponse {
     expiresAt: Date,
     role?: string,
     accountStatus?: string,
-    verificationLevel?: number
+    verificationLevel?: number,
+    verificationStatus?: string
   ) {
     this.jwtToken = token;
     this.token = token;
@@ -57,6 +60,7 @@ export class LoginResponse {
     this.roles = [this.role];
     this.accountStatus = accountStatus ?? 'ACTIVE';
     this.verificationLevel = verificationLevel ?? 0;
+    this.verificationStatus = verificationStatus ?? (verificationLevel && verificationLevel > 0 ? 'approved' : 'not_started');
     this.expiresAt = expiresAt;
   }
 

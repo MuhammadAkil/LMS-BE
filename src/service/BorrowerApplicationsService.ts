@@ -5,6 +5,7 @@ import { LoanRepository } from '../repository/LoanRepository';
 import { LoanOfferRepository } from '../repository/LoanOfferRepository';
 import { LevelRulesRepository } from '../repository/LevelRulesRepository';
 import { UserRepository } from '../repository/UserRepository';
+import { InterestRateService } from './InterestRateService';
 import { Loan } from '../domain/Loan';
 import { LoanApplication } from '../domain/LoanApplication';
 import {
@@ -39,6 +40,7 @@ export class BorrowerApplicationsService {
     private loanOfferRepo: LoanOfferRepository;
     private levelRulesRepo: LevelRulesRepository;
     private userRepo: UserRepository;
+    private interestRateService: InterestRateService;
 
     constructor() {
         this.auditRepo = new AuditLogRepository();
@@ -48,6 +50,7 @@ export class BorrowerApplicationsService {
         this.loanOfferRepo = new LoanOfferRepository();
         this.levelRulesRepo = new LevelRulesRepository();
         this.userRepo = new UserRepository();
+        this.interestRateService = new InterestRateService();
     }
 
     /**
@@ -111,6 +114,9 @@ export class BorrowerApplicationsService {
                 throw new Error(`Maximum ${maxApplications} active applications allowed for your level`);
             }
 
+            const voluntaryCommission = Number(request.voluntaryCommission ?? 0);
+            if (voluntaryCommission < 0) throw new Error('Voluntary commission cannot be negative');
+
             // Create new application
             const application = new LoanApplication();
             application.borrowerId = borrowerIdNum;
@@ -122,6 +128,9 @@ export class BorrowerApplicationsService {
             application.fundedPercent = 0;
             application.fundedAmount = 0;
             application.commissionStatus = 'PENDING';
+            application.voluntaryCommission = voluntaryCommission;
+            // Repayment type: lump sum for 1 month or less, installments otherwise
+            application.repaymentType = request.durationMonths <= 1 ? 'LUMP_SUM' : 'INSTALLMENTS';
             // Marketplace fields
             (application as any).fundingWindowHours = request.fundingWindowHours ?? 72;
             (application as any).minFundingThreshold = request.minFundingThreshold ?? 50;
@@ -131,18 +140,22 @@ export class BorrowerApplicationsService {
 
             const savedApp = await this.loanAppRepo.save(application);
 
+            // Lock interest rate at creation time (from interest_rate_schedule)
+            const lockedRate = await this.interestRateService.getCurrentRate();
+
             // LOGIC INFERRED: Create Loan when application is OPEN so lenders can attach offers to it
             const loan = new Loan();
             loan.applicationId = savedApp.id;
             loan.borrowerId = savedApp.borrowerId;
             loan.totalAmount = savedApp.amount;
             loan.fundedAmount = 0;
-            loan.statusId = 1; // OPEN (pending funding) — loan_statuses.id=1
+            loan.statusId = 1; // OPEN (pending funding)
+            loan.interestRate = lockedRate;
             const dueDate = new Date();
             dueDate.setMonth(dueDate.getMonth() + savedApp.durationMonths);
             loan.dueDate = dueDate;
-            loan.repaymentType = (savedApp as any).repaymentType ?? 'LUMP_SUM';
-            loan.voluntaryCommission = Number(savedApp.voluntaryCommission ?? 0);
+            loan.repaymentType = savedApp.repaymentType ?? 'LUMP_SUM';
+            loan.voluntaryCommission = voluntaryCommission;
             await this.loanRepo.save(loan);
 
             // Audit log
@@ -162,7 +175,9 @@ export class BorrowerApplicationsService {
                 { amount: String(request.amount) }
             );
 
-            const commissionRequired = request.amount * ((levelRules?.commissionPercent || 2) / 100);
+            // Commission formula: (amount + voluntary_fee) × level_commission_rate
+            const commissionRate = (levelRules?.commissionPercent ?? 2) / 100;
+            const commissionRequired = (request.amount + voluntaryCommission) * commissionRate;
 
             return {
                 id: savedApp.id,
@@ -175,8 +190,10 @@ export class BorrowerApplicationsService {
                 remainingAmount: savedApp.amount,
                 purpose: savedApp.purpose,
                 description: savedApp.description,
-                commissionRequired: commissionRequired,
+                commissionRequired: Math.round(commissionRequired * 100) / 100,
                 commissionStatus: 'PENDING',
+                voluntaryCommission,
+                interestRate: lockedRate,
                 createdAt: savedApp.createdAt.toISOString(),
                 fundingWindowHours: (savedApp as any).fundingWindowHours ?? 72,
                 minFundingThreshold: (savedApp as any).minFundingThreshold ?? 50,

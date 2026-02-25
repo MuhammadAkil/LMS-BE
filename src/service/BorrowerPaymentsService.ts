@@ -7,7 +7,9 @@ import { UserRepository } from '../repository/UserRepository';
 import { LoanPaymentStepRepository } from '../repository/LoanPaymentStepRepository';
 import { CommissionConfigRepository } from '../repository/CommissionConfigRepository';
 import { LevelRulesRepository } from '../repository/LevelRulesRepository';
+import { RepaymentRepository } from '../repository/RepaymentRepository';
 import { Payment } from '../domain/Payment';
+import { Repayment } from '../domain/Repayment';
 import { LoanPaymentStep } from '../domain/LoanPaymentStep';
 import { Przelewy24Service } from './Przelewy24Service';
 import { LmsNotificationService } from './LmsNotificationService';
@@ -41,6 +43,7 @@ export class BorrowerPaymentsService {
   private pdfService: PdfGenerationService;
   private emailService: EmailService;
   private scheduleService: RepaymentScheduleService;
+  private repaymentRepo: RepaymentRepository;
 
   constructor() {
     this.auditRepo = new AuditLogRepository();
@@ -51,6 +54,7 @@ export class BorrowerPaymentsService {
     this.paymentStepRepo = new LoanPaymentStepRepository();
     this.commissionConfigRepo = new CommissionConfigRepository();
     this.levelRulesRepo = new LevelRulesRepository();
+    this.repaymentRepo = new RepaymentRepository();
     this.p24 = new Przelewy24Service();
     this.notificationService = new LmsNotificationService();
     this.pdfService = new PdfGenerationService();
@@ -314,10 +318,20 @@ export class BorrowerPaymentsService {
 
   /**
    * STEP 2: Called after portal commission is paid.
-   * Updates application commission_status.
+   * If voluntary_fee === 0, trigger agreement generation immediately (no second payment).
+   * Otherwise notify borrower to pay voluntary commission.
    */
   private async onPortalCommissionPaid(applicationId: number, borrowerId: number): Promise<void> {
     await this.loanAppRepo.update(applicationId, { commissionStatus: 'PAID' } as any);
+
+    const application = await this.loanAppRepo.findById(applicationId);
+    const voluntaryFee = Number(application?.voluntaryCommission ?? 0);
+
+    // LOGIC INFERRED: When voluntary_fee is 0, skip second payment and generate agreement immediately
+    if (voluntaryFee === 0) {
+      await this.generateAgreementAndRevealData(applicationId, borrowerId);
+      return;
+    }
 
     await this.notificationService.notify(
       borrowerId,
@@ -338,11 +352,17 @@ export class BorrowerPaymentsService {
 
   /**
    * STEP 4: Called after voluntary commission is paid.
-   * - Generates PDF agreement
-   * - Emails agreement to borrower and lender
-   * - Reveals borrower bank details to lender in portal
+   * Delegates to shared agreement generation (same as when voluntary_fee === 0).
    */
   private async onVoluntaryCommissionPaid(applicationId: number, borrowerId: number): Promise<void> {
+    await this.generateAgreementAndRevealData(applicationId, borrowerId);
+  }
+
+  /**
+   * Generate loan agreement PDF, persist repayment schedule, reveal borrower data to lenders.
+   * Called after portal commission paid when voluntary_fee === 0, or after voluntary commission paid.
+   */
+  private async generateAgreementAndRevealData(applicationId: number, borrowerId: number): Promise<void> {
     const queryRunner = AppDataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
@@ -357,7 +377,6 @@ export class BorrowerPaymentsService {
       const borrower = await this.userRepo.findById(borrowerId);
       if (!borrower) throw new Error('Borrower not found');
 
-      // Get lender (first offer lender as primary)
       const lenderResult = await queryRunner.query(
         `SELECT u.id, u.email, u.first_name, u.last_name
          FROM loan_offers lo
@@ -369,7 +388,6 @@ export class BorrowerPaymentsService {
       );
       const lender = lenderResult[0];
 
-      // Generate repayment schedule for PDF
       const schedule = await this.scheduleService.generateSchedule(
         Number(loan.totalAmount),
         Number(application.durationMonths),
@@ -379,7 +397,16 @@ export class BorrowerPaymentsService {
         loan.interestRate ? Number(loan.interestRate) : undefined
       );
 
-      // Build PDF data
+      // Persist repayment schedule to DB (used by loan detail and history)
+      const repaymentRepo = queryRunner.manager.getRepository(Repayment);
+      for (const i of schedule.installments) {
+        const r = new Repayment();
+        r.loanId = loan.id;
+        r.dueDate = new Date(i.dueDate);
+        r.amount = i.totalAmount;
+        await repaymentRepo.save(r);
+      }
+
       const agreementData = {
         loanId: loan.id,
         applicationId,
@@ -407,16 +434,13 @@ export class BorrowerPaymentsService {
         })),
       };
 
-      // Generate PDF
       const pdfBuffer = await this.pdfService.generateLoanAgreementBuffer(agreementData);
 
-      // Save contract record
       await queryRunner.query(
         `INSERT INTO contracts (loan_id, pdf_path, generated_at) VALUES (?, ?, NOW())`,
         [loan.id, `generated_pdfs/loan_agreement_${loan.id}.pdf`]
       );
 
-      // Reveal borrower data to lender
       await queryRunner.query(
         `UPDATE loans SET lender_data_revealed = TRUE, lender_data_revealed_at = NOW() WHERE id = ?`,
         [loan.id]
@@ -424,7 +448,6 @@ export class BorrowerPaymentsService {
 
       await queryRunner.commitTransaction();
 
-      // Send emails (outside transaction — non-critical)
       try {
         await this.emailService.sendLoanAgreementEmail(
           borrower.email,
@@ -436,7 +459,6 @@ export class BorrowerPaymentsService {
         console.error('Email sending failed (non-critical):', emailErr);
       }
 
-      // Notify both parties in-app
       await this.notificationService.notify(
         borrowerId,
         'LOAN_AGREEMENT_GENERATED',
@@ -457,7 +479,7 @@ export class BorrowerPaymentsService {
 
       await this.auditRepo.create({
         actorId: borrowerId,
-        action: 'VOLUNTARY_COMMISSION_PAID_AGREEMENT_GENERATED',
+        action: 'AGREEMENT_GENERATED',
         entity: 'LOAN',
         entityId: loan.id,
         createdAt: new Date(),

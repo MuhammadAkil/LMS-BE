@@ -95,18 +95,13 @@ export class UserService {
                 return ModuleResponse.generateCustomResponse(401, StateMessages.INVALID_CREDENTIALS);
             }
 
-            // Check if user account is active — return distinct error codes for frozen/blocked
-            if (user.statusId !== this.ACTIVE_STATUS_ID) {
-                console.log(`Login attempt for inactive user: ${user.id}, statusId=${user.statusId}`);
-                const isBlocked = user.statusId === 3;
-                const isFrozen = user.statusId === 4;
-                const errorCode = isBlocked ? 'ACCOUNT_BLOCKED' : isFrozen ? 'ACCOUNT_FROZEN' : 'ACCOUNT_NOT_ACTIVE';
-                const message = isBlocked
-                    ? 'Your account has been blocked. Contact support for assistance.'
-                    : isFrozen
-                    ? 'Your account is frozen. You can only view data. Contact support for assistance.'
-                    : 'Your account is not active. Please contact support.';
-                return ModuleResponse.generateCustomResponse(403, message, { errorCode });
+            // BLOCKED (statusId 3): cannot login at all
+            if (user.statusId === 3) {
+                console.log(`Login attempt for blocked user: ${user.id}`);
+                return ModuleResponse.generateCustomResponse(403, 'Your account has been blocked. Contact support for assistance.', {
+                    errorCode: 'ACCOUNT_BLOCKED',
+                    detail: 'Your account has been blocked. Contact support for assistance.',
+                });
             }
 
             // Generate JWT token
@@ -123,6 +118,8 @@ export class UserService {
 
             await this.userSessionRepository.save(userSession);
 
+            const accountStatus = this.getAccountStatusName(user.statusId);
+            const verificationStatus = this.getVerificationStatus(user.level ?? 0);
             const loginResponse = new LoginResponse(
                 jwtToken,
                 user.id,
@@ -130,8 +127,9 @@ export class UserService {
                 user.roleId,
                 expiresAt,
                 undefined,
-                this.getAccountStatusName(user.statusId),
-                user.level ?? 0
+                accountStatus,
+                user.level ?? 0,
+                verificationStatus
             );
 
             console.log(`User logged in successfully: ${user.email}`);
@@ -145,6 +143,12 @@ export class UserService {
     private getAccountStatusName(statusId: number): string {
         const map: Record<number, string> = { 1: 'PENDING', 2: 'ACTIVE', 3: 'BLOCKED', 4: 'FROZEN' };
         return map[statusId] ?? 'PENDING';
+    }
+
+    /** Derive verificationStatus for borrower redirect/banners: not_started | in_progress | pending_approval | approved */
+    private getVerificationStatus(level: number): string {
+        if (level > 0) return 'approved';
+        return 'not_started';
     }
 
     /** Role ID for ADMIN (only role allowed to use admin login endpoint) */
