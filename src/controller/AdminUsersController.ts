@@ -1,4 +1,4 @@
-import { Controller, Get, Patch, Body, Param, QueryParam, UseBefore, Req } from 'routing-controllers';
+import { Controller, Get, Patch, Put, Post, Delete, Body, Param, QueryParam, UseBefore, Req } from 'routing-controllers';
 import { Request } from 'express';
 import { AdminUsersService } from '../service/AdminUsersService';
 import { AdminGuard, SuperAdminGuard } from '../middleware/AdminGuards';
@@ -113,8 +113,6 @@ export class AdminUsersController {
   /**
    * GET /admin/users/:id/logs
    * Returns audit logs for user
-   *
-   * Response: AuditLogDto[]
    */
   @Get('/:id/logs')
   async getUserAuditLogs(
@@ -123,5 +121,57 @@ export class AdminUsersController {
   ): Promise<AuditLogDto[]> {
     const result = await this.usersService.getUserAuditLogs(userId, limit || 50);
     return (result as any).data || result;
+  }
+
+  @Put('/:id/block')
+  @UseBefore(SuperAdminGuard)
+  async blockUser(@Param('id') userId: number, @Body() body: { reason?: string }, @Req() req: Request): Promise<UserDetailDto> {
+    const adminId = (req.user as any)?.id || (req.user as any)?.userId;
+    if (!adminId) throw new Error('Admin user ID not found');
+    return this.usersService.blockUser(userId, adminId, body.reason) as Promise<UserDetailDto>;
+  }
+
+  @Put('/:id/freeze')
+  @UseBefore(SuperAdminGuard)
+  async freezeUser(@Param('id') userId: number, @Body() body: { reason?: string }, @Req() req: Request): Promise<UserDetailDto> {
+    const adminId = (req.user as any)?.id || (req.user as any)?.userId;
+    if (!adminId) throw new Error('Admin user ID not found');
+    return this.usersService.freezeUser(userId, adminId, body.reason) as Promise<UserDetailDto>;
+  }
+
+  @Put('/:id/approve')
+  @UseBefore(SuperAdminGuard)
+  async approveUser(@Param('id') userId: number, @Body() body: { note?: string }, @Req() req: Request): Promise<UserDetailDto> {
+    const adminId = (req.user as any)?.id || (req.user as any)?.userId;
+    if (!adminId) throw new Error('Admin user ID not found');
+    return this.usersService.approveUser(userId, adminId, body.note) as Promise<UserDetailDto>;
+  }
+
+  @Put('/:id/reject')
+  @UseBefore(SuperAdminGuard)
+  async rejectUser(@Param('id') userId: number, @Body() body: { reason: string }, @Req() req: Request): Promise<UserDetailDto> {
+    const adminId = (req.user as any)?.id || (req.user as any)?.userId;
+    if (!adminId) throw new Error('Admin user ID not found');
+    if (!body?.reason?.trim()) throw new Error('Rejection reason is required');
+    return this.usersService.rejectUser(userId, adminId, body.reason) as Promise<UserDetailDto>;
+  }
+
+  /**
+   * Soft-delete user (sets deleted_at). Frontend calls DELETE /admin/users/:id.
+   */
+  @Delete('/:id')
+  @UseBefore(SuperAdminGuard)
+  async deleteUser(@Param('id') userId: number, @Req() req: Request): Promise<{ success: boolean }> {
+    const adminId = (req.user as any)?.id || (req.user as any)?.userId;
+    if (!adminId) throw new Error('Admin user ID not found');
+    return this.usersService.softDeleteUser(userId, adminId);
+  }
+
+  @Post('/bulk-approve')
+  @UseBefore(SuperAdminGuard)
+  async bulkApprove(@Body() body: { userIds: number[] }, @Req() req: Request): Promise<{ success: boolean; approved: number; failed: number }> {
+    const adminId = (req.user as any)?.id || (req.user as any)?.userId;
+    if (!adminId) throw new Error('Admin user ID not found');
+    return this.usersService.bulkApprove(body.userIds || [], adminId);
   }
 }

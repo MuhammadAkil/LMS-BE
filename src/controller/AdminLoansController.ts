@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, QueryParam, UseBefore, Req } from 'routing-controllers';
+import { Controller, Get, Post, Put, Body, Param, QueryParam, UseBefore, Req } from 'routing-controllers';
 import { Request } from 'express';
 import { AdminLoansService, AddInterventionNoteRequest } from '../service/AdminLoansService';
 import { AdminGuard, SuperAdminGuard } from '../middleware/AdminGuards';
@@ -77,8 +77,6 @@ export class AdminLoansController {
    * POST /admin/loans/:id/block-borrower
    * Blocks the borrower associated with a loan
    * Requires SuperAdminGuard
-   *
-   * Response: { success: boolean; message: string }
    */
   @Post('/:id/block-borrower')
   @UseBefore(SuperAdminGuard)
@@ -86,5 +84,21 @@ export class AdminLoansController {
     const adminId = (req.user as any)?.id || (req.user as any)?.userId;
     if (!adminId) throw new Error('Admin user ID not found in request');
     return this.loansService.blockBorrower(loanId, adminId);
+  }
+
+  @Put('/:id/close')
+  @UseBefore(SuperAdminGuard)
+  async closeLoan(@Param('id') loanId: number, @Req() req: Request) {
+    const adminId = (req.user as any)?.id || (req.user as any)?.userId;
+    if (!adminId) throw new Error('Admin user ID not found in request');
+    return this.loansService.closeLoan(loanId, adminId);
+  }
+
+  @Put('/:id/default')
+  @UseBefore(SuperAdminGuard)
+  async defaultLoan(@Param('id') loanId: number, @Req() req: Request) {
+    const adminId = (req.user as any)?.id || (req.user as any)?.userId;
+    if (!adminId) throw new Error('Admin user ID not found in request');
+    return this.loansService.defaultLoan(loanId, adminId);
   }
 }

@@ -1,6 +1,6 @@
 import { AppDataSource } from '../config/database';
 import { User } from '../domain/User';
-import { In } from 'typeorm';
+import { In, IsNull } from 'typeorm';
 
 export class UserRepository {
     private userRepository = AppDataSource.getRepository(User);
@@ -42,11 +42,17 @@ export class UserRepository {
 
     async findAll(limit: number = 10, offset: number = 0): Promise<[User[], number]> {
         return await this.userRepository.findAndCount({
+            where: { deletedAt: IsNull() },
             take: limit,
             skip: offset,
             relations: ['role', 'status'],
             order: { createdAt: 'DESC' },
         });
+    }
+
+    async softDelete(id: number): Promise<boolean> {
+        const result = await this.userRepository.update(id, { deletedAt: new Date() } as Partial<User>);
+        return (result.affected ?? 0) > 0;
     }
 
     async findByStatus(statusId: number, limit: number = 10, offset: number = 0): Promise<[User[], number]> {

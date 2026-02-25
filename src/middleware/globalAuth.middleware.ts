@@ -26,6 +26,7 @@ const getPublicRoutes = (): string[] => {
         '/api/users/login',
         '/api/users/signup',
         '/api/users/logout',
+        '/api/auth/admin/login',
         '/api/user/login',
         '/api/user/signup',
         '/api/user/logout',

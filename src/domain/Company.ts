@@ -44,6 +44,9 @@ export class Company {
   @Column({ type: 'datetime', nullable: true, name: 'approved_at' })
   approvedAt?: Date;
 
+  @Column({ type: 'datetime', nullable: true, name: 'conditions_locked_at' })
+  conditionsLockedAt?: Date; // Set when admin approves; locks conditions from further edits
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 

@@ -32,6 +32,9 @@ export class AuditLog {
   @Column({ type: 'longtext', nullable: true })
   metadata?: string; // JSON string of changes
 
+  @Column({ type: 'varchar', length: 45, nullable: true })
+  ip?: string; // Client IP for GDPR/compliance
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 

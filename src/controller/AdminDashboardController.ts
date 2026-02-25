@@ -1,4 +1,4 @@
-import { Controller, Get, UseBefore, Req } from 'routing-controllers';
+import { Controller, Get, UseBefore, Req, QueryParam } from 'routing-controllers';
 import { Request } from 'express';
 import { AdminDashboardService } from '../service/AdminDashboardService';
 import { AdminGuard } from '../middleware/AdminGuards';
@@ -56,5 +56,14 @@ export class AdminDashboardController {
       throw new Error('Admin user ID not found in request');
     }
     return this.dashboardService.getAlerts(adminId);
+  }
+
+  /**
+   * GET /admin/dashboard/activity-log?limit=20
+   * Returns last N audit log entries for dashboard.
+   */
+  @Get('/activity-log')
+  async getActivityLog(@Req() req: Request, @QueryParam('limit') limit?: number) {
+    return this.dashboardService.getActivityLog(limit ?? 20);
   }
 }

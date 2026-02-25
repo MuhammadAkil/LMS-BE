@@ -25,14 +25,18 @@ export class AdminDashboardService {
     const queryRunner = AppDataSource.createQueryRunner();
 
     try {
-      // Get user statistics
+      // Get user statistics (exclude soft-deleted)
       const userStats = await queryRunner.query(`
         SELECT 
           COUNT(*) as totalUsers,
           SUM(CASE WHEN status_id = 2 THEN 1 ELSE 0 END) as activeUsers,
-          SUM(CASE WHEN status_id = 3 THEN 1 ELSE 0 END) as blockedUsers
+          SUM(CASE WHEN status_id = 3 THEN 1 ELSE 0 END) as blockedUsers,
+          SUM(CASE WHEN role_id = 2 THEN 1 ELSE 0 END) as borrowerCount,
+          SUM(CASE WHEN role_id = 3 THEN 1 ELSE 0 END) as lenderCount,
+          SUM(CASE WHEN role_id = 4 THEN 1 ELSE 0 END) as companyCount
         FROM users
-      `);
+        WHERE deleted_at IS NULL
+      `).catch(() => ({ totalUsers: 0, activeUsers: 0, blockedUsers: 0, borrowerCount: 0, lenderCount: 0, companyCount: 0 }));
 
       // Get verification statistics
       const verificationStats = await queryRunner.query(`
@@ -41,13 +45,15 @@ export class AdminDashboardService {
         FROM user_verifications
       `);
 
-      // Get loan statistics (if loans table exists)
+      // Get loan statistics (TypeORM default column names: statusId, totalAmount, fundedAmount).
       const loanStats = await queryRunner.query(`
         SELECT 
-          SUM(CASE WHEN status_id = 1 THEN 1 ELSE 0 END) as activeLoans,
-          SUM(CASE WHEN status_id = 3 THEN 1 ELSE 0 END) as defaultedLoans
+          SUM(CASE WHEN statusId = 1 THEN 1 ELSE 0 END) as activeLoans,
+          SUM(CASE WHEN statusId = 3 THEN 1 ELSE 0 END) as defaultedLoans,
+          COALESCE(SUM(CASE WHEN statusId = 1 THEN totalAmount ELSE 0 END), 0) as outstandingPLN,
+          COALESCE(SUM(fundedAmount), 0) as totalDisbursed
         FROM loans
-      `).catch(() => ({ activeLoans: 0, defaultedLoans: 0 }));
+      `).catch(() => ({ activeLoans: 0, defaultedLoans: 0, outstandingPLN: 0, totalDisbursed: 0 }));
 
       // Get payment statistics
       const paymentStats = await queryRunner.query(`
@@ -73,18 +79,37 @@ export class AdminDashboardService {
         0
       );
 
+      const activeLoans = Number(loanStats[0]?.activeLoans) || 0;
+      const defaultedLoans = Number(loanStats[0]?.defaultedLoans) || 0;
+      const totalLoans = activeLoans + defaultedLoans;
+      const defaultRate = totalLoans > 0 ? (defaultedLoans / totalLoans) * 100 : 0;
+      const outstandingPLN = parseFloat(loanStats[0]?.outstandingPLN || 0) || 0;
+      const totalDisbursed = parseFloat(loanStats[0]?.totalDisbursed || 0) || 0;
+
       return {
-        totalUsers: userStats[0]?.totalUsers || 0,
-        activeUsers: userStats[0]?.activeUsers || 0,
-        blockedUsers: userStats[0]?.blockedUsers || 0,
-        pendingVerifications: verificationStats[0]?.pendingCount || 0,
-        activeLoans: loanStats[0]?.activeLoans || 0,
-        defaultedLoans: loanStats[0]?.defaultedLoans || 0,
-        totalPayments: paymentStats[0]?.totalPayments || 0,
-        failedPayments: paymentStats[0]?.failedPayments || 0,
-        totalAmount: parseFloat(paymentStats[0]?.totalAmount || 0),
-        activeCompanies: companyStats[0]?.activeCompanies || 0,
+        totalUsers: Number(userStats[0]?.totalUsers) || 0,
+        activeUsers: Number(userStats[0]?.activeUsers) || 0,
+        blockedUsers: Number(userStats[0]?.blockedUsers) || 0,
+        pendingVerifications: Number(verificationStats[0]?.pendingCount) || 0,
+        activeLoans,
+        defaultedLoans,
+        totalPayments: Number(paymentStats[0]?.totalPayments) || 0,
+        failedPayments: Number(paymentStats[0]?.failedPayments) || 0,
+        totalAmount: parseFloat(paymentStats[0]?.totalAmount || 0) || 0,
+        activeCompanies: Number(companyStats[0]?.activeCompanies) || 0,
         timestamp: new Date(),
+        usersByRole: {
+          borrower: Number(userStats[0]?.borrowerCount) || 0,
+          lender: Number(userStats[0]?.lenderCount) || 0,
+          company: Number(userStats[0]?.companyCount) || 0,
+        },
+        outstandingPLN,
+        outstandingAmount: outstandingPLN,
+        commissionsTotal: 0,
+        defaultRate,
+        totalDisbursed,
+        recoveryRate: 0,
+        defaults: defaultedLoans,
       };
     } finally {
       await queryRunner.release();
@@ -198,5 +223,19 @@ export class AdminDashboardService {
       criticalCount: alerts.filter(a => a.severity === 'CRITICAL').length,
       highCount: alerts.filter(a => a.severity === 'HIGH').length,
     };
+  }
+
+  /**
+   * Get last N activity log entries for dashboard (spec: activity-log?limit=20).
+   */
+  async getActivityLog(limit: number = 20): Promise<Array<{ timestamp: Date; action: string; performedBy: number; targetUser?: number; details?: Record<string, unknown> }>> {
+    const [logs] = await this.auditService.getFilteredAuditLogs({ limit, offset: 0 });
+    return logs.map((log) => ({
+      timestamp: log.createdAt,
+      action: log.action,
+      performedBy: log.userId,
+      targetUser: log.entity === 'USER' ? log.entityId : undefined,
+      details: log.metadata ? (typeof log.metadata === 'string' ? JSON.parse(log.metadata) : log.metadata) : undefined,
+    }));
   }
 }

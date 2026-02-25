@@ -134,6 +134,90 @@ export class UserService {
         }
     }
 
+    /** Role ID for ADMIN (only role allowed to use admin login endpoint) */
+    private readonly ADMIN_ROLE_ID = 1;
+
+    /**
+     * Admin login: same as login but returns 403 if user is not ADMIN.
+     * Used by POST /api/auth/admin/login. JWT secret must come from env (Config).
+     */
+    async adminLogin(loginRequest: LoginRequest): Promise<ModuleResponse> {
+        try {
+            const user = await this.userRepository.findByEmail(loginRequest.email);
+            if (!user) {
+                return ModuleResponse.generateCustomResponse(401, StateMessages.INVALID_CREDENTIALS);
+            }
+            const isPasswordValid = await bcrypt.compare(loginRequest.password, user.passwordHash);
+            if (!isPasswordValid) {
+                return ModuleResponse.generateCustomResponse(401, StateMessages.INVALID_CREDENTIALS);
+            }
+            if (user.statusId !== this.ACTIVE_STATUS_ID) {
+                return ModuleResponse.generateCustomResponse(403, 'User account is not active. Please contact support.');
+            }
+            // Non-admin trying to use admin login — return 403 per spec
+            if (user.roleId !== this.ADMIN_ROLE_ID) {
+                return ModuleResponse.generateCustomResponse(403, 'Admin access only. Use the standard login.');
+            }
+            // 2FA: if enabled, return requires2FA and skip token for now (stub: no OTP flow yet)
+            // const has2FA = await this.checkUser2FA(user.id);
+            // if (has2FA && !loginRequest.twoFACode) {
+            //   return ModuleResponse.generateSuccessResponse({ requires2FA: true });
+            // }
+            const jwtToken = JwtTokenUtil.generateToken(user.id, user.email, user.roleId);
+            const expiresAt = new Date(Date.now() + JwtTokenUtil.getTokenExpiration());
+            await this.userSessionRepository.deleteByUserId(user.id);
+            const userSession = new UserSession();
+            userSession.userId = user.id;
+            userSession.token = jwtToken;
+            userSession.expiresAt = expiresAt;
+            await this.userSessionRepository.save(userSession);
+            const loginResponse = new LoginResponse(jwtToken, user.id, user.email, user.roleId, expiresAt);
+            return ModuleResponse.generateSuccessResponse(loginResponse);
+        } catch (error: any) {
+            console.error('Error during admin login:', error);
+            return ModuleResponse.generateServerErrorResponse('Login failed. Please try again.');
+        }
+    }
+
+    /**
+     * Change password: verify current password then update to new. Min 8 chars, complexity.
+     */
+    async changePassword(
+        userId: number,
+        currentPassword: string,
+        newPassword: string
+    ): Promise<ModuleResponse> {
+        try {
+            const user = await this.userRepository.findById(userId);
+            if (!user) {
+                return ModuleResponse.generateCustomResponse(404, 'User not found');
+            }
+            const valid = await bcrypt.compare(currentPassword, user.passwordHash);
+            if (!valid) {
+                return ModuleResponse.generateCustomResponse(401, 'Current password is incorrect');
+            }
+            if (newPassword.length < 8) {
+                return ModuleResponse.generateCustomResponse(400, 'New password must be at least 8 characters');
+            }
+            const hasUpper = /[A-Z]/.test(newPassword);
+            const hasLower = /[a-z]/.test(newPassword);
+            const hasNumber = /\d/.test(newPassword);
+            const hasSpecial = /[!@#$%^&*(),.?":{}|<>]/.test(newPassword);
+            if (!(hasUpper && hasLower && (hasNumber || hasSpecial))) {
+                return ModuleResponse.generateCustomResponse(
+                    400,
+                    'New password must contain uppercase, lowercase, and a number or special character'
+                );
+            }
+            user.passwordHash = await bcrypt.hash(newPassword, this.BCRYPT_SALT_ROUNDS);
+            await this.userRepository.save(user);
+            return ModuleResponse.generateSuccessResponse({ message: 'Password changed successfully' });
+        } catch (error: any) {
+            console.error('Error during change password:', error);
+            return ModuleResponse.generateServerErrorResponse('Failed to change password');
+        }
+    }
+
     /**
      * User logout
      * Expires the user's latest session by setting expires_at to now.

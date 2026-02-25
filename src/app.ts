@@ -3,6 +3,7 @@ import 'reflect-metadata';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 import { useExpressServer } from 'routing-controllers';
 import config from './config/Config';
 import { AppDataSource } from './config/database';
@@ -15,6 +16,15 @@ const PORT = config.server.port;
 
 const INTERNAL_API_PREFIX = "/api";
 
+// Rate limit: 10 login attempts per 15 min per IP (per spec)
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { success: false, error: { code: 'RATE_LIMIT', message: 'Too many login attempts. Try again in 15 minutes.' } },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // Create Express app
 const expressApp = express();
 
@@ -23,6 +33,10 @@ expressApp.use(helmet());
 expressApp.use(cors());
 expressApp.use(express.json());
 expressApp.use(express.urlencoded({ extended: true }));
+
+// Apply rate limit to login routes only
+expressApp.use('/api/users/login', loginLimiter);
+expressApp.use('/api/auth/admin/login', loginLimiter);
 
 // Health check (before routing-controllers)
 expressApp.get('/health', (_req, res) => {

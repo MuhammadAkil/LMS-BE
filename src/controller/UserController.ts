@@ -1,6 +1,7 @@
 import {
   JsonController,
   Post,
+  Put,
   Body,
   HttpCode,
   Req,
@@ -13,6 +14,7 @@ import { UserService } from '../service/UserService';
 import { LoginRequest } from '../dto/LoginRequest';
 import { LogoutRequest } from '../dto/LogoutRequest';
 import { SignupRequest } from '../dto/SignupRequest';
+import { ChangePasswordRequest } from '../dto/ChangePasswordRequest';
 import { ModuleResponse } from '../dto/ModuleResponse';
 
 /**
@@ -149,6 +151,30 @@ export class UserController {
    *       500:
    *         description: Internal server error
    */
+  /**
+   * PUT /users/change-password
+   * Requires authentication. Validates current password then sets new (min 8 chars, complexity).
+   */
+  @Put('/change-password')
+  @HttpCode(StatusCodes.OK)
+  async changePassword(
+    @Req() req: Request,
+    @Body() body: ChangePasswordRequest,
+  ): Promise<ModuleResponse> {
+    const userId = (req as any).user?.id ?? (req as any).user?.userId;
+    if (!userId) {
+      return ModuleResponse.generateCustomResponse(401, 'Authentication required');
+    }
+    if (body.newPassword !== body.confirmPassword) {
+      return ModuleResponse.generateCustomResponse(400, 'New password and confirmation do not match');
+    }
+    const current = body.currentPassword ?? (body as any).oldPassword;
+    if (!current) {
+      return ModuleResponse.generateCustomResponse(400, 'Current password is required');
+    }
+    return await this.userService.changePassword(userId, current, body.newPassword);
+  }
+
   @Post('/logout')
   @HttpCode(StatusCodes.OK)
   async logout(

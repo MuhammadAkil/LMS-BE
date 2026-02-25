@@ -1,7 +1,7 @@
-import { Controller, Get, Post, Patch, Body, Param, QueryParam, UseBefore, Req } from 'routing-controllers';
+import { Controller, Get, Post, Patch, Put, Delete, Body, Param, QueryParam, UseBefore, Req } from 'routing-controllers';
 import { Request } from 'express';
 import { AdminCompaniesService } from '../service/AdminCompaniesService';
-import { SuperAdminGuard } from '../middleware/AdminGuards';
+import { AdminGuard, SuperAdminGuard } from '../middleware/AdminGuards';
 import {
   CompanyListItemDto,
   CompanyDetailDto,
@@ -23,7 +23,7 @@ import {
  * - PATCH /admin/companies/:id/conditions     -> Update conditions (SuperAdminGuard)
  */
 @Controller('/admin/companies')
-@UseBefore(SuperAdminGuard)
+@UseBefore(AdminGuard)
 export class AdminCompaniesController {
   private readonly companiesService: AdminCompaniesService;
 
@@ -173,5 +173,39 @@ export class AdminCompaniesController {
       throw new Error('Admin user ID not found in request');
     }
     return this.companiesService.updateCompanyConditions(companyId, request, adminId);
+  }
+
+  @Post('/')
+  @UseBefore(SuperAdminGuard)
+  async createCompany(@Body() body: { name: string; bankAccount?: string; conditions?: Record<string, unknown> }, @Req() req: Request): Promise<CompanyDetailDto> {
+    const adminId = (req.user as any)?.id || (req.user as any)?.userId;
+    if (!adminId) throw new Error('Admin user ID not found');
+    return this.companiesService.createCompany(body, adminId);
+  }
+
+  @Put('/:id/suspend')
+  @UseBefore(SuperAdminGuard)
+  async suspendCompany(@Param('id') companyId: number, @Req() req: Request): Promise<CompanyDetailDto> {
+    const adminId = (req.user as any)?.id || (req.user as any)?.userId;
+    if (!adminId) throw new Error('Admin user ID not found');
+    return this.companiesService.suspendCompany(companyId, adminId);
+  }
+
+  @Post('/:id/lenders')
+  @UseBefore(SuperAdminGuard)
+  async linkLenders(@Param('id') companyId: number, @Body() body: { lenderIds: number[] }, @Req() req: Request): Promise<{ linked: number }> {
+    const adminId = (req.user as any)?.id || (req.user as any)?.userId;
+    if (!adminId) throw new Error('Admin user ID not found');
+    return this.companiesService.linkLenders(companyId, body.lenderIds || [], adminId);
+  }
+
+  /** Soft suspend company (frontend DELETE calls this). */
+  @Delete('/:id')
+  @UseBefore(SuperAdminGuard)
+  async deleteCompany(@Param('id') companyId: number, @Req() req: Request): Promise<{ success: boolean }> {
+    const adminId = (req.user as any)?.id || (req.user as any)?.userId;
+    if (!adminId) throw new Error('Admin user ID not found');
+    await this.companiesService.suspendCompany(companyId, adminId);
+    return { success: true };
   }
 }
