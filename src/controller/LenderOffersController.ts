@@ -22,6 +22,32 @@ export class LenderOffersController {
     }
 
     /**
+     * GET /lender/offers
+     * List current user's offers (My Bids).
+     */
+    @Get('/')
+    @UseBefore(withLenderStatusGuard(true), withLenderVerificationGuard(0))
+    async listMyOffers(@Req() req: Request, @Res() res: Response): Promise<void> {
+        try {
+            const lenderId = (req as any).user.id;
+            const offers = await this.offersService.listMyOffers(lenderId);
+            res.status(200).json({
+                statusCode: '200',
+                statusMessage: 'OK',
+                data: { offers },
+                timestamp: new Date().toISOString(),
+            });
+        } catch (error: any) {
+            res.status(500).json({
+                statusCode: '500',
+                statusMessage: 'Failed to list offers',
+                errors: [error.message],
+                timestamp: new Date().toISOString(),
+            });
+        }
+    }
+
+    /**
      * POST /lender/offers
      * Create a new offer
      * Body: { loanId: string, amount: number }
@@ -69,9 +95,11 @@ export class LenderOffersController {
             });
         } catch (error: any) {
             console.error('Error in createOffer:', error);
-            res.status(500).json({
-                statusCode: '500',
-                statusMessage: 'Failed to create offer',
+            const isDuplicate = error.message?.includes('DUPLICATE_OFFER') || error.message?.includes('already have an active offer');
+            const status = isDuplicate ? 409 : 500;
+            res.status(status).json({
+                statusCode: String(status),
+                statusMessage: isDuplicate ? 'You already have an active offer on this loan.' : 'Failed to create offer',
                 errors: [error.message],
                 timestamp: new Date().toISOString(),
             });

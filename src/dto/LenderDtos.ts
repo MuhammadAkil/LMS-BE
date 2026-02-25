@@ -66,9 +66,14 @@ export interface LoanOfferDto {
     createdAt: string;
 }
 
+/** Anonymized offer for public/detail (no lender identity). */
+export interface LoanOfferAnonymizedDto {
+    amount: number;
+    createdAt: string;
+}
+
 export interface LoanBrowseItemDto {
     id: string;
-    borrowerId: string;
     amount: number;
     durationMonths: number;
     purpose: string;
@@ -77,9 +82,10 @@ export interface LoanBrowseItemDto {
     createdAt: string;
     fundedPercent: number;
     remainingAmount: number;
-    offers: LoanOfferDto[];
-    ctaEligible: boolean; // Can current user make offer
-    ctaReason?: string; // If not eligible, why
+    offerCount: number;
+    offers?: LoanOfferDto[]; // optional: when caller needs per-offer (e.g. detail with anonymized)
+    ctaEligible: boolean;
+    ctaReason?: string;
 }
 
 export interface LoanBrowsePageResponse {

@@ -436,11 +436,9 @@ export class BorrowerApplicationsService {
     }
 
     /**
-     * Close application
-     * Allowed only if:
-     * - status = OPEN or FUNDED
-     * - funded_percent >= 50
-     * - At least one loan created from this application
+     * Close application (manual close by borrower).
+     * Allowed only if: status = OPEN, funded_percent >= 50, loan exists and is OPEN.
+     * Runs pro-rata, sets confirmed_amount on offers, transitions loan to FUNDED_PENDING_PAYMENT.
      */
     async closeApplication(
         borrowerId: string,
@@ -451,51 +449,34 @@ export class BorrowerApplicationsService {
             const borrowerIdNum = parseInt(borrowerId, 10);
             const appIdNum = parseInt(applicationId, 10);
 
-            // Query and validate application
             const application = await this.loanAppRepo.findById(appIdNum);
             if (!application || application.borrowerId !== borrowerIdNum) {
                 throw new Error('Application not found');
             }
-
-            // Validation: Status must be OPEN (1) or FUNDED (2)
-            if (![1, 2].includes(application.statusId)) {
-                throw new Error('Application must be in OPEN or FUNDED status to be closed');
+            if (application.statusId !== 1) {
+                throw new Error('Application must be in OPEN status to be closed');
             }
-
-            // Validation: funded_percent >= 50
             if (application.fundedPercent < 50) {
                 throw new Error('Application must be at least 50% funded before closing');
             }
 
-            // Update status to CLOSED (statusId = 3)
-            application.statusId = 3;
-            await this.loanAppRepo.update(appIdNum, application);
+            const loan = await this.loanRepo.findByApplicationId(appIdNum);
+            if (!loan) throw new Error('Loan not found');
+            if (loan.statusId !== 1) throw new Error('Loan is already closed or not open for closing');
 
-            const fundedAmount = (application.amount * application.fundedPercent) / 100;
+            const { MarketplaceCloseService } = await import('./MarketplaceCloseService');
+            const closeService = new MarketplaceCloseService();
+            await closeService.closeLoanWithProRata(loan.id, 'borrower');
 
-            // Audit log
-            await this.auditRepo.create({
-                actorId: borrowerIdNum,
-                action: 'APPLICATION_CLOSED',
-                entity: 'APPLICATION',
-                entityId: appIdNum,
-                createdAt: new Date(),
-            } as any);
-
-            await this.notificationService.notify(
-                borrowerIdNum,
-                'APPLICATION_CLOSED',
-                'Application Closed',
-                `Your loan application has been successfully closed with ${application.fundedPercent}% funding`,
-                { fundedPercent: String(application.fundedPercent) }
-            );
+            const appAfter = await this.loanAppRepo.findById(appIdNum);
+            const fundedAmount = Number(appAfter?.fundedAmount ?? application.fundedAmount * application.amount / 100);
 
             return {
                 applicationId: appIdNum,
                 status: 'CLOSED',
                 closedAt: new Date().toISOString(),
-                fundedAmount: fundedAmount,
-                unfundedAmount: application.amount - fundedAmount,
+                fundedAmount,
+                unfundedAmount: Number(application.amount) - fundedAmount,
             };
         } catch (error: any) {
             console.error('Error closing application:', error);

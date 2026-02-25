@@ -55,6 +55,12 @@ export class LenderOffersService {
             return { isValid: false, errors, warnings, remainingCapacity: 0, estimatedROI: 0 };
         }
 
+        const existingOffer = await this.loanOfferRepo.findByLoanIdAndLenderId(loanIdNum, parseInt(lenderId, 10));
+        if (existingOffer) {
+            errors.push('You already have an active offer on this loan. Cancel it first or use a different loan.');
+            return { isValid: false, errors, warnings, remainingCapacity: 0, estimatedROI: 0 };
+        }
+
         const totalOffered = await this.loanOfferRepo.sumAmountByLoanId(loanIdNum);
         const totalAmount = Number(loan.totalAmount);
         const remainingAmount = Math.max(0, totalAmount - totalOffered);
@@ -85,6 +91,11 @@ export class LenderOffersService {
 
         const loanIdNum = parseInt(request.loanId, 10);
         const lenderIdNum = parseInt(lenderId, 10);
+        const existingOffer = await this.loanOfferRepo.findByLoanIdAndLenderId(loanIdNum, lenderIdNum);
+        if (existingOffer) {
+            throw new Error('DUPLICATE_OFFER: You already have an active offer on this loan.');
+        }
+
         const queryRunner = AppDataSource.createQueryRunner();
         await queryRunner.connect();
         await queryRunner.startTransaction();
@@ -119,7 +130,14 @@ export class LenderOffersService {
                 createdAt: new Date(),
             } as any);
 
+            // Auto-close at 100%: run close logic in same transaction
+            const { MarketplaceCloseService } = await import('./MarketplaceCloseService');
+            const closeService = new MarketplaceCloseService();
+            const didClose = await closeService.tryAutoCloseAfterOffer(queryRunner, loanIdNum, fundedPercent);
+
             await queryRunner.commitTransaction();
+
+            if (didClose) await closeService.notifyPartiesForClose(loanIdNum, 'auto');
 
             return {
                 offerId: String(saved.id),
@@ -128,7 +146,7 @@ export class LenderOffersService {
                 amount: request.amount,
                 loanFundedPercent: Math.round(fundedPercent * 100) / 100,
                 createdAt: (saved.createdAt as Date).toISOString(),
-                message: 'Offer created successfully.',
+                message: didClose ? 'Offer created and loan fully funded.' : 'Offer created successfully.',
             };
         } catch (e) {
             await queryRunner.rollbackTransaction();
@@ -136,6 +154,52 @@ export class LenderOffersService {
         } finally {
             await queryRunner.release();
         }
+    }
+
+    /**
+     * List all offers placed by this lender (for "My Bids" / My Offers).
+     */
+    async listMyOffers(lenderId: string): Promise<Array<{
+        offerId: string;
+        loanId: string;
+        amount: number;
+        confirmedAmount: number | null;
+        loanAmount: number;
+        loanStatus: string;
+        fundedPercent: number;
+        createdAt: string;
+    }>> {
+        const lenderIdNum = parseInt(lenderId, 10);
+        const offers = await this.loanOfferRepo.findByLenderId(lenderIdNum);
+        const result: Array<{
+            offerId: string;
+            loanId: string;
+            amount: number;
+            confirmedAmount: number | null;
+            loanAmount: number;
+            loanStatus: string;
+            fundedPercent: number;
+            createdAt: string;
+        }> = [];
+        for (const o of offers) {
+            const loan = await this.loanRepo.findById(o.loanId);
+            if (!loan) continue;
+            const totalOffered = await this.loanOfferRepo.sumAmountByLoanId(loan.id);
+            const totalAmount = Number(loan.totalAmount);
+            const fundedPercent = totalAmount > 0 ? Math.min(100, (totalOffered / totalAmount) * 100) : 0;
+            const statusCode = loan.statusId === 1 ? 'OPEN' : loan.statusId === 2 ? 'FUNDED' : 'OTHER';
+            result.push({
+                offerId: String(o.id),
+                loanId: String(o.loanId),
+                amount: Number(o.amount),
+                confirmedAmount: o.confirmedAmount != null ? Number(o.confirmedAmount) : null,
+                loanAmount: totalAmount,
+                loanStatus: statusCode,
+                fundedPercent: Math.round(fundedPercent * 100) / 100,
+                createdAt: (o.createdAt as Date).toISOString(),
+            });
+        }
+        return result.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     }
 
     /**

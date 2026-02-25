@@ -54,17 +54,11 @@ export class LenderLoansService {
                 const fundedPercent = Number(loan.totalAmount) > 0
                     ? Math.min(100, (totalOffered / Number(loan.totalAmount)) * 100)
                     : 0;
-                const offerDtos: LoanOfferDto[] = offers.map(o => ({
-                    lenderId: String(o.lenderId),
-                    amount: Number(o.amount),
-                    createdAt: (o.createdAt as Date).toISOString(),
-                }));
                 const lender = await this.userRepo.findById(lenderIdNum);
                 const ctaEligible = !!(lender?.bankAccount?.trim()) && (lender?.level ?? 0) >= 0 && remaining >= MIN_OFFER_PLN;
 
                 items.push({
                     id: String(loan.id),
-                    borrowerId: String(loan.borrowerId),
                     amount: Number(loan.totalAmount),
                     durationMonths: app.durationMonths,
                     purpose: app.purpose ?? '',
@@ -73,7 +67,7 @@ export class LenderLoansService {
                     createdAt: (loan.createdAt as Date).toISOString(),
                     fundedPercent: Math.round(fundedPercent * 100) / 100,
                     remainingAmount: Math.round(remaining * 100) / 100,
-                    offers: offerDtos,
+                    offerCount: offers.length,
                     ctaEligible,
                 });
             }
@@ -107,8 +101,9 @@ export class LenderLoansService {
         const fundedPercent = Number(loan.totalAmount) > 0
             ? Math.min(100, (totalOffered / Number(loan.totalAmount)) * 100)
             : 0;
-        const offerDtos: LoanOfferDto[] = offers.map(o => ({
-            lenderId: String(o.lenderId),
+        // Anonymized: no lender ids, only amount and date
+        const offerDtos: LoanOfferDto[] = offers.map((o, i) => ({
+            lenderId: `Lender ${i + 1}`,
             amount: Number(o.amount),
             createdAt: (o.createdAt as Date).toISOString(),
         }));
@@ -118,7 +113,6 @@ export class LenderLoansService {
         const lender = await this.userRepo.findById(lenderIdNum);
         const ctaEligible = !!(lender?.bankAccount?.trim()) && (lender?.level ?? 0) >= 0 && remaining >= MIN_OFFER_PLN;
 
-        // Borrower privacy: only show name/identifiers after agreement (lender_data_revealed)
         const borrowerName = loan.lenderDataRevealed && borrower
             ? `${borrower.firstName ?? ''} ${borrower.lastName ?? ''}`.trim() || borrower.email
             : 'Borrower';
@@ -126,7 +120,6 @@ export class LenderLoansService {
 
         return {
             id: String(loan.id),
-            borrowerId: String(loan.borrowerId),
             amount: Number(loan.totalAmount),
             durationMonths: app.durationMonths,
             purpose: app.purpose ?? '',
@@ -135,6 +128,7 @@ export class LenderLoansService {
             createdAt: (loan.createdAt as Date).toISOString(),
             fundedPercent: Math.round(fundedPercent * 100) / 100,
             remainingAmount: Math.round(remaining * 100) / 100,
+            offerCount: offers.length,
             offers: offerDtos,
             ctaEligible,
             borrowerName,
@@ -142,6 +136,25 @@ export class LenderLoansService {
             borrowerVerificationStatus: `Level ${borrowerLevel}`,
             totalOffers: offers.length,
             fundedByOthers: totalOffered,
+        };
+    }
+
+    /** Lightweight funding status for polling (e.g. loan detail modal). */
+    async getFundingStatus(loanId: string): Promise<{ fundedPercent: number; remainingAmount: number; offerCount: number; statusCode: string }> {
+        const loanIdNum = parseInt(loanId, 10);
+        const loan = await this.loanRepo.findById(loanIdNum);
+        if (!loan) throw new Error('Loan not found');
+        const offers = await this.loanOfferRepo.findByLoanId(loan.id);
+        const totalOffered = offers.reduce((s, o) => s + Number(o.amount), 0);
+        const totalAmount = Number(loan.totalAmount);
+        const remaining = Math.max(0, totalAmount - totalOffered);
+        const fundedPercent = totalAmount > 0 ? Math.min(100, (totalOffered / totalAmount) * 100) : 0;
+        const statusCode = loan.statusId === 1 ? 'OPEN' : loan.statusId === 2 ? 'FUNDED' : 'UNKNOWN';
+        return {
+            fundedPercent: Math.round(fundedPercent * 100) / 100,
+            remainingAmount: Math.round(remaining * 100) / 100,
+            offerCount: offers.length,
+            statusCode,
         };
     }
 }
