@@ -1,9 +1,9 @@
 import { Request, Response } from 'express';
-import { Body, Controller, Get, Post, Req, Res, UseBefore } from 'routing-controllers';
+import { Body, Controller, Delete, Get, Post, Req, Res, UseBefore } from 'routing-controllers';
 import { LenderOffersService } from '../service/LenderOffersService';
 import { MakeOfferRequest } from '../dto/LenderDtos';
 import { AuthenticationMiddleware } from '../middleware/AuthenticationMiddleware';
-import { LenderBankAccountGuard, LenderRoleGuard } from '../middleware/LenderGuards';
+import { LenderBankAccountGuard, LenderManagedGuard, LenderRoleGuard } from '../middleware/LenderGuards';
 import { withLenderStatusGuard, withLenderVerificationGuard } from '../middleware/LenderGuardWrappers';
 
 /**
@@ -40,7 +40,7 @@ export class LenderOffersController {
      * - Borrower notification
      */
     @Post('/')
-    @UseBefore(withLenderStatusGuard(false), withLenderVerificationGuard(2), LenderBankAccountGuard)
+    @UseBefore(withLenderStatusGuard(false), withLenderVerificationGuard(2), LenderBankAccountGuard, LenderManagedGuard)
     async createOffer(@Req() req: Request, @Res() res: Response, @Body() _body?: MakeOfferRequest): Promise<void> {
         try {
             const lenderId = (req as any).user.id;
@@ -133,6 +133,34 @@ export class LenderOffersController {
     }
 
     /**
+     * DELETE /lender/offers/:offerId
+     * Cancel offer (only if loan is still OPEN).
+     */
+    @Delete('/:offerId')
+    @UseBefore(withLenderStatusGuard(false), withLenderVerificationGuard(2), LenderBankAccountGuard, LenderManagedGuard)
+    async cancelOffer(@Req() req: Request, @Res() res: Response): Promise<void> {
+        try {
+            const lenderId = (req as any).user.id;
+            const { offerId } = req.params;
+            await this.offersService.cancelOffer(String(lenderId), offerId);
+            res.status(200).json({
+                statusCode: '200',
+                statusMessage: 'Offer cancelled successfully',
+                timestamp: new Date().toISOString(),
+            });
+        } catch (error: any) {
+            console.error('Error in cancelOffer:', error);
+            const statusCode = error.message === 'Offer not found' || error.message?.includes('not found') ? 404 : 400;
+            res.status(statusCode).json({
+                statusCode: String(statusCode),
+                statusMessage: error.message || 'Failed to cancel offer',
+                errors: [error.message],
+                timestamp: new Date().toISOString(),
+            });
+        }
+    }
+
+    /**
      * Validate offer request object
      * Returns { isValid: boolean, errors: string[] }
      */
@@ -145,6 +173,9 @@ export class LenderOffersController {
 
         if (!request.amount || typeof request.amount !== 'number' || request.amount <= 0) {
             errors.push('amount is required and must be a positive number');
+        }
+        if (request.amount != null && request.amount < 10) {
+            errors.push('Minimum offer is 10 PLN');
         }
 
         if (request.amount && request.amount > 1000000) {

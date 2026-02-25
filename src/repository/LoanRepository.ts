@@ -43,6 +43,15 @@ export class LoanRepository {
         });
     }
 
+    async findOpenPaginated(page: number, pageSize: number): Promise<[Loan[], number]> {
+        return await this.loanRepository.findAndCount({
+            where: { statusId: 1 },
+            order: { createdAt: 'DESC' },
+            skip: (page - 1) * pageSize,
+            take: pageSize,
+        });
+    }
+
     async findAll(limit: number = 10, offset: number = 0): Promise<[Loan[], number]> {
         return await this.loanRepository.findAndCount({
             take: limit,

@@ -5,6 +5,7 @@ import { LoanRepository } from '../repository/LoanRepository';
 import { LoanOfferRepository } from '../repository/LoanOfferRepository';
 import { LevelRulesRepository } from '../repository/LevelRulesRepository';
 import { UserRepository } from '../repository/UserRepository';
+import { Loan } from '../domain/Loan';
 import { LoanApplication } from '../domain/LoanApplication';
 import {
     CreateApplicationRequest,
@@ -129,6 +130,20 @@ export class BorrowerApplicationsService {
             (application as any).isPublic = request.isPublic ?? true;
 
             const savedApp = await this.loanAppRepo.save(application);
+
+            // LOGIC INFERRED: Create Loan when application is OPEN so lenders can attach offers to it
+            const loan = new Loan();
+            loan.applicationId = savedApp.id;
+            loan.borrowerId = savedApp.borrowerId;
+            loan.totalAmount = savedApp.amount;
+            loan.fundedAmount = 0;
+            loan.statusId = 1; // OPEN (pending funding) — loan_statuses.id=1
+            const dueDate = new Date();
+            dueDate.setMonth(dueDate.getMonth() + savedApp.durationMonths);
+            loan.dueDate = dueDate;
+            loan.repaymentType = (savedApp as any).repaymentType ?? 'LUMP_SUM';
+            loan.voluntaryCommission = Number(savedApp.voluntaryCommission ?? 0);
+            await this.loanRepo.save(loan);
 
             // Audit log
             await this.auditRepo.create({

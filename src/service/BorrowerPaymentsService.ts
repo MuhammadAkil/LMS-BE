@@ -88,10 +88,14 @@ export class BorrowerPaymentsService {
     const borrower = await this.userRepo.findById(borrowerIdNum);
     if (!borrower) throw new Error('Borrower not found');
 
+    // LOGIC INFERRED: Portal commission is calculated on (loan_amount + voluntary_fee) per spec
+    const loanAmount = Number(application.amount);
+    const voluntaryFee = Number(application.voluntaryCommission ?? 0);
     const commissionAmount = await this.calculatePortalCommission(
       borrowerIdNum,
       borrower.level ?? 0,
-      Number(application.amount)
+      loanAmount,
+      voluntaryFee
     );
 
     const sessionId = randomUUID();
@@ -265,6 +269,11 @@ export class BorrowerPaymentsService {
   async handleCommissionWebhook(sessionId: string, orderId: number, amount: number, sign: string): Promise<void> {
     const payment = await this.paymentRepo.findBySessionId(sessionId);
     if (!payment) throw new Error(`Payment not found for sessionId: ${sessionId}`);
+
+    // Idempotent: if already processed, skip (P24 may send duplicate webhooks)
+    if (payment.statusId === STATUS_PAID) {
+      return;
+    }
 
     const amountGrosz = Number(amount);
     const expectedAmount = Math.round(Number(payment.amount) * 100);
@@ -530,17 +539,23 @@ export class BorrowerPaymentsService {
     } as any);
   }
 
-  private async calculatePortalCommission(borrowerId: number, level: number, loanAmount: number): Promise<number> {
-    // Try commission config table first
-    const config = await this.commissionConfigRepo.findApplicablePortalCommission(level, loanAmount);
+  /**
+   * Portal commission is calculated on (loan_amount + voluntary_fee), not just loan_amount.
+   */
+  private async calculatePortalCommission(
+    borrowerId: number,
+    level: number,
+    loanAmount: number,
+    voluntaryFee: number = 0
+  ): Promise<number> {
+    const baseAmount = loanAmount + voluntaryFee;
+    const config = await this.commissionConfigRepo.findApplicablePortalCommission(level, baseAmount);
     if (config) {
-      return Math.round(loanAmount * Number(config.commissionPct) * 100) / 100;
+      return Math.round(baseAmount * Number(config.commissionPct) * 100) / 100;
     }
-
-    // Fallback to level_rules
     const levelRules = await this.levelRulesRepo.findByLevel(level);
     const rate = levelRules?.commissionPercent ?? 2;
-    return Math.round(loanAmount * (rate / 100) * 100) / 100;
+    return Math.round(baseAmount * (rate / 100) * 100) / 100;
   }
 
   async handlePaymentCallback(paymentId: number, status: string, signature: string, amount: number): Promise<void> {

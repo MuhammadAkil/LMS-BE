@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { LoanApplicationRepository } from '../repository/LoanApplicationRepository';
 import { LoanOfferRepository } from '../repository/LoanOfferRepository';
+import { LoanRepository } from '../repository/LoanRepository';
 import { BorrowerApiResponse } from '../dto/BorrowerDtos';
 
 /**
@@ -11,10 +12,12 @@ import { BorrowerApiResponse } from '../dto/BorrowerDtos';
 export class BorrowerMarketplaceService {
     private loanAppRepo: LoanApplicationRepository;
     private loanOfferRepo: LoanOfferRepository;
+    private loanRepo: LoanRepository;
 
     constructor() {
         this.loanAppRepo = new LoanApplicationRepository();
         this.loanOfferRepo = new LoanOfferRepository();
+        this.loanRepo = new LoanRepository();
     }
 
     /**
@@ -38,7 +41,8 @@ export class BorrowerMarketplaceService {
                 return;
             }
 
-            const offers = await this.loanOfferRepo.findByLoanId(applicationId);
+            const loan = await this.loanRepo.findByApplicationId(applicationId);
+            const offers = loan ? await this.loanOfferRepo.findByLoanId(loan.id) : [];
 
             const maskedBids = (offers ?? []).map((offer: any, index: number) => ({
                 id: offer.id,
@@ -100,7 +104,8 @@ export class BorrowerMarketplaceService {
                 return;
             }
 
-            const offers = await this.loanOfferRepo.findByLoanId(applicationId);
+            const loan = await this.loanRepo.findByApplicationId(applicationId);
+            const offers = loan ? await this.loanOfferRepo.findByLoanId(loan.id) : [];
             const amount = Number(application.amount ?? 0);
             const fundingPercent = Number(application.fundedPercent ?? 0);
             const fundedAmount = amount * fundingPercent / 100;
@@ -182,7 +187,8 @@ export class BorrowerMarketplaceService {
             // Update application status to FUNDED (statusId = 2)
             await this.loanAppRepo.update(applicationId, { statusId: 2 } as any);
 
-            const offers = await this.loanOfferRepo.findByLoanId(applicationId);
+            const loan = await this.loanRepo.findByApplicationId(applicationId);
+            const offers = loan ? await this.loanOfferRepo.findByLoanId(loan.id) : [];
             const acceptedBidCount = (offers ?? []).length;
 
             res.status(200).json({

@@ -23,6 +23,10 @@ export class LoanOffer {
   @Column({ type: 'decimal', precision: 10, scale: 2 })
   amount!: number;
 
+  /** Set at loan close (pro-rata); null while offer is pending */
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true, name: 'confirmed_amount' })
+  confirmedAmount?: number;
+
   @CreateDateColumn()
   createdAt!: Date;
 }

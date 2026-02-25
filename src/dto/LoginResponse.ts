@@ -31,15 +31,32 @@ export class LoginResponse {
   email!: string;
   roleId!: number;
   role!: string;
+  /** Roles array for clients that support multi-role (e.g. borrower+lender same account) */
+  roles!: string[];
+  /** ACTIVE | PENDING | BLOCKED | FROZEN */
+  accountStatus!: string;
+  verificationLevel!: number;
   expiresAt!: Date;
 
-  constructor(token: string, userId: number, email: string, roleId: number, expiresAt: Date, role?: string) {
+  constructor(
+    token: string,
+    userId: number,
+    email: string,
+    roleId: number,
+    expiresAt: Date,
+    role?: string,
+    accountStatus?: string,
+    verificationLevel?: number
+  ) {
     this.jwtToken = token;
     this.token = token;
     this.userId = userId;
     this.email = email;
     this.roleId = roleId;
     this.role = role ?? LoginResponse.roleIdToName(roleId);
+    this.roles = [this.role];
+    this.accountStatus = accountStatus ?? 'ACTIVE';
+    this.verificationLevel = verificationLevel ?? 0;
     this.expiresAt = expiresAt;
   }
 
@@ -52,4 +69,5 @@ export class LoginResponse {
     };
     return map[roleId] ?? 'BORROWER';
   }
+
 }

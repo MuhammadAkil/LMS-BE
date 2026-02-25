@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
-import { UserStatusCode, UserRoleCode } from '../util/Enums';
 import { UserRepository } from '../repository/UserRepository';
+import { ManagementAgreementRepository } from '../repository/ManagementAgreementRepository';
 
 /**
  * LENDER GUARDS - Access control for LENDER module
@@ -8,6 +8,7 @@ import { UserRepository } from '../repository/UserRepository';
  */
 
 const userRepository = new UserRepository();
+const managementAgreementRepository = new ManagementAgreementRepository();
 
 /**
  * LenderRoleGuard
@@ -98,22 +99,24 @@ export async function LenderStatusGuard(allowReadOnly: boolean = false) {
                 fullUser.statusId === 3 || fullUser.statusId === 4; // BLOCKED=3, FROZEN=4 (adjust based on your DB)
             const isActive = fullUser.statusId === 2; // ACTIVE=2 (adjust based on your DB)
 
-            // BLOCKED users cannot do anything
+            // BLOCKED users cannot do anything — return distinct code for frontend
             if (isBlockedOrFrozen && fullUser.statusId === 3) {
                 res.status(403).json({
                     statusCode: '403',
                     statusMessage: 'Forbidden: Account is blocked',
+                    errorCode: 'ACCOUNT_BLOCKED',
                     detail: 'Your account has been blocked. Contact support for assistance.',
                 });
                 return;
             }
 
-            // FROZEN users are read-only
+            // FROZEN users are read-only — return distinct code for frontend
             if (isBlockedOrFrozen && fullUser.statusId === 4) {
                 if (req.method !== 'GET') {
                     res.status(403).json({
                         statusCode: '403',
                         statusMessage: 'Forbidden: Account is frozen',
+                        errorCode: 'ACCOUNT_FROZEN',
                         detail: 'Your account is frozen. You can only view data.',
                     });
                     return;
@@ -236,8 +239,8 @@ export async function LenderBankAccountGuard(
             return;
         }
 
-        // Check if user has a bank account registered (stored as phone field in current schema)
-        const hasBankAccount = fullUser.phone != null && fullUser.phone.trim().length > 0;
+        // Check if user has a bank account registered (IBAN in bank_account column)
+        const hasBankAccount = fullUser.bankAccount != null && String(fullUser.bankAccount).trim().length > 0;
 
         if (!hasBankAccount) {
             res.status(403).json({
@@ -253,6 +256,45 @@ export async function LenderBankAccountGuard(
         next();
     } catch (error: any) {
         console.error('Error in LenderBankAccountGuard:', error);
+        res.status(500).json({
+            statusCode: '500',
+            statusMessage: 'Internal server error',
+        });
+    }
+}
+
+/**
+ * LenderManagedGuard
+ * Blocks lenders who have an active management agreement from making direct offers.
+ * Must be applied to POST /lender/offers (and any other direct-offer endpoints).
+ */
+export async function LenderManagedGuard(
+    req: Request,
+    res: Response,
+    next: NextFunction
+): Promise<void> {
+    const user = (req as any).user;
+    if (!user) {
+        res.status(401).json({
+            statusCode: '401',
+            statusMessage: 'Unauthorized: No authenticated user',
+        });
+        return;
+    }
+    try {
+        const activeAgreement = await managementAgreementRepository.findActiveByLenderId(user.id);
+        if (activeAgreement) {
+            res.status(403).json({
+                statusCode: '403',
+                statusMessage: 'Forbidden: Manual offers are disabled',
+                errorCode: 'LENDER_IS_MANAGED',
+                detail: 'Your funds are managed by a company. Manual offers are disabled.',
+            });
+            return;
+        }
+        next();
+    } catch (error: any) {
+        console.error('Error in LenderManagedGuard:', error);
         res.status(500).json({
             statusCode: '500',
             statusMessage: 'Internal server error',
