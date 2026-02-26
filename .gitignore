@@ -48,3 +48,5 @@ coverage/
 *.swp
 *.swo
 *~
+migrate/
+migrate.sql
