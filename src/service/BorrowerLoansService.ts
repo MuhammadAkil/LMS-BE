@@ -393,4 +393,33 @@ export class BorrowerLoansService {
             throw new Error('Failed to fetch payment history');
         }
     }
+
+    /**
+     * Borrower marks an installment as paid (self-report).
+     * Sets repayments.paid_at for the given repayment id.
+     */
+    async confirmRepayment(borrowerId: string, loanId: string, repaymentId: string): Promise<{ success: boolean }> {
+        const borrowerIdNum = parseInt(borrowerId, 10);
+        const loanIdNum = parseInt(loanId, 10);
+        const repaymentIdNum = parseInt(repaymentId, 10);
+
+        const loan = await this.loanRepo.findById(loanIdNum);
+        if (!loan || loan.borrowerId !== borrowerIdNum) throw new Error('Loan not found');
+
+        const repayment = await this.repaymentRepo.findById(repaymentIdNum);
+        if (!repayment || repayment.loanId !== loanIdNum) throw new Error('Repayment not found');
+        if (repayment.paidAt) throw new Error('This installment is already marked as paid');
+
+        await this.repaymentRepo.update(repaymentIdNum, { paidAt: new Date() });
+
+        await this.auditRepo.create({
+            actorId: borrowerIdNum,
+            action: 'REPAYMENT_CONFIRMED_BY_BORROWER',
+            entity: 'REPAYMENT',
+            entityId: repaymentIdNum,
+            createdAt: new Date(),
+        } as any);
+
+        return { success: true };
+    }
 }

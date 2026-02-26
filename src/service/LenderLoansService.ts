@@ -2,50 +2,32 @@ import {
     LoanBrowseItemDto,
     LoanBrowsePageResponse,
     LoanDetailResponse,
-    LoanBrowseFilterDto
+    LoanBrowseFilterDto,
+    LoanOfferDto,
 } from '../dto/LenderDtos';
-import { AuditLogRepository } from '../repository/AuditLogRepository';
+import { LoanRepository } from '../repository/LoanRepository';
+import { LoanApplicationRepository } from '../repository/LoanApplicationRepository';
+import { LoanOfferRepository } from '../repository/LoanOfferRepository';
+import { UserRepository } from '../repository/UserRepository';
+const MIN_OFFER_PLN = 10;
 
 /**
  * L-02: LENDER LOANS SERVICE
- * Browse available loans, show funding progress
- * Read-only operations
+ * Browse available loans (OPEN), show funding progress
  */
 export class LenderLoansService {
-    private auditLogRepository: AuditLogRepository;
+    private loanRepo: LoanRepository;
+    private loanAppRepo: LoanApplicationRepository;
+    private loanOfferRepo: LoanOfferRepository;
+    private userRepo: UserRepository;
 
     constructor() {
-        this.auditLogRepository = new AuditLogRepository();
+        this.loanRepo = new LoanRepository();
+        this.loanAppRepo = new LoanApplicationRepository();
+        this.loanOfferRepo = new LoanOfferRepository();
+        this.userRepo = new UserRepository();
     }
 
-    /**
-     * Browse available loans for lender
-     * Only shows OPEN loan_applications
-     * Calculates funded_percent from loan_offers
-     * Returns CTA eligibility flag
-     * 
-     * SQL Query:
-     * SELECT 
-     *   la.id,
-     *   la.borrower_id,
-     *   la.amount,
-     *   la.duration_months,
-     *   la.purpose,
-     *   las.code as status_code,
-     *   las.name as status_name,
-     *   la.created_at,
-     *   COALESCE(SUM(lo.amount) / la.amount * 100, 0) as funded_percent,
-     *   la.amount - COALESCE(SUM(lo.amount), 0) as remaining_amount,
-     *   COUNT(DISTINCT lo.id) as total_offers,
-     *   COALESCE(u.level >= ? AND u.status_id = 2, FALSE) as cta_eligible
-     * FROM loan_applications la
-     * JOIN loan_application_statuses las ON las.id = la.status_id
-     * LEFT JOIN loan_offers lo ON lo.loan_id = la.id OR (la.id = (SELECT id FROM loans WHERE application_id = la.id LIMIT 1))
-     * JOIN users u ON u.id = ? (current lender)
-     * WHERE las.code = 'OPEN'
-     * GROUP BY la.id
-     * ORDER BY la.created_at DESC
-     */
     async browseLoansPaginated(
         lenderId: string,
         filters: LoanBrowseFilterDto
@@ -53,22 +35,42 @@ export class LenderLoansService {
         try {
             const page = filters.page || 1;
             const pageSize = filters.pageSize || 10;
-            const offset = (page - 1) * pageSize;
+            const lenderIdNum = parseInt(lenderId, 10);
+
+            const [loans, totalItems] = await this.loanRepo.findOpenPaginated(page, pageSize);
 
             const items: LoanBrowseItemDto[] = [];
-            let totalItems = 0;
+            for (const loan of loans) {
+                const app = await this.loanAppRepo.findById(loan.applicationId);
+                if (!app) continue;
+                if (filters.minAmount != null && Number(loan.totalAmount) < filters.minAmount) continue;
+                if (filters.maxAmount != null && Number(loan.totalAmount) > filters.maxAmount) continue;
+                if (filters.minDuration != null && app.durationMonths < filters.minDuration) continue;
+                if (filters.maxDuration != null && app.durationMonths > filters.maxDuration) continue;
 
-            // TODO: Query loan_applications with status = OPEN
-            // Calculate fundedPercent from SUM(loan_offers.amount) / loan_application.amount
-            // Include offer details for each loan
-            // Check CTA eligibility for current lender based on:
-            //   - Lender status = ACTIVE
-            //   - Lender verification level >= required
-            //   - Lender has verified bank account
-            //   - Loan still has remaining capacity
+                const offers = await this.loanOfferRepo.findByLoanId(loan.id);
+                const totalOffered = offers.reduce((s, o) => s + Number(o.amount), 0);
+                const remaining = Math.max(0, Number(loan.totalAmount) - totalOffered);
+                const fundedPercent = Number(loan.totalAmount) > 0
+                    ? Math.min(100, (totalOffered / Number(loan.totalAmount)) * 100)
+                    : 0;
+                const lender = await this.userRepo.findById(lenderIdNum);
+                const ctaEligible = !!(lender?.bankAccount?.trim()) && (lender?.level ?? 0) >= 0 && remaining >= MIN_OFFER_PLN;
 
-            // Audit log placeholder (replace with actual repository method when available)
-            console.log(`Audit: User ${lenderId} browsed loans`);
+                items.push({
+                    id: String(loan.id),
+                    amount: Number(loan.totalAmount),
+                    durationMonths: app.durationMonths,
+                    purpose: app.purpose ?? '',
+                    statusCode: 'OPEN',
+                    statusName: 'Open',
+                    createdAt: (loan.createdAt as Date).toISOString(),
+                    fundedPercent: Math.round(fundedPercent * 100) / 100,
+                    remainingAmount: Math.round(remaining * 100) / 100,
+                    offerCount: offers.length,
+                    ctaEligible,
+                });
+            }
 
             return {
                 items,
@@ -85,40 +87,74 @@ export class LenderLoansService {
         }
     }
 
-    /**
-     * Get specific loan details
-     * Returns offer details, borrower info, funding progress
-     * 
-     * SQL Query:
-     * SELECT 
-     *   la.id,
-     *   la.amount,
-     *   la.duration_months,
-     *   la.purpose,
-     *   u.email as borrower_name,
-     *   u.level as borrower_level,
-     *   (SELECT COUNT(*) FROM user_verifications uv WHERE uv.user_id = u.id AND uv.status_id = 2) as verification_count,
-     *   COUNT(DISTINCT lo.id) as total_offers,
-     *   SUM(CASE WHEN lo.lender_id != ? THEN lo.amount ELSE 0 END) as funded_by_others
-     * FROM loan_applications la
-     * JOIN users u ON u.id = la.borrower_id
-     * LEFT JOIN loan_offers lo ON lo.loan_id = (SELECT id FROM loans WHERE application_id = la.id LIMIT 1)
-     * WHERE la.id = ?
-     */
     async getLoanDetail(lenderId: string, loanId: string): Promise<LoanDetailResponse> {
-        try {
-            // TODO: Query loan_applications and related data
-            // Get borrower details
-            // Calculate funding progress and owned offers
-            // Determine CTA eligibility
+        const loanIdNum = parseInt(loanId, 10);
+        const loan = await this.loanRepo.findById(loanIdNum);
+        if (!loan) throw new Error('Loan not found');
 
-            // Audit log placeholder (replace with actual repository method when available)
-            console.log(`Audit: User ${lenderId} viewed loan detail for ${loanId}`);
+        const app = await this.loanAppRepo.findById(loan.applicationId);
+        if (!app) throw new Error('Loan not found');
 
-            throw new Error('Loan not found');
-        } catch (error: any) {
-            console.error('Error fetching loan detail:', error);
-            throw error;
-        }
+        const offers = await this.loanOfferRepo.findByLoanId(loan.id);
+        const totalOffered = offers.reduce((s, o) => s + Number(o.amount), 0);
+        const remaining = Math.max(0, Number(loan.totalAmount) - totalOffered);
+        const fundedPercent = Number(loan.totalAmount) > 0
+            ? Math.min(100, (totalOffered / Number(loan.totalAmount)) * 100)
+            : 0;
+        // Anonymized: no lender ids, only amount and date
+        const offerDtos: LoanOfferDto[] = offers.map((o, i) => ({
+            lenderId: `Lender ${i + 1}`,
+            amount: Number(o.amount),
+            createdAt: (o.createdAt as Date).toISOString(),
+        }));
+
+        const borrower = await this.userRepo.findById(loan.borrowerId);
+        const lenderIdNum = parseInt(lenderId, 10);
+        const lender = await this.userRepo.findById(lenderIdNum);
+        const ctaEligible = !!(lender?.bankAccount?.trim()) && (lender?.level ?? 0) >= 0 && remaining >= MIN_OFFER_PLN;
+
+        const borrowerName = loan.lenderDataRevealed && borrower
+            ? `${borrower.firstName ?? ''} ${borrower.lastName ?? ''}`.trim() || borrower.email
+            : 'Borrower';
+        const borrowerLevel = borrower?.level ?? 0;
+
+        return {
+            id: String(loan.id),
+            amount: Number(loan.totalAmount),
+            durationMonths: app.durationMonths,
+            purpose: app.purpose ?? '',
+            statusCode: 'OPEN',
+            statusName: 'Open',
+            createdAt: (loan.createdAt as Date).toISOString(),
+            fundedPercent: Math.round(fundedPercent * 100) / 100,
+            remainingAmount: Math.round(remaining * 100) / 100,
+            offerCount: offers.length,
+            offers: offerDtos,
+            ctaEligible,
+            borrowerName,
+            borrowerLevel,
+            borrowerVerificationStatus: `Level ${borrowerLevel}`,
+            totalOffers: offers.length,
+            fundedByOthers: totalOffered,
+        };
+    }
+
+    /** Lightweight funding status for polling (e.g. loan detail modal). */
+    async getFundingStatus(loanId: string): Promise<{ fundedPercent: number; remainingAmount: number; offerCount: number; statusCode: string }> {
+        const loanIdNum = parseInt(loanId, 10);
+        const loan = await this.loanRepo.findById(loanIdNum);
+        if (!loan) throw new Error('Loan not found');
+        const offers = await this.loanOfferRepo.findByLoanId(loan.id);
+        const totalOffered = offers.reduce((s, o) => s + Number(o.amount), 0);
+        const totalAmount = Number(loan.totalAmount);
+        const remaining = Math.max(0, totalAmount - totalOffered);
+        const fundedPercent = totalAmount > 0 ? Math.min(100, (totalOffered / totalAmount) * 100) : 0;
+        const statusCode = loan.statusId === 1 ? 'OPEN' : loan.statusId === 2 ? 'FUNDED' : 'UNKNOWN';
+        return {
+            fundedPercent: Math.round(fundedPercent * 100) / 100,
+            remainingAmount: Math.round(remaining * 100) / 100,
+            offerCount: offers.length,
+            statusCode,
+        };
     }
 }

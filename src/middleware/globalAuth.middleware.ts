@@ -26,6 +26,7 @@ const getPublicRoutes = (): string[] => {
         '/api/users/login',
         '/api/users/signup',
         '/api/users/logout',
+        '/api/auth/admin/login',
         '/api/user/login',
         '/api/user/signup',
         '/api/user/logout',
@@ -176,8 +177,10 @@ export class GlobalAuthMiddleware implements ExpressMiddlewareInterface {
                     isSuperAdmin: user.isSuperAdmin ?? false,
                     twoFAVerified: false,
                 };
-                // Also expose roleId directly on the object for guards that read user.roleId
+                // Also expose roleId, statusId, level for borrower/lender guards
                 (userDetails as any).roleId = user.roleId;
+                (userDetails as any).statusId = user.statusId;
+                (userDetails as any).level = user.level ?? 0;
 
                 // For COMPANY role (roleId === 4), resolve companyId from the user record
                 if (user.roleId === 4) {

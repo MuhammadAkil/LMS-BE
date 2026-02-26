@@ -171,13 +171,16 @@ export class LenderProfileService {
             // TODO: Query verification status
             // TODO: Query bank account verification status
 
+            const statusMap: Record<number, string> = { 1: 'PENDING', 2: 'ACTIVE', 3: 'BLOCKED', 4: 'FROZEN' };
+            const statusCode = statusMap[user.statusId] ?? 'PENDING';
+            const statusName = statusCode.charAt(0) + statusCode.slice(1).toLowerCase();
             const profile: LenderProfileDto = {
                 id: user.id?.toString() || '',
                 email: user.email,
                 phone: user.phone || undefined,
                 level: user.level || 0,
-                statusCode: 'ACTIVE', // TODO: Map from status_id
-                statusName: 'Active', // TODO: Map from status_id
+                statusCode,
+                statusName,
                 createdAt: user.createdAt?.toISOString() || new Date().toISOString(),
                 updatedAt: user.updatedAt?.toISOString() || new Date().toISOString(),
                 verificationStatus: {
@@ -186,7 +189,7 @@ export class LenderProfileService {
                     pendingTypes: [], // TODO: Query pending verifications
                 },
                 bankAccount: {
-                    isVerified: !!user.phone, // Placeholder - replace with actual bank account check
+                    isVerified: !!(user.bankAccount && String(user.bankAccount).trim().length > 0),
                 },
             };
 
@@ -227,8 +230,9 @@ export class LenderProfileService {
                 updatedFields.push('phone');
             }
 
-            // TODO: Save updates
-            // const savedUser = await this.userRepository.save(user);
+            if (updatedFields.length > 0) {
+                await this.userRepository.save(user);
+            }
 
             // Audit log placeholder (replace with actual repository method when available)
             console.log(`Audit: User ${lenderId} updated profile`);

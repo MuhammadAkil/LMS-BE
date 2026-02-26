@@ -68,27 +68,29 @@ export function BorrowerStatusGuard(allowReadOnly: boolean = false) {
             return;
         }
 
-        // Status ID 1 = ACTIVE, 3 = FROZEN, 4 = BLOCKED (from user_statuses lookup table)
+        // Status ID 2 = ACTIVE, 3 = BLOCKED, 4 = FROZEN (aligned with UserService, AdminUsersService)
         const status = user.statusId;
 
-        // BLOCKED users: Full lock
-        if (status === 4) {
+        // BLOCKED users: Full lock — cannot access any borrower endpoints
+        if (status === 3) {
             res.status(403).json({
                 statusCode: '403',
                 statusMessage: 'Forbidden: Account is blocked',
                 detail: 'Your account has been blocked. Contact support for assistance.',
+                errorCode: 'ACCOUNT_BLOCKED',
             });
             return;
         }
 
-        // FROZEN users: Read-only (GET only)
-        if (status === 3) {
+        // FROZEN users: Read-only (GET only) — can login and view, cannot create requests
+        if (status === 4) {
             const method = req.method.toUpperCase();
             if (method !== 'GET') {
                 res.status(403).json({
                     statusCode: '403',
                     statusMessage: 'Forbidden: Account is frozen',
-                    detail: 'Your account is frozen. Read-only access only.',
+                    detail: 'Your account is frozen. You can view data but cannot create new requests. Contact support for assistance.',
+                    errorCode: 'ACCOUNT_FROZEN',
                 });
                 return;
             }
@@ -96,8 +98,8 @@ export function BorrowerStatusGuard(allowReadOnly: boolean = false) {
             return;
         }
 
-        // Non-ACTIVE users: Limited read-only if allowReadOnly=true
-        if (status !== 1) {
+        // Non-ACTIVE users (e.g. PENDING 1): Limited read-only if allowReadOnly=true
+        if (status !== 2) {
             if (!allowReadOnly) {
                 res.status(403).json({
                     statusCode: '403',

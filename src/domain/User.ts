@@ -64,6 +64,9 @@ export class User {
     @UpdateDateColumn({ name: 'updated_at' })
     updatedAt!: Date;
 
+    @Column({ type: 'datetime', nullable: true, name: 'deleted_at' })
+    deletedAt?: Date; // Soft delete for GDPR; financial data retained 8 years
+
     // Relations
     @ManyToOne(() => UserRole)
     @JoinColumn({ name: 'role_id' })

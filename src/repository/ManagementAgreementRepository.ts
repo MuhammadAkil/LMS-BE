@@ -34,6 +34,17 @@ export class ManagementAgreementRepository {
         });
     }
 
+    /** Active = signed and not terminated. Used to block manual offers for managed lenders. */
+    async findActiveByLenderId(lenderId: number): Promise<ManagementAgreement | null> {
+        return await this.managementAgreementRepository
+            .createQueryBuilder('ma')
+            .where('ma.lenderId = :lenderId', { lenderId })
+            .andWhere('ma.signedAt IS NOT NULL')
+            .andWhere('ma.terminatedAt IS NULL')
+            .orderBy('ma.signedAt', 'DESC')
+            .getOne();
+    }
+
     async findAll(limit: number = 10, offset: number = 0): Promise<[ManagementAgreement[], number]> {
         return await this.managementAgreementRepository.findAndCount({
             take: limit,

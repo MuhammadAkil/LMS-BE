@@ -92,9 +92,11 @@ export class AdminCompaniesService {
       throw new Error(`Company status is ${this.getStatusName(company.statusId)}, cannot approve`);
     }
 
-    // Update status to APPROVED (2)
+    // Update status to APPROVED (2) and lock conditions (per spec)
     company.statusId = 2;
     company.approvedAt = new Date();
+    company.conditionsLockedAt = new Date();
+    company.conditionsStatus = 'approved';
     await this.companyRepo.save(company);
 
     await this.auditService.logAction(
@@ -304,6 +306,58 @@ export class AdminCompaniesService {
   async getCountByStatus(statusId: number): Promise<number> {
     const [, count] = await this.companyRepo.findByStatus(statusId, 1, 0);
     return count;
+  }
+
+  /** Create company (status PENDING). */
+  async createCompany(
+    body: { name: string; bankAccount?: string; conditions?: Record<string, unknown> },
+    adminId: number
+  ): Promise<CompanyDetailDto> {
+    const { Company } = await import('../domain/Company');
+    if (await this.companyRepo.existsByName(body.name)) {
+      throw new Error('Company with this name already exists');
+    }
+    const company = new Company();
+    company.name = body.name;
+    company.bankAccount = body.bankAccount ?? undefined;
+    company.statusId = 1; // PENDING
+    company.commissionPct = 0;
+    company.minManagedAmount = 0;
+    if (body.conditions && Object.keys(body.conditions).length > 0) {
+      company.conditionsJson = body.conditions;
+    }
+    const saved = await this.companyRepo.save(company);
+    await this.auditService.logAction(adminId, 'COMPANY_CREATED', 'COMPANY', saved.id, { companyName: saved.name });
+    return this.getCompanyById(saved.id);
+  }
+
+  /** Suspend company (statusId 4). */
+  async suspendCompany(companyId: number, adminId: number): Promise<CompanyDetailDto> {
+    const company = await this.companyRepo.findById(companyId);
+    if (!company) throw new Error(`Company ${companyId} not found`);
+    company.statusId = 4; // SUSPENDED
+    await this.companyRepo.save(company);
+    await this.auditService.logAction(adminId, 'COMPANY_SUSPENDED', 'COMPANY', companyId, { companyName: company.name });
+    return this.getCompanyById(companyId);
+  }
+
+  /** Link lenders to company (bulk). */
+  async linkLenders(companyId: number, lenderIds: number[], adminId: number): Promise<{ linked: number }> {
+    const { CompanyLendersService } = await import('./CompanyLendersService');
+    const lendersService = new CompanyLendersService();
+    let linked = 0;
+    for (const lenderId of lenderIds) {
+      try {
+        await lendersService.linkLender(companyId, adminId, { lenderId, amountLimit: 0, active: true });
+        linked++;
+      } catch {
+        // skip duplicate or invalid
+      }
+    }
+    if (linked > 0) {
+      await this.auditService.logAction(adminId, 'COMPANY_LENDERS_LINKED', 'COMPANY', companyId, { lenderIds, linked });
+    }
+    return { linked };
   }
 
   /**

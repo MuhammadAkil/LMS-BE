@@ -44,6 +44,16 @@ export class Company {
   @Column({ type: 'datetime', nullable: true, name: 'approved_at' })
   approvedAt?: Date;
 
+  @Column({ type: 'datetime', nullable: true, name: 'conditions_locked_at' })
+  conditionsLockedAt?: Date; // Set when admin approves; locks conditions from further edits
+
+  /** not_submitted | pending_approval | approved | revision_required */
+  @Column({ type: 'varchar', length: 32, nullable: true, name: 'conditions_status' })
+  conditionsStatus?: string;
+
+  @Column({ type: 'text', nullable: true, name: 'admin_revision_note' })
+  adminRevisionNote?: string;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 

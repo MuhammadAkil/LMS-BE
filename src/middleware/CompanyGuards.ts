@@ -53,10 +53,10 @@ export async function CompanyStatusGuard(
     try {
         const queryRunner = AppDataSource.createQueryRunner();
 
-        // Fetch company status from database
+        // Fetch company status and conditions_status from database
         const company = await queryRunner.query(
             `
-      SELECT c.id, c.status_id, us.code as statusCode
+      SELECT c.id, c.status_id, c.conditions_status as conditionsStatus, us.code as statusCode
       FROM companies c
       LEFT JOIN user_statuses us ON c.status_id = us.id
       WHERE c.id = ?
@@ -74,12 +74,22 @@ export async function CompanyStatusGuard(
             return;
         }
 
-        // Check if company status is APPROVED (statusId = 2, based on user_statuses lookup)
+        // Check if company status is APPROVED (statusId = 2). statusId 3 = suspended (full lockout)
+        if (company[0].status_id === 3) {
+            res.status(423).json({
+                statusCode: '423',
+                statusMessage: 'Company Suspended',
+                detail: 'Your company account has been suspended. Contact admin.',
+                errorCode: 'COMPANY_SUSPENDED',
+            });
+            return;
+        }
         if (company[0].status_id !== 2) {
             res.status(423).json({
                 statusCode: '423',
                 statusMessage: 'Company Not Approved',
                 detail: `Company must be in APPROVED status. Current status: ${company[0].statusCode || 'UNKNOWN'}`,
+                errorCode: 'COMPANY_PENDING',
             });
             return;
         }
@@ -97,11 +107,48 @@ export async function CompanyStatusGuard(
 }
 
 /**
- * Agreement Signature Guard - Ensures management_agreements.signed_at IS NOT NULL
- * Fintech compliance rule: Company cannot perform operational actions if agreement not signed
- *
+ * Conditions Approved Guard - Ensures company.conditions_status = 'approved'
+ * Company cannot access automation, investments, or lender linking until conditions approved by admin.
  * MUST RUN AFTER CompanyStatusGuard
- * REQUIRED FOR: bulk actions, automation rules, lender linking
+ */
+export async function ConditionsApprovedGuard(
+    req: Request,
+    res: Response,
+    next: NextFunction
+): Promise<void> {
+    const user = (req as any).user;
+    if (!user || !user.companyId) {
+        res.status(401).json({
+            statusCode: '401',
+            statusMessage: 'Unauthorized: Company ID not found',
+        });
+        return;
+    }
+    const company = (req as any).company;
+    if (!company) {
+        res.status(401).json({
+            statusCode: '401',
+            statusMessage: 'Unauthorized: Company not loaded',
+        });
+        return;
+    }
+    const status = company.conditionsStatus ?? (company.conditions_status ?? '');
+    if (status !== 'approved') {
+        res.status(403).json({
+            statusCode: '403',
+            statusMessage: 'Conditions Not Approved',
+            detail: 'Approve your conditions first to access this feature.',
+            errorCode: 'CONDITIONS_NOT_APPROVED',
+        });
+        return;
+    }
+    next();
+}
+
+/**
+ * Agreement Signature Guard - Ensures at least one management_agreement signed (lender linked)
+ * Used for bulk/automation that act on behalf of lenders.
+ * MUST RUN AFTER CompanyStatusGuard
  */
 export async function AgreementSignatureGuard(
     req: Request,
@@ -254,8 +301,24 @@ export async function CompanyOperationalGuard(
 }
 
 /**
- * Composite guard: CompanyGuard + CompanyStatusGuard + AgreementSignatureGuard
- * Use for endpoints requiring signed agreement (bulk actions, automation, lender ops)
+ * Composite guard: CompanyGuard + CompanyStatusGuard + ConditionsApprovedGuard
+ * Use for endpoints that require conditions approved (lenders, automation, loans, bulk)
+ */
+export async function CompanyConditionsApprovedGuard(
+    req: Request,
+    res: Response,
+    next: NextFunction
+): Promise<void> {
+    CompanyGuard(req, res, () => {
+        CompanyStatusGuard(req, res, () => {
+            ConditionsApprovedGuard(req, res, next);
+        });
+    });
+}
+
+/**
+ * Composite guard: CompanyGuard + CompanyStatusGuard + ConditionsApprovedGuard + AgreementSignatureGuard
+ * Use for endpoints requiring conditions approved AND at least one lender linked (bulk, automation)
  */
 export async function CompanyFullAccessGuard(
     req: Request,
@@ -264,7 +327,9 @@ export async function CompanyFullAccessGuard(
 ): Promise<void> {
     CompanyGuard(req, res, () => {
         CompanyStatusGuard(req, res, () => {
-            AgreementSignatureGuard(req, res, next);
+            ConditionsApprovedGuard(req, res, () => {
+                AgreementSignatureGuard(req, res, next);
+            });
         });
     });
 }

@@ -20,21 +20,23 @@ export class AdminAuditService {
   }
 
   /**
-   * Log admin action
+   * Log admin action (optionally with client IP for GDPR/compliance)
    */
   async logAction(
     actorId: number,
     action: string,
     entity: string,
     entityId: number,
-    metadata?: Record<string, any>
+    metadata?: Record<string, any>,
+    ip?: string
   ): Promise<AuditLog> {
     const auditLog = new AuditLog();
-    auditLog.userId = actorId;  // Changed from actorId to userId
+    auditLog.userId = actorId;
     auditLog.action = action;
     auditLog.entity = entity;
     auditLog.entityId = entityId;
     auditLog.metadata = metadata ? JSON.stringify(metadata) : undefined;
+    auditLog.ip = ip ?? undefined;
 
     return await this.auditLogRepo.create(auditLog);
   }

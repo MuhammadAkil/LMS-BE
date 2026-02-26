@@ -175,6 +175,33 @@ export class LenderLoansController {
     }
 
     /**
+     * GET /lender/loans/:loanId/funding-status
+     * Lightweight status for polling (funded %, remaining, offer count).
+     */
+    @Get('/:loanId/funding-status')
+    @UseBefore(withLenderStatusGuard(true), withLenderVerificationGuard(0))
+    async getFundingStatus(@Req() req: Request, @Res() res: Response): Promise<void> {
+        try {
+            const { loanId } = req.params;
+            const status = await this.loansService.getFundingStatus(loanId);
+            res.status(200).json({
+                statusCode: '200',
+                statusMessage: 'OK',
+                data: status,
+                timestamp: new Date().toISOString(),
+            });
+        } catch (error: any) {
+            const code = error.message === 'Loan not found' ? 404 : 500;
+            res.status(code).json({
+                statusCode: String(code),
+                statusMessage: error.message || 'Failed to get funding status',
+                errors: [error.message],
+                timestamp: new Date().toISOString(),
+            });
+        }
+    }
+
+    /**
      * GET /lender/loans/:loanId
      * Get specific loan details
      * Required guards: LenderRoleGuard, LenderStatusGuard(allowReadOnly=true)

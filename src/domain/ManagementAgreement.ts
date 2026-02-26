@@ -25,6 +25,9 @@ export class ManagementAgreement {
   @Column({ type: 'datetime', nullable: true })
   signedAt?: Date;
 
+  @Column({ type: 'datetime', nullable: true, name: 'terminated_at' })
+  terminatedAt?: Date;
+
   @CreateDateColumn()
   createdAt!: Date;
 }

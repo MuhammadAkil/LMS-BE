@@ -6,17 +6,23 @@ import {
     ManagementAgreementsResponse,
 } from '../dto/LenderDtos';
 import { AuditLogRepository } from '../repository/AuditLogRepository';
+import { CompanyRepository } from '../repository/CompanyRepository';
+import { ManagementAgreementRepository } from '../repository/ManagementAgreementRepository';
+import { ManagementAgreement } from '../domain/ManagementAgreement';
 
 /**
  * L-07: LENDER MANAGEMENT AGREEMENTS SERVICE
  * Delegate investments to management companies
- * Requires verification level and bank account
  */
 export class LenderManagementService {
     private auditLogRepository: AuditLogRepository;
+    private companyRepo: CompanyRepository;
+    private agreementRepo: ManagementAgreementRepository;
 
     constructor() {
         this.auditLogRepository = new AuditLogRepository();
+        this.companyRepo = new CompanyRepository();
+        this.agreementRepo = new ManagementAgreementRepository();
     }
 
     /**
@@ -43,29 +49,23 @@ export class LenderManagementService {
         page: number = 1,
         pageSize: number = 10
     ): Promise<ManagementCompaniesResponse> {
-        try {
-            const offset = (page - 1) * pageSize;
-
-            // TODO: Query approved companies
-            const companies: ManagementCompanyDto[] = [];
-            const totalItems = 0;
-
-            // Audit log placeholder (replace with actual repository method when available)
-            console.log(`Audit: User ${lenderId} viewed management companies`);
-
-            return {
-                companies,
-                pagination: {
-                    page,
-                    pageSize,
-                    totalItems,
-                    totalPages: Math.ceil(totalItems / pageSize),
-                },
-            };
-        } catch (error: any) {
-            console.error('Error fetching management companies:', error);
-            throw new Error('Failed to fetch management companies');
-        }
+        const [list, totalItems] = await this.companyRepo.findActive(pageSize, (page - 1) * pageSize);
+        const companies: ManagementCompanyDto[] = list.map((c) => ({
+            id: String(c.id),
+            name: c.name,
+            minManagedAmount: Number(c.minManagedAmount ?? 0),
+            commissionPct: Number(c.commissionPct ?? 0),
+            statusCode: 'ACTIVE',
+        }));
+        return {
+            companies,
+            pagination: {
+                page,
+                pageSize,
+                totalItems,
+                totalPages: Math.ceil(totalItems / pageSize),
+            },
+        };
     }
 
     /**
@@ -84,39 +84,34 @@ export class LenderManagementService {
         lenderId: string,
         request: CreateManagementAgreementRequest
     ): Promise<ManagementAgreementDto> {
-        try {
-            // TODO: Verify company exists and is ACTIVE
-            // TODO: Verify lender has required verification level
-            // TODO: Verify lender has verified bank account (both guards should catch this)
+        const lenderIdNum = parseInt(lenderId, 10);
+        const companyId = typeof request.companyId === 'string' ? parseInt(request.companyId, 10) : request.companyId;
 
-            // TODO: Generate PDF contract from template
-            // TODO: BEGIN TRANSACTION
-            // TODO: INSERT into management_agreements
-            // TODO: Store PDF file
-            // TODO: INSERT into audit_logs
-            // TODO: Send notification to company + lender
-            // TODO: COMMIT
+        const existing = await this.agreementRepo.findActiveByLenderId(lenderIdNum);
+        if (existing) throw new Error('You already have an active management agreement. Terminate it first.');
 
-            const agreementId = 'MGA_' + Date.now();
-            const pdfPath = `/contracts/${agreementId}_agreement.pdf`;
+        const company = await this.companyRepo.findById(companyId);
+        if (!company || company.statusId !== 2) throw new Error('Company not found or not approved');
+        const minAmount = Number(company.minManagedAmount ?? 0);
+        if (request.amount < minAmount) throw new Error(`Minimum managed amount is ${minAmount} PLN`);
 
-            // Audit log placeholder (replace with actual repository method when available)
-            console.log(`Audit: User ${lenderId} signed management agreement ${agreementId}`);
+        const agreement = new ManagementAgreement();
+        agreement.lenderId = lenderIdNum;
+        agreement.companyId = companyId;
+        agreement.amount = request.amount;
+        agreement.signedAt = new Date();
+        const saved = await this.agreementRepo.save(agreement);
 
-            return {
-                id: agreementId,
-                lenderId,
-                companyId: request.companyId,
-                companyName: 'Placeholder Company', // TODO: Fetch from DB
-                amount: request.amount,
-                signedAt: new Date().toISOString(),
-                pdfPath,
-                status: 'ACTIVE',
-            };
-        } catch (error: any) {
-            console.error('Error creating management agreement:', error);
-            throw new Error('Failed to create management agreement');
-        }
+        return {
+            id: String(saved.id),
+            lenderId,
+            companyId: String(companyId),
+            companyName: company.name,
+            amount: request.amount,
+            signedAt: (saved.signedAt ?? new Date()).toISOString(),
+            pdfPath: `/generated_pdfs/management_agreement_${saved.id}.pdf`,
+            status: 'ACTIVE',
+        };
     }
 
     /**
@@ -146,29 +141,33 @@ export class LenderManagementService {
         page: number = 1,
         pageSize: number = 10
     ): Promise<ManagementAgreementsResponse> {
-        try {
-            const offset = (page - 1) * pageSize;
-
-            // TODO: Query management_agreements for lender
-            const agreements: ManagementAgreementDto[] = [];
-            const totalItems = 0;
-
-            // Audit log placeholder (replace with actual repository method when available)
-            console.log(`Audit: User ${lenderId} viewed management agreements`);
-
-            return {
-                agreements,
-                pagination: {
-                    page,
-                    pageSize,
-                    totalItems,
-                    totalPages: Math.ceil(totalItems / pageSize),
-                },
-            };
-        } catch (error: any) {
-            console.error('Error fetching management agreements:', error);
-            throw new Error('Failed to fetch management agreements');
+        const lenderIdNum = parseInt(lenderId, 10);
+        const all = await this.agreementRepo.findByLenderId(lenderIdNum);
+        const totalItems = all.length;
+        const slice = all.slice((page - 1) * pageSize, page * pageSize);
+        const agreements: ManagementAgreementDto[] = [];
+        for (const ma of slice) {
+            const company = await this.companyRepo.findById(ma.companyId);
+            agreements.push({
+                id: String(ma.id),
+                lenderId: String(ma.lenderId),
+                companyId: String(ma.companyId),
+                companyName: company?.name ?? 'Company',
+                amount: Number(ma.amount ?? 0),
+                signedAt: ma.signedAt ? ma.signedAt.toISOString() : '',
+                pdfPath: null,
+                status: ma.terminatedAt ? 'TERMINATED' : 'ACTIVE',
+            });
         }
+        return {
+            agreements,
+            pagination: {
+                page,
+                pageSize,
+                totalItems,
+                totalPages: Math.ceil(totalItems / pageSize),
+            },
+        };
     }
 
     /**
@@ -180,21 +179,17 @@ export class LenderManagementService {
         lenderId: string,
         agreementId: string
     ): Promise<{ message: string; terminatedAt: string }> {
-        try {
-            // TODO: Verify lender owns agreement
-            // TODO: Check if all investments are settled
-            // TODO: UPDATE agreement status to TERMINATED
+        const lenderIdNum = parseInt(lenderId, 10);
+        const id = parseInt(agreementId, 10);
+        const agreement = await this.agreementRepo.findById(id);
+        if (!agreement || agreement.lenderId !== lenderIdNum) throw new Error('Agreement not found');
+        if (agreement.terminatedAt) throw new Error('Agreement is already terminated');
 
-            // Audit log placeholder (replace with actual repository method when available)
-            console.log(`Audit: User ${lenderId} terminated management agreement ${agreementId}`);
-
-            return {
-                message: 'Agreement terminated successfully',
-                terminatedAt: new Date().toISOString(),
-            };
-        } catch (error: any) {
-            console.error('Error terminating agreement:', error);
-            throw new Error('Failed to terminate agreement');
-        }
+        agreement.terminatedAt = new Date();
+        await this.agreementRepo.save(agreement);
+        return {
+            message: 'Agreement terminated successfully. Automation will stop; existing loans remain active.',
+            terminatedAt: agreement.terminatedAt.toISOString(),
+        };
     }
 }

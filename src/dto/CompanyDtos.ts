@@ -18,15 +18,21 @@ import { Type } from 'class-transformer';
 // ==================== DASHBOARD DTOs ====================
 
 export class CompanyDashboardResponse {
-    managedFunds!: number; // sum of management_agreements.amount
+    conditionsStatus!: string;
+    managedFunds!: number;
+    managedTotal!: number; // same as managedFunds (sum managed amount)
     activeManagedLoans!: number;
     defaultedLoans!: number;
+    commissionsAccrued!: number;
+    defaultRate!: number; // defaults count / active count or 0
+    pendingActions!: number;
     automationStatus!: {
         rulesCount: number;
         activeRules: number;
         automatedTransactionsLast30Days: number;
     };
     recentBulkActions!: BulkActionSummaryDto[];
+    recentAutomationLog!: Array<{ loanId: number; lenderId: number; lenderName?: string; amount: number; createdAt: Date }>;
     agreementStatus!: {
         isSigned: boolean;
         signedAt?: Date;
@@ -52,9 +58,55 @@ export class CompanyProfileResponse {
     statusId!: number;
     statusName!: string;
     conditionsJson?: any;
+    conditionsStatus?: string;
+    agreementSigned?: boolean;
     approvedAt?: Date;
     createdAt!: Date;
     updatedAt!: Date;
+}
+
+// ==================== CONDITIONS DTOs ====================
+
+export class CompanyConditionsResponse {
+    conditionsStatus!: string; // not_submitted | pending_approval | approved | revision_required
+    adminRevisionNote?: string;
+    minManagedAmount!: number;
+    minPeriodMonths!: number;
+    managementCommissionRate!: number;
+    bankAccount?: string;
+    handleReminders!: boolean;
+    handleCourtClaims!: boolean;
+    autoOfferSettings?: CompanyAutoOfferSettingsDto;
+    conditionsLockedAt?: Date;
+}
+
+export class CompanyAutoOfferSettingsDto {
+    borrowerLevels?: string[]; // F, E, D, C, B, A
+    loanAmountMin?: number;
+    loanAmountMax?: number;
+    loanDurations?: number[];
+    maxExposurePerBorrower?: number;
+    maxTotalExposurePerLender?: number;
+    maxTotalExposurePercent?: number;
+}
+
+export class SubmitConditionsRequest {
+    @IsInt() @Min(0) minManagedAmount!: number;
+    @IsInt() @Min(1) @Max(120) minPeriodMonths!: number;
+    @Min(0) @Max(100) managementCommissionRate!: number;
+    @IsString() bankAccount!: string;
+    @IsBoolean() handleReminders!: boolean;
+    @IsBoolean() handleCourtClaims!: boolean;
+}
+
+export class UpdateAutoOfferSettingsRequest {
+    @IsOptional() @IsArray() borrowerLevels?: string[];
+    @IsOptional() @Min(0) loanAmountMin?: number;
+    @IsOptional() @Min(0) loanAmountMax?: number;
+    @IsOptional() @IsArray() loanDurations?: number[];
+    @IsOptional() @Min(0) maxExposurePerBorrower?: number;
+    @IsOptional() @Min(0) maxTotalExposurePerLender?: number;
+    @IsOptional() @Min(0) @Max(100) maxTotalExposurePercent?: number;
 }
 
 export class UpdateCompanyBankAccountRequest {
@@ -104,6 +156,8 @@ export class CompanyLenderResponse {
     lenderEmail!: string;
     amountLimit!: number;
     active!: boolean;
+    agreementStatus?: 'pending' | 'active' | 'terminated';
+    agreementSignedAt?: Date;
     createdAt!: Date;
     updatedAt!: Date;
 }

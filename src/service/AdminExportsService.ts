@@ -38,18 +38,18 @@ export class AdminExportsService {
     const queryRunner = AppDataSource.createQueryRunner();
 
     try {
-      // Query loans with limit
+      // Query loans with limit (max 500 per spec). Loan entity uses borrowerId, not user_id; no company_id.
+      const limit = Math.min(request.limit || 500, 500);
       const loans = await queryRunner.query(`
-        SELECT l.*, u.email, c.name as company_name
+        SELECT l.*, u.email as borrower_email
         FROM loans l
-        LEFT JOIN users u ON l.user_id = u.id
-        LEFT JOIN companies c ON l.company_id = c.id
+        LEFT JOIN users u ON l.borrowerId = u.id
         WHERE 1=1
-        ${request.loanStatus && Array.isArray(request.loanStatus) ? `AND l.status_id IN (${request.loanStatus.join(',')})` : ''}
-        ${request.dateFrom ? `AND l.created_at >= '${request.dateFrom.toISOString()}'` : ''}
-        ${request.dateTo ? `AND l.created_at <= '${request.dateTo.toISOString()}'` : ''}
-        ORDER BY l.created_at DESC
-        LIMIT ${request.limit || 500}
+        ${request.loanStatus && Array.isArray(request.loanStatus) ? `AND l.statusId IN (${request.loanStatus.join(',')})` : ''}
+        ${request.dateFrom ? `AND l.createdAt >= '${request.dateFrom.toISOString()}'` : ''}
+        ${request.dateTo ? `AND l.createdAt <= '${request.dateTo.toISOString()}'` : ''}
+        ORDER BY l.createdAt DESC
+        LIMIT ${limit}
       `);
 
       // Generate XML
@@ -114,12 +114,11 @@ export class AdminExportsService {
         loans = await queryRunner.query(`SELECT p.* FROM payments p LIMIT ${request.limit || 500}`);
       } else {
         // Default to LOANS
-        loans = await queryRunner.query(`SELECT l.*, u.email, c.name as company_name
+        loans = await queryRunner.query(`SELECT l.*, u.email as borrower_email
           FROM loans l
-          LEFT JOIN users u ON l.user_id = u.id
-          LEFT JOIN companies c ON l.company_id = c.id
-          ORDER BY l.created_at DESC
-          LIMIT ${request.limit || 500}`);
+          LEFT JOIN users u ON l.borrowerId = u.id
+          ORDER BY l.createdAt DESC
+          LIMIT ${Math.min(request.limit || 500, 500)}`);
       }
 
       // Generate CSV

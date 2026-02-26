@@ -14,6 +14,22 @@ export class DashboardStatsResponse {
   totalAmount!: number;
   activeCompanies!: number;
   timestamp!: Date;
+  /** Users count by role (spec) */
+  usersByRole?: { borrower: number; lender: number; company: number };
+  /** Outstanding principal across active loans (PLN) */
+  outstandingPLN?: number;
+  /** Alias for FE */
+  outstandingAmount?: number;
+  /** Total commissions earned */
+  commissionsTotal?: number;
+  /** Default rate as percentage (defaulted / total loans) */
+  defaultRate?: number;
+  /** Total disbursed (funded loan amounts) for FE */
+  totalDisbursed?: number;
+  /** Recovery rate % for FE */
+  recoveryRate?: number;
+  /** Alias for defaultedLoans for FE */
+  defaults?: number;
 }
 
 export class AlertDto {

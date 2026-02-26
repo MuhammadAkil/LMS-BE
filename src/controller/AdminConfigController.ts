@@ -1,7 +1,7 @@
 import { Controller, Get, Patch, Body, Param, QueryParam, UseBefore, Req } from 'routing-controllers';
 import { Request } from 'express';
 import { AdminConfigService } from '../service/AdminConfigService';
-import { SuperAdminGuard, CriticalOperationGuard } from '../middleware/AdminGuards';
+import { AdminGuard, SuperAdminGuard, CriticalOperationGuard } from '../middleware/AdminGuards';
 import {
   PlatformConfigDto,
   UpdateLoanRulesRequest,
@@ -27,7 +27,7 @@ import {
  * - PATCH /admin/config/retention       -> Update retention (CriticalOperationGuard)
  */
 @Controller('/admin/config')
-@UseBefore(SuperAdminGuard)
+@UseBefore(AdminGuard)
 export class AdminConfigController {
   private readonly configService: AdminConfigService;
 

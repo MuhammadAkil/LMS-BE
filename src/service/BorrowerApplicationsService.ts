@@ -5,6 +5,8 @@ import { LoanRepository } from '../repository/LoanRepository';
 import { LoanOfferRepository } from '../repository/LoanOfferRepository';
 import { LevelRulesRepository } from '../repository/LevelRulesRepository';
 import { UserRepository } from '../repository/UserRepository';
+import { InterestRateService } from './InterestRateService';
+import { Loan } from '../domain/Loan';
 import { LoanApplication } from '../domain/LoanApplication';
 import {
     CreateApplicationRequest,
@@ -38,6 +40,7 @@ export class BorrowerApplicationsService {
     private loanOfferRepo: LoanOfferRepository;
     private levelRulesRepo: LevelRulesRepository;
     private userRepo: UserRepository;
+    private interestRateService: InterestRateService;
 
     constructor() {
         this.auditRepo = new AuditLogRepository();
@@ -47,6 +50,7 @@ export class BorrowerApplicationsService {
         this.loanOfferRepo = new LoanOfferRepository();
         this.levelRulesRepo = new LevelRulesRepository();
         this.userRepo = new UserRepository();
+        this.interestRateService = new InterestRateService();
     }
 
     /**
@@ -110,6 +114,9 @@ export class BorrowerApplicationsService {
                 throw new Error(`Maximum ${maxApplications} active applications allowed for your level`);
             }
 
+            const voluntaryCommission = Number(request.voluntaryCommission ?? 0);
+            if (voluntaryCommission < 0) throw new Error('Voluntary commission cannot be negative');
+
             // Create new application
             const application = new LoanApplication();
             application.borrowerId = borrowerIdNum;
@@ -121,6 +128,9 @@ export class BorrowerApplicationsService {
             application.fundedPercent = 0;
             application.fundedAmount = 0;
             application.commissionStatus = 'PENDING';
+            application.voluntaryCommission = voluntaryCommission;
+            // Repayment type: lump sum for 1 month or less, installments otherwise
+            application.repaymentType = request.durationMonths <= 1 ? 'LUMP_SUM' : 'INSTALLMENTS';
             // Marketplace fields
             (application as any).fundingWindowHours = request.fundingWindowHours ?? 72;
             (application as any).minFundingThreshold = request.minFundingThreshold ?? 50;
@@ -129,6 +139,24 @@ export class BorrowerApplicationsService {
             (application as any).isPublic = request.isPublic ?? true;
 
             const savedApp = await this.loanAppRepo.save(application);
+
+            // Lock interest rate at creation time (from interest_rate_schedule)
+            const lockedRate = await this.interestRateService.getCurrentRate();
+
+            // LOGIC INFERRED: Create Loan when application is OPEN so lenders can attach offers to it
+            const loan = new Loan();
+            loan.applicationId = savedApp.id;
+            loan.borrowerId = savedApp.borrowerId;
+            loan.totalAmount = savedApp.amount;
+            loan.fundedAmount = 0;
+            loan.statusId = 1; // OPEN (pending funding)
+            loan.interestRate = lockedRate;
+            const dueDate = new Date();
+            dueDate.setMonth(dueDate.getMonth() + savedApp.durationMonths);
+            loan.dueDate = dueDate;
+            loan.repaymentType = savedApp.repaymentType ?? 'LUMP_SUM';
+            loan.voluntaryCommission = voluntaryCommission;
+            await this.loanRepo.save(loan);
 
             // Audit log
             await this.auditRepo.create({
@@ -147,7 +175,9 @@ export class BorrowerApplicationsService {
                 { amount: String(request.amount) }
             );
 
-            const commissionRequired = request.amount * ((levelRules?.commissionPercent || 2) / 100);
+            // Commission formula: (amount + voluntary_fee) × level_commission_rate
+            const commissionRate = (levelRules?.commissionPercent ?? 2) / 100;
+            const commissionRequired = (request.amount + voluntaryCommission) * commissionRate;
 
             return {
                 id: savedApp.id,
@@ -160,8 +190,10 @@ export class BorrowerApplicationsService {
                 remainingAmount: savedApp.amount,
                 purpose: savedApp.purpose,
                 description: savedApp.description,
-                commissionRequired: commissionRequired,
+                commissionRequired: Math.round(commissionRequired * 100) / 100,
                 commissionStatus: 'PENDING',
+                voluntaryCommission,
+                interestRate: lockedRate,
                 createdAt: savedApp.createdAt.toISOString(),
                 fundingWindowHours: (savedApp as any).fundingWindowHours ?? 72,
                 minFundingThreshold: (savedApp as any).minFundingThreshold ?? 50,
@@ -404,11 +436,9 @@ export class BorrowerApplicationsService {
     }
 
     /**
-     * Close application
-     * Allowed only if:
-     * - status = OPEN or FUNDED
-     * - funded_percent >= 50
-     * - At least one loan created from this application
+     * Close application (manual close by borrower).
+     * Allowed only if: status = OPEN, funded_percent >= 50, loan exists and is OPEN.
+     * Runs pro-rata, sets confirmed_amount on offers, transitions loan to FUNDED_PENDING_PAYMENT.
      */
     async closeApplication(
         borrowerId: string,
@@ -419,51 +449,34 @@ export class BorrowerApplicationsService {
             const borrowerIdNum = parseInt(borrowerId, 10);
             const appIdNum = parseInt(applicationId, 10);
 
-            // Query and validate application
             const application = await this.loanAppRepo.findById(appIdNum);
             if (!application || application.borrowerId !== borrowerIdNum) {
                 throw new Error('Application not found');
             }
-
-            // Validation: Status must be OPEN (1) or FUNDED (2)
-            if (![1, 2].includes(application.statusId)) {
-                throw new Error('Application must be in OPEN or FUNDED status to be closed');
+            if (application.statusId !== 1) {
+                throw new Error('Application must be in OPEN status to be closed');
             }
-
-            // Validation: funded_percent >= 50
             if (application.fundedPercent < 50) {
                 throw new Error('Application must be at least 50% funded before closing');
             }
 
-            // Update status to CLOSED (statusId = 3)
-            application.statusId = 3;
-            await this.loanAppRepo.update(appIdNum, application);
+            const loan = await this.loanRepo.findByApplicationId(appIdNum);
+            if (!loan) throw new Error('Loan not found');
+            if (loan.statusId !== 1) throw new Error('Loan is already closed or not open for closing');
 
-            const fundedAmount = (application.amount * application.fundedPercent) / 100;
+            const { MarketplaceCloseService } = await import('./MarketplaceCloseService');
+            const closeService = new MarketplaceCloseService();
+            await closeService.closeLoanWithProRata(loan.id, 'borrower');
 
-            // Audit log
-            await this.auditRepo.create({
-                actorId: borrowerIdNum,
-                action: 'APPLICATION_CLOSED',
-                entity: 'APPLICATION',
-                entityId: appIdNum,
-                createdAt: new Date(),
-            } as any);
-
-            await this.notificationService.notify(
-                borrowerIdNum,
-                'APPLICATION_CLOSED',
-                'Application Closed',
-                `Your loan application has been successfully closed with ${application.fundedPercent}% funding`,
-                { fundedPercent: String(application.fundedPercent) }
-            );
+            const appAfter = await this.loanAppRepo.findById(appIdNum);
+            const fundedAmount = Number(appAfter?.fundedAmount ?? application.fundedAmount * application.amount / 100);
 
             return {
                 applicationId: appIdNum,
                 status: 'CLOSED',
                 closedAt: new Date().toISOString(),
-                fundedAmount: fundedAmount,
-                unfundedAmount: application.amount - fundedAmount,
+                fundedAmount,
+                unfundedAmount: Number(application.amount) - fundedAmount,
             };
         } catch (error: any) {
             console.error('Error closing application:', error);

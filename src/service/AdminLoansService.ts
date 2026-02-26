@@ -183,4 +183,23 @@ export class AdminLoansService {
 
     return { success: true, message: 'Borrower blocked successfully' };
   }
+
+  /** Manually close loan (set statusId 2 = completed). */
+  async closeLoan(loanId: number, adminId: number): Promise<{ success: boolean; message: string }> {
+    const loan = await this.loanRepo.findOne({ where: { id: loanId } });
+    if (!loan) throw new Error(`Loan ${loanId} not found`);
+    await this.loanRepo.update(loanId, { statusId: 2 });
+    await this.auditService.logAction(adminId, 'LOAN_MANUALLY_CLOSED', 'LOAN', loanId, {});
+    return { success: true, message: 'Loan closed successfully' };
+  }
+
+  /** Mark loan as defaulted (statusId 3) and block borrower. */
+  async defaultLoan(loanId: number, adminId: number): Promise<{ success: boolean; message: string }> {
+    const loan = await this.loanRepo.findOne({ where: { id: loanId } });
+    if (!loan) throw new Error(`Loan ${loanId} not found`);
+    await this.loanRepo.update(loanId, { statusId: 3 });
+    await this.userRepo.update(loan.borrowerId, { statusId: 3 });
+    await this.auditService.logAction(adminId, 'LOAN_MARKED_DEFAULTED', 'LOAN', loanId, { borrowerId: loan.borrowerId });
+    return { success: true, message: 'Loan marked as defaulted; borrower blocked' };
+  }
 }

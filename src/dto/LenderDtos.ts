@@ -7,6 +7,11 @@
 // L-01: DASHBOARD
 // ============================================
 
+export interface ManagedByDto {
+    companyId: number;
+    companyName: string;
+}
+
 export interface LenderDashboardStatsResponse {
     activeInvestments: number;
     totalInvestedAmount: number;
@@ -16,6 +21,10 @@ export interface LenderDashboardStatsResponse {
     overdueLoanCount: number;
     avgRepaymentRate: number;
     nextRepaymentDate: string | null;
+    /** Set when lender has an active management agreement */
+    managedBy: ManagedByDto | null;
+    /** Total earnings (voluntary commissions + interest received) — placeholder if not tracked */
+    earnings?: number;
 }
 
 export interface LenderAlertDto {
@@ -57,9 +66,14 @@ export interface LoanOfferDto {
     createdAt: string;
 }
 
+/** Anonymized offer for public/detail (no lender identity). */
+export interface LoanOfferAnonymizedDto {
+    amount: number;
+    createdAt: string;
+}
+
 export interface LoanBrowseItemDto {
     id: string;
-    borrowerId: string;
     amount: number;
     durationMonths: number;
     purpose: string;
@@ -68,9 +82,10 @@ export interface LoanBrowseItemDto {
     createdAt: string;
     fundedPercent: number;
     remainingAmount: number;
-    offers: LoanOfferDto[];
-    ctaEligible: boolean; // Can current user make offer
-    ctaReason?: string; // If not eligible, why
+    offerCount: number;
+    offers?: LoanOfferDto[]; // optional: when caller needs per-offer (e.g. detail with anonymized)
+    ctaEligible: boolean;
+    ctaReason?: string;
 }
 
 export interface LoanBrowsePageResponse {
@@ -247,11 +262,13 @@ export interface GenerateClaimResponse {
 export interface ManagementCompanyDto {
     id: string;
     name: string;
-    bankAccount: string;
+    bankAccount?: string;
     statusCode: string;
-    statusName: string;
-    approvedAt: string | null;
-    conditions?: any; // JSON from DB
+    statusName?: string;
+    approvedAt?: string | null;
+    conditions?: any;
+    minManagedAmount?: number;
+    commissionPct?: number;
 }
 
 export interface ManagementCompaniesResponse {
@@ -276,7 +293,7 @@ export interface ManagementAgreementDto {
     companyName: string;
     amount: number;
     signedAt: string;
-    pdfPath: string;
+    pdfPath: string | null;
     status: 'ACTIVE' | 'TERMINATED' | 'SUSPENDED';
 }
 

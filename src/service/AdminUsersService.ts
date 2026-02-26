@@ -212,6 +212,51 @@ export class AdminUsersService {
     return this.getUsersByStatus(1, limit, offset); // statusId 1 = PENDING
   }
 
+  /** Block user (statusId 3). */
+  async blockUser(userId: number, adminId: number, reason?: string): Promise<UserDetailDto | null> {
+    return this.updateUserStatus(userId, { statusId: 3, reason }, adminId);
+  }
+
+  /** Freeze user (statusId 4). */
+  async freezeUser(userId: number, adminId: number, reason?: string): Promise<UserDetailDto | null> {
+    return this.updateUserStatus(userId, { statusId: 4, reason }, adminId);
+  }
+
+  /** Approve user: set status to ACTIVE (2). */
+  async approveUser(userId: number, adminId: number, note?: string): Promise<UserDetailDto | null> {
+    return this.updateUserStatus(userId, { statusId: 2, reason: note }, adminId);
+  }
+
+  /** Reject user: set status to PENDING (1) and store reason in audit. */
+  async rejectUser(userId: number, adminId: number, reason: string): Promise<UserDetailDto | null> {
+    await this.auditService.logAction(adminId, 'USER_REJECTED', 'USER', userId, { reason });
+    return this.updateUserStatus(userId, { statusId: 1, reason }, adminId);
+  }
+
+  /** Soft-delete user (GDPR: sets deleted_at). */
+  async softDeleteUser(userId: number, adminId: number): Promise<{ success: boolean }> {
+    const user = await this.userRepo.findById(userId);
+    if (!user) throw new Error('User not found');
+    await this.userRepo.softDelete(userId);
+    await this.auditService.logAction(adminId, 'USER_SOFT_DELETED', 'USER', userId, { email: user.email });
+    return { success: true };
+  }
+
+  /** Bulk approve: set status to ACTIVE for multiple users (transactional). */
+  async bulkApprove(userIds: number[], adminId: number): Promise<{ success: boolean; approved: number; failed: number }> {
+    let approved = 0;
+    let failed = 0;
+    for (const id of userIds) {
+      try {
+        await this.approveUser(id, adminId);
+        approved++;
+      } catch {
+        failed++;
+      }
+    }
+    return { success: failed === 0, approved, failed };
+  }
+
   private getRoleName(roleId: number): string {
     const roleMap: Record<number, string> = {
       1: 'ADMIN',

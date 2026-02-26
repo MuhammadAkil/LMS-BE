@@ -30,8 +30,12 @@ export class BorrowerDashboardController {
             const user = (req as any).user;
             const borrowerId = user.id.toString();
 
-            const stats = await this.dashboardService.getDashboardStats(borrowerId);
-            const alerts = await this.dashboardService.getAlerts(borrowerId);
+            const [stats, alerts, openApplications, activeLoans] = await Promise.all([
+                this.dashboardService.getDashboardStats(borrowerId),
+                this.dashboardService.getAlerts(borrowerId),
+                this.dashboardService.getOpenApplicationsForDashboard(borrowerId, 10),
+                this.dashboardService.getActiveLoansForDashboard(borrowerId, 10),
+            ]);
 
             res.status(200).json({
                 statusCode: '200',
@@ -39,6 +43,8 @@ export class BorrowerDashboardController {
                 data: {
                     stats,
                     alerts,
+                    openApplications,
+                    activeLoans,
                 },
                 timestamp: new Date().toISOString(),
             } as BorrowerApiResponse<any>);

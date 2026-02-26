@@ -1,5 +1,7 @@
 import { AuditLogRepository } from '../repository/AuditLogRepository';
 import { NotificationRepository } from '../repository/NotificationRepository';
+import { UserRepository } from '../repository/UserRepository';
+import { LevelRulesRepository } from '../repository/LevelRulesRepository';
 import {
     ProfileDto,
     UpdateProfileRequest,
@@ -8,66 +10,51 @@ import {
     ActivityItemDto,
 } from '../dto/BorrowerDtos';
 
+const STATUS_NAMES: Record<number, string> = { 1: 'PENDING', 2: 'ACTIVE', 3: 'BLOCKED', 4: 'FROZEN' };
+
 /**
  * B-09: BORROWER PROFILE SERVICE
- * Manages borrower profile and activity tracking
- *
- * Rules:
- * - Limited editable fields: firstName, lastName, phone, dateOfBirth
- * - Protected fields: email, password, role, status, level (cannot be edited by borrower)
- * - Activity tracking via audit_logs
- * - Changes trigger notifications and audit events
+ * Returns real user profile with status and verification for dashboard banners.
  */
 export class BorrowerProfileService {
     private auditRepo: AuditLogRepository;
     private notificationRepo: NotificationRepository;
+    private userRepo: UserRepository;
+    private levelRulesRepo: LevelRulesRepository;
 
     constructor() {
         this.auditRepo = new AuditLogRepository();
         this.notificationRepo = new NotificationRepository();
+        this.userRepo = new UserRepository();
+        this.levelRulesRepo = new LevelRulesRepository();
     }
 
-    /**
-     * Get borrower profile
-     *
-     * SQL:
-     * SELECT
-     *   u.id,
-     *   u.email,
-     *   u.first_name,
-     *   u.last_name,
-     *   u.phone,
-     *   u.date_of_birth,
-     *   u.role_id,
-     *   us.code as status_name,
-     *   u.level as verification_level,
-     *   u.created_at,
-     *   u.updated_at,
-     *   CASE WHEN u2fa.id IS NOT NULL THEN 1 ELSE 0 END as twoFAEnabled
-     * FROM users u
-     * LEFT JOIN user_statuses us ON us.id = u.status_id
-     * LEFT JOIN user_2fa u2fa ON u2fa.user_id = u.id AND u2fa.is_enabled = 1
-     * WHERE u.id = ?
-     */
     async getProfile(borrowerId: string): Promise<ProfileDto> {
         try {
             const borrowerIdNum = parseInt(borrowerId, 10);
+            const user = await this.userRepo.findById(borrowerIdNum);
+            if (!user) throw new Error('User not found');
 
-            // TODO: Query user profile
+            const level = user.level ?? 0;
+            const levelRules = await this.levelRulesRepo.findByLevel(level);
+            const verificationStatus = level > 0 ? 'approved' : 'not_started';
+
             const profile: ProfileDto = {
-                id: borrowerIdNum,
-                email: 'borrower@example.com',
-                firstName: 'John',
-                lastName: 'Doe',
-                phone: '+48501234567',
-                dateOfBirth: '1990-01-15',
-                roleId: 2, // BORROWER
-                statusId: 1,
-                statusName: 'ACTIVE',
-                verificationLevel: 2,
-                createdAt: '2025-01-01',
-                updatedAt: '2026-01-01',
-                twoFAEnabled: true,
+                id: user.id,
+                email: user.email,
+                firstName: user.firstName ?? '',
+                lastName: user.lastName ?? '',
+                phone: user.phone ?? '',
+                dateOfBirth: undefined,
+                roleId: user.roleId,
+                statusId: user.statusId,
+                statusName: STATUS_NAMES[user.statusId] ?? 'PENDING',
+                verificationLevel: level,
+                verificationStatus,
+                createdAt: user.createdAt?.toISOString?.() ?? '',
+                updatedAt: user.updatedAt?.toISOString?.() ?? '',
+                twoFAEnabled: false,
+                availableLoanLimit: Number(levelRules?.maxLoanAmount ?? 0),
             };
 
             // Audit log
