@@ -226,6 +226,86 @@ export class AdminDashboardService {
   }
 
   /**
+   * Get chart data for dashboard visualizations
+   */
+  async getChartData(): Promise<{
+    monthlyLoans: { label: string; count: number }[];
+    topBorrowers: { name: string; email: string; amount: number; loans: number }[];
+    loanAmountDistribution: { range: string; count: number }[];
+    loanStatusCounts: { statusId: number; statusName: string; count: number }[];
+  }> {
+    const qr = AppDataSource.createQueryRunner();
+    try {
+      // Monthly loans – last 6 calendar months
+      const monthly = await qr.query(`
+        SELECT DATE_FORMAT(createdAt, '%b %Y') AS label,
+               YEAR(createdAt) AS yr, MONTH(createdAt) AS mo,
+               COUNT(*) AS cnt
+        FROM loans
+        WHERE createdAt >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
+        GROUP BY yr, mo, label
+        ORDER BY yr ASC, mo ASC
+      `).catch(() => []);
+
+      // Top 5 borrowers by total funded amount
+      const topBorrowers = await qr.query(`
+        SELECT CONCAT(COALESCE(u.first_name,''),' ',COALESCE(u.last_name,'')) AS name,
+               u.email,
+               COALESCE(SUM(l.fundedAmount),0) AS amount,
+               COUNT(l.id) AS loans
+        FROM loans l
+        LEFT JOIN users u ON l.borrowerId = u.id
+        GROUP BY l.borrowerId, u.first_name, u.last_name, u.email
+        ORDER BY amount DESC
+        LIMIT 5
+      `).catch(() => []);
+
+      // Loan amount distribution buckets
+      const distribution = await qr.query(`
+        SELECT
+          SUM(CASE WHEN totalAmount < 1000 THEN 1 ELSE 0 END) AS b0,
+          SUM(CASE WHEN totalAmount >= 1000 AND totalAmount < 5000 THEN 1 ELSE 0 END) AS b1,
+          SUM(CASE WHEN totalAmount >= 5000 AND totalAmount < 10000 THEN 1 ELSE 0 END) AS b2,
+          SUM(CASE WHEN totalAmount >= 10000 AND totalAmount < 50000 THEN 1 ELSE 0 END) AS b3,
+          SUM(CASE WHEN totalAmount >= 50000 THEN 1 ELSE 0 END) AS b4
+        FROM loans
+      `).catch(() => [{}]);
+
+      // Loan status counts
+      const statusCounts = await qr.query(`
+        SELECT statusId, COUNT(*) AS cnt FROM loans GROUP BY statusId
+      `).catch(() => []);
+
+      const statusNames: Record<number, string> = { 1: 'Active', 2: 'Completed', 3: 'Defaulted', 4: 'Suspended' };
+      const dist = distribution[0] || {};
+
+      return {
+        monthlyLoans: monthly.map((r: any) => ({ label: r.label, count: Number(r.cnt) })),
+        topBorrowers: topBorrowers.map((r: any) => ({
+          name: (r.name || '').trim() || r.email || 'Unknown',
+          email: r.email || '',
+          amount: parseFloat(r.amount) || 0,
+          loans: Number(r.loans) || 0,
+        })),
+        loanAmountDistribution: [
+          { range: '0-1k', count: Number(dist.b0) || 0 },
+          { range: '1k-5k', count: Number(dist.b1) || 0 },
+          { range: '5k-10k', count: Number(dist.b2) || 0 },
+          { range: '10k-50k', count: Number(dist.b3) || 0 },
+          { range: '50k+', count: Number(dist.b4) || 0 },
+        ],
+        loanStatusCounts: statusCounts.map((r: any) => ({
+          statusId: Number(r.statusId),
+          statusName: statusNames[Number(r.statusId)] || 'Unknown',
+          count: Number(r.cnt),
+        })),
+      };
+    } finally {
+      await qr.release();
+    }
+  }
+
+  /**
    * Get last N activity log entries for dashboard (spec: activity-log?limit=20).
    */
   async getActivityLog(limit: number = 20): Promise<Array<{ timestamp: Date; action: string; performedBy: number; targetUser?: number; details?: Record<string, unknown> }>> {

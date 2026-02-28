@@ -66,4 +66,13 @@ export class AdminDashboardController {
   async getActivityLog(@Req() req: Request, @QueryParam('limit') limit?: number) {
     return this.dashboardService.getActivityLog(limit ?? 20);
   }
+
+  /**
+   * GET /admin/dashboard/charts
+   * Returns chart data: monthly loans, top borrowers, loan amount distribution, status counts
+   */
+  @Get('/charts')
+  async getChartData() {
+    return this.dashboardService.getChartData();
+  }
 }

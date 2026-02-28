@@ -74,6 +74,16 @@ export class AuditLogRepository {
     });
   }
 
+  async findByEntityType(entity: string, limit: number = 50, offset: number = 0): Promise<[AuditLog[], number]> {
+    return await this.repo.findAndCount({
+      where: { entity },
+      relations: ['actor'],
+      take: limit,
+      skip: offset,
+      order: { createdAt: 'DESC' },
+    });
+  }
+
   async findByActionAndEntity(
     action: string,
     entity: string,

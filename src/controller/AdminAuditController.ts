@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Param, QueryParam, UseBefore, Req } from 'routing-controllers';
 import { Request } from 'express';
 import { AdminAuditService } from '../service/AdminAuditService';
-import { SuperAdminGuard, CriticalOperationGuard } from '../middleware/AdminGuards';
+import { AdminGuard, SuperAdminGuard, CriticalOperationGuard } from '../middleware/AdminGuards';
 import {
   AuditLogDto,
 } from '../dto/AdminDtos';
@@ -18,7 +18,7 @@ import {
  * - POST  /admin/retention/override            -> Override retention (CriticalOperationGuard)
  */
 @Controller('/admin/audit-logs')
-@UseBefore(SuperAdminGuard)
+@UseBefore(AdminGuard)
 export class AdminAuditController {
   private readonly auditService: AdminAuditService;
 
@@ -69,19 +69,19 @@ export class AdminAuditController {
       limit: limit || 50,
       offset: offset || 0,
     });
-    
-    // Handle both array and wrapped response
-    const logs = Array.isArray(result) ? result : (result as any).data || [];
-    
+
+    // result is [AuditLog[], number] tuple from findAndCount
+    const logs: any[] = Array.isArray(result[0]) ? result[0] : (Array.isArray(result) ? result : []);
+
     // Convert to DTOs
     return logs.map((log: any) => ({
       id: log.id,
-      actorId: log.actorId,
-      actorEmail: '', // Would need to join with users table
+      actorId: log.userId,
+      actorEmail: log.actor?.email ?? '',
       action: log.action,
       entity: log.entity,
       entityId: log.entityId,
-      metadata: log.metadata ? JSON.parse(log.metadata) : undefined,
+      metadata: log.metadata ? (() => { try { return JSON.parse(log.metadata); } catch { return log.metadata; } })() : undefined,
       createdAt: log.createdAt,
     }));
   }
@@ -108,18 +108,18 @@ export class AdminAuditController {
     @QueryParam('limit') limit?: number
   ): Promise<AuditLogDto[]> {
     const logs = await this.auditService.getEntityHistory(entityType, entityId);
-    
+
     // Convert to DTOs and apply limit
-    return (Array.isArray(logs) ? logs : (logs as any).data || [])
+    return (Array.isArray(logs) ? logs : [])
       .slice(0, limit || 20)
       .map((log: any) => ({
         id: log.id,
-        actorId: log.actorId,
-        actorEmail: '',
+        actorId: log.userId,
+        actorEmail: log.actor?.email ?? '',
         action: log.action,
         entity: log.entity,
         entityId: log.entityId,
-        metadata: log.metadata ? JSON.parse(log.metadata) : undefined,
+        metadata: log.metadata ? (() => { try { return JSON.parse(log.metadata); } catch { return log.metadata; } })() : undefined,
         createdAt: log.createdAt,
       }));
   }

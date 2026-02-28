@@ -1,5 +1,6 @@
 import { AppDataSource } from '../config/database';
 import { Export } from '../domain/Export';
+import { MoreThanOrEqual } from 'typeorm';
 
 export class ExportRepository {
   private repo = AppDataSource.getRepository(Export);
@@ -43,7 +44,7 @@ export class ExportRepository {
     since.setDate(since.getDate() - days);
 
     return await this.repo.find({
-      where: { createdAt: new Date(since) },
+      where: { createdAt: MoreThanOrEqual(since) },
       take: limit,
       order: { createdAt: 'DESC' },
     });

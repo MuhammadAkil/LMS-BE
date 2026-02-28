@@ -7,6 +7,7 @@ export interface LoanListItemDto {
   id: number;
   borrowerId: number;
   borrowerEmail: string;
+  borrowerName?: string;
   totalAmount: number;
   fundedAmount: number;
   fundedPercentage: number;
@@ -15,11 +16,14 @@ export interface LoanListItemDto {
   dueDate: Date;
   createdAt: Date;
   defaultDays?: number;
+  lenders?: string[];
 }
 
 export interface LoanDetailDto extends LoanListItemDto {
   applicationId: number;
   interventionNotes?: string;
+  borrowerName?: string;
+  lenders?: string[];
 }
 
 export interface AddInterventionNoteRequest {
@@ -51,57 +55,69 @@ export class AdminLoansService {
     statusId?: number,
     search?: string
   ): Promise<AdminLoansListResponse> {
-    const qb = this.loanRepo
-      .createQueryBuilder('loan')
-      .leftJoin(User, 'borrower', 'borrower.id = loan.borrowerId')
-      .select([
-        'loan.id',
-        'loan.borrowerId',
-        'borrower.email AS borrowerEmail',
-        'loan.totalAmount',
-        'loan.fundedAmount',
-        'loan.statusId',
-        'loan.dueDate',
-        'loan.createdAt',
-      ]);
+    const conditions: string[] = [];
+    const params: any[] = [];
 
     if (statusId !== undefined) {
-      qb.andWhere('loan.statusId = :statusId', { statusId });
+      conditions.push('l.statusId = ?');
+      params.push(statusId);
     }
 
     if (search) {
-      qb.andWhere(
-        '(borrower.email LIKE :search OR CAST(loan.id AS CHAR) LIKE :search)',
-        { search: `%${search}%` }
-      );
+      conditions.push('(u.email LIKE ? OR CAST(l.id AS CHAR) LIKE ?)');
+      params.push(`%${search}%`, `%${search}%`);
     }
 
-    const total = await qb.getCount();
-    const rawLoans = await qb.limit(limit).offset(offset).getRawMany();
+    const where = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
+
+    const [countRow] = await AppDataSource.query(
+      `SELECT COUNT(*) AS total FROM loans l LEFT JOIN users u ON l.borrowerId = u.id ${where}`,
+      params
+    );
+    const total = Number(countRow.total);
+
+    const rawLoans = await AppDataSource.query(
+      `SELECT
+        l.id, l.borrowerId, l.totalAmount, l.fundedAmount, l.statusId, l.dueDate, l.createdAt,
+        u.email AS borrowerEmail,
+        CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, '')) AS borrowerName,
+        (SELECT GROUP_CONCAT(lu.email SEPARATOR ', ')
+          FROM loan_offers lo LEFT JOIN users lu ON lo.lenderId = lu.id
+          WHERE lo.loanId = l.id) AS lenders
+      FROM loans l
+      LEFT JOIN users u ON l.borrowerId = u.id
+      ${where}
+      ORDER BY l.createdAt DESC
+      LIMIT ? OFFSET ?`,
+      [...params, limit, offset]
+    );
 
     const now = new Date();
-    const data: LoanListItemDto[] = rawLoans.map((r) => {
-      const dueDate = new Date(r.loan_dueDate || r.dueDate);
+    const data: LoanListItemDto[] = rawLoans.map((r: any) => {
+      const dueDate = new Date(r.dueDate);
+      const statusId = Number(r.statusId);
       const defaultDays =
-        r.loan_statusId === 3 && dueDate < now
+        statusId === 3 && dueDate < now
           ? Math.floor((now.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24))
           : undefined;
 
-      const totalAmount = parseFloat(r.loan_totalAmount || r.totalAmount || '0');
-      const fundedAmount = parseFloat(r.loan_fundedAmount || r.fundedAmount || '0');
+      const totalAmount = parseFloat(r.totalAmount || '0');
+      const fundedAmount = parseFloat(r.fundedAmount || '0');
 
       return {
-        id: r.loan_id || r.id,
-        borrowerId: r.loan_borrowerId || r.borrowerId,
+        id: Number(r.id),
+        borrowerId: Number(r.borrowerId),
         borrowerEmail: r.borrowerEmail || '',
+        borrowerName: (r.borrowerName || '').trim() || undefined,
         totalAmount,
         fundedAmount,
         fundedPercentage: totalAmount > 0 ? Math.round((fundedAmount / totalAmount) * 100) : 0,
-        statusId: r.loan_statusId || r.statusId,
-        statusName: STATUS_NAMES[r.loan_statusId || r.statusId] || 'unknown',
+        statusId,
+        statusName: STATUS_NAMES[statusId] || 'unknown',
         dueDate,
-        createdAt: new Date(r.loan_createdAt || r.createdAt),
+        createdAt: new Date(r.createdAt),
         defaultDays,
+        lenders: r.lenders ? (r.lenders as string).split(', ') : [],
       };
     });
 
@@ -109,35 +125,50 @@ export class AdminLoansService {
   }
 
   async getLoanById(loanId: number): Promise<LoanDetailDto> {
-    const loan = await this.loanRepo.findOne({ where: { id: loanId } });
-    if (!loan) {
+    const [row] = await AppDataSource.query(
+      `SELECT
+        l.id, l.applicationId, l.borrowerId, l.totalAmount, l.fundedAmount, l.statusId, l.dueDate, l.createdAt,
+        u.email AS borrowerEmail,
+        CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, '')) AS borrowerName,
+        (SELECT GROUP_CONCAT(lu.email SEPARATOR ', ')
+          FROM loan_offers lo LEFT JOIN users lu ON lo.lenderId = lu.id
+          WHERE lo.loanId = l.id) AS lenders
+      FROM loans l
+      LEFT JOIN users u ON l.borrowerId = u.id
+      WHERE l.id = ?`,
+      [loanId]
+    );
+
+    if (!row) {
       throw new Error(`Loan ${loanId} not found`);
     }
 
-    const borrower = await this.userRepo.findOne({ where: { id: loan.borrowerId } });
     const now = new Date();
-    const dueDate = new Date(loan.dueDate);
+    const dueDate = new Date(row.dueDate);
+    const statusId = Number(row.statusId);
     const defaultDays =
-      loan.statusId === 3 && dueDate < now
+      statusId === 3 && dueDate < now
         ? Math.floor((now.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24))
         : undefined;
 
-    const totalAmount = parseFloat(loan.totalAmount as any);
-    const fundedAmount = parseFloat(loan.fundedAmount as any);
+    const totalAmount = parseFloat(row.totalAmount || '0');
+    const fundedAmount = parseFloat(row.fundedAmount || '0');
 
     return {
-      id: loan.id,
-      applicationId: loan.applicationId,
-      borrowerId: loan.borrowerId,
-      borrowerEmail: borrower?.email || '',
+      id: Number(row.id),
+      applicationId: Number(row.applicationId),
+      borrowerId: Number(row.borrowerId),
+      borrowerEmail: row.borrowerEmail || '',
+      borrowerName: (row.borrowerName || '').trim() || undefined,
       totalAmount,
       fundedAmount,
       fundedPercentage: totalAmount > 0 ? Math.round((fundedAmount / totalAmount) * 100) : 0,
-      statusId: loan.statusId,
-      statusName: STATUS_NAMES[loan.statusId] || 'unknown',
-      dueDate: loan.dueDate,
-      createdAt: loan.createdAt,
+      statusId,
+      statusName: STATUS_NAMES[statusId] || 'unknown',
+      dueDate,
+      createdAt: new Date(row.createdAt),
       defaultDays,
+      lenders: row.lenders ? (row.lenders as string).split(', ') : [],
     };
   }
 

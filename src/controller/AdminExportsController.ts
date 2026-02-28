@@ -1,7 +1,9 @@
-import { Controller, Get, Post, Delete, Body, Param, QueryParam, UseBefore, Req } from 'routing-controllers';
-import { Request } from 'express';
+import { Controller, Get, Post, Delete, Body, Param, QueryParam, UseBefore, Req, Res } from 'routing-controllers';
+import { Request, Response } from 'express';
 import { AdminExportsService } from '../service/AdminExportsService';
 import { AdminGuard, SuperAdminGuard, CriticalOperationGuard } from '../middleware/AdminGuards';
+import { readFileSync, existsSync } from 'node:fs';
+import { basename } from 'node:path';
 import {
   ExportListItemDto,
   GenerateXMLExportRequest,
@@ -52,6 +54,30 @@ export class AdminExportsController {
   }
 
   /**
+   * GET /admin/exports/:id/download
+   * Downloads the physical export file as an attachment
+   */
+  @Get('/:id/download')
+  async downloadExport(@Param('id') exportId: number, @Res() res: Response): Promise<any> {
+    const exp = await this.exportsService.getExportById(exportId);
+    const filePath: string = (exp as any).filePath || '';
+
+    if (!filePath || !existsSync(filePath)) {
+      res.status(404).json({ message: 'Export file not found on disk' });
+      return res;
+    }
+
+    const fileName = basename(filePath);
+    const isXml = fileName.endsWith('.xml');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.setHeader('Content-Type', isXml ? 'application/xml' : 'text/csv');
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
+    const fileContent = readFileSync(filePath);
+    res.send(fileContent);
+    return res;
+  }
+
+  /**
    * GET /admin/exports/:id
    * Returns specific export details
    *
@@ -83,7 +109,7 @@ export class AdminExportsController {
    * Includes: filePath, recordCount, metadata with filters applied
    */
   @Post('/xml')
-  @UseBefore(SuperAdminGuard)
+  @UseBefore(AdminGuard)
   async generateXMLExport(@Body() request: GenerateXMLExportRequest, @Req() req: Request): Promise<ExportListItemDto> {
     const adminId = (req.user as any)?.id || (req.user as any)?.userId;
     if (!adminId) {
@@ -112,7 +138,7 @@ export class AdminExportsController {
    * Includes: filePath, recordCount, metadata
    */
   @Post('/csv')
-  @UseBefore(SuperAdminGuard)
+  @UseBefore(AdminGuard)
   async generateCSVExport(@Body() request: GenerateCSVExportRequest, @Req() req: Request): Promise<ExportListItemDto> {
     const adminId = (req.user as any)?.id || (req.user as any)?.userId;
     if (!adminId) {

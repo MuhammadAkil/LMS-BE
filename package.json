@@ -26,7 +26,8 @@
         "nodemon": "nodemon --exec ts-node src/app.ts",
         "lint": "eslint src --ext .ts",
         "test": "jest",
-        "seed:splash": "ts-node src/scripts/seedSplashScreen.ts"
+        "seed:splash": "ts-node src/scripts/seedSplashScreen.ts",
+        "seed": "ts-node src/scripts/seed.ts"
     },
     "dependencies": {
         "@nestjs/common": "^11.1.14",

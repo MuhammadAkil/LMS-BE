@@ -2,7 +2,7 @@ import { AdminAuditService } from './AdminAuditService';
 import { ExportRepository } from '../repository/ExportRepository';
 import { AppDataSource } from '../config/database';
 import { ExportListItemDto, GenerateXMLExportRequest, GenerateCSVExportRequest, GenerateClaimsRequest } from '../dto/AdminDtos';
-import { writeFileSync, existsSync, unlinkSync } from 'node:fs';
+import { writeFileSync, existsSync, unlinkSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 /**
@@ -22,7 +22,7 @@ export class AdminExportsService {
     // Create exports directory if it doesn't exist
     this.exportsDir = join(process.cwd(), 'exports');
     if (!existsSync(this.exportsDir)) {
-      // Create directory manually (simplified for Node.js)
+      mkdirSync(this.exportsDir, { recursive: true });
     }
   }
 
@@ -114,11 +114,16 @@ export class AdminExportsService {
         loans = await queryRunner.query(`SELECT p.* FROM payments p LIMIT ${request.limit || 500}`);
       } else {
         // Default to LOANS
+        const dateFrom = (request as any).filters?.dateFrom || (request as any).dateFrom;
+        const dateTo   = (request as any).filters?.dateTo   || (request as any).dateTo;
         loans = await queryRunner.query(`SELECT l.*, u.email as borrower_email
           FROM loans l
           LEFT JOIN users u ON l.borrowerId = u.id
+          WHERE 1=1
+          ${dateFrom ? `AND l.createdAt >= '${new Date(dateFrom).toISOString()}'` : ''}
+          ${dateTo   ? `AND l.createdAt <= '${new Date(dateTo).toISOString()}'`   : ''}
           ORDER BY l.createdAt DESC
-          LIMIT ${Math.min(request.limit || 500, 500)}`);
+          LIMIT ${Math.min((request as any).limit || 500, 500)}`);
       }
 
       // Generate CSV
@@ -374,15 +379,22 @@ export class AdminExportsService {
   }
 
   private mapExportToDto(exp: any): ExportListItemDto {
+    const typeName = this.getExportType(exp.typeId);
     return {
       id: exp.id,
       typeId: exp.typeId,
-      typeName: this.getExportType(exp.typeId),
+      typeName,
       createdBy: exp.createdBy,
-      creatorEmail: 'unknown', // Would need to JOIN users to get email
+      creatorEmail: 'unknown',
       recordCount: exp.recordCount,
       createdAt: exp.createdAt,
-    };
+      // Fields the FE template binds
+      date: exp.createdAt,
+      type: typeName,
+      records: exp.recordCount,
+      status: 'Completed',
+      filePath: exp.filePath || '',
+    } as any;
   }
 
   private getExportType(typeId: number): string {

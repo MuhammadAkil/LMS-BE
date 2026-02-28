@@ -135,6 +135,8 @@ export class AdminAuditService {
       return await this.auditLogRepo.findByActionAndEntity(filter.action, filter.entity, limit, offset);
     } else if (filter.action) {
       return await this.auditLogRepo.findByAction(filter.action, limit, offset);
+    } else if (filter.entity) {
+      return await this.auditLogRepo.findByEntityType(filter.entity, limit, offset);
     } else if (filter.actorId) {
       return await this.auditLogRepo.findByActor(filter.actorId, limit, offset);
     } else if (filter.dateFrom && filter.dateTo) {

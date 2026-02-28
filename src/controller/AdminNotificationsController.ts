@@ -1,4 +1,4 @@
-import { Controller, Get, Patch, Param, QueryParam, UseBefore, Req } from 'routing-controllers';
+import { Controller, Get, Post, Put, Patch, Param, QueryParam, UseBefore, Req } from 'routing-controllers';
 import { Request } from 'express';
 import { AdminAuditService } from '../service/AdminAuditService';
 import { AdminGuard } from '../middleware/AdminGuards';
@@ -43,10 +43,47 @@ export class AdminNotificationsController {
     const adminId = (req.user as any)?.id || (req.user as any)?.userId;
     if (!adminId) throw new Error('Admin user ID not found in request');
 
+    const lim = limit || 20;
+    const off = offset || 0;
+
+    const unreadRaw = await this.auditService.getUnreadNotifications(adminId, 1000);
+    const unreadItems = Array.isArray(unreadRaw) ? unreadRaw : [];
+    const unreadCount = unreadItems.length;
+
+    let rawItems: any[];
     if (unreadOnly) {
-      return this.auditService.getUnreadNotifications(adminId, limit || 20);
+      rawItems = unreadItems.slice(off, off + lim);
+    } else {
+      const result = await this.auditService.getUserNotifications(adminId, lim, off);
+      rawItems = Array.isArray(result) ? result : (result as any)[0] ?? [];
     }
-    return this.auditService.getUserNotifications(adminId, limit || 20, offset || 0);
+
+    const notifications = rawItems.map((n: any) => ({
+      id: n.id,
+      type: n.type || 'SYSTEM',
+      title: n.title || n.payload && (() => { try { return JSON.parse(n.payload)?.title; } catch { return null; } })() || 'Notification',
+      message: n.message || n.payload && (() => { try { return JSON.parse(n.payload)?.message; } catch { return null; } })() || '',
+      isRead: n.read ?? n.isRead ?? false,
+      createdAt: n.createdAt,
+      readAt: n.readAt || null,
+    }));
+
+    const total = Array.isArray(unreadOnly ? unreadItems : rawItems) ? (unreadOnly ? unreadItems.length : rawItems.length) : 0;
+
+    return {
+      statusCode: '200',
+      statusMessage: 'OK',
+      data: {
+        notifications,
+        unreadCount,
+        pagination: {
+          page: Math.floor(off / lim) + 1,
+          pageSize: lim,
+          totalItems: total,
+          totalPages: Math.ceil(total / lim),
+        },
+      },
+    };
   }
 
   /**
@@ -76,6 +113,7 @@ export class AdminNotificationsController {
    *
    * Response: { success: boolean }
    */
+  @Put('/:id/read')
   @Patch('/:id/read')
   async markAsRead(@Param('id') notificationId: number) {
     await this.auditService.markNotificationAsRead(notificationId);
@@ -89,6 +127,7 @@ export class AdminNotificationsController {
    *
    * Response: { success: boolean }
    */
+  @Post('/mark-all-read')
   @Patch('/mark-all-read')
   async markAllAsRead(@Req() req: Request) {
     const adminId = (req.user as any)?.id || (req.user as any)?.userId;
