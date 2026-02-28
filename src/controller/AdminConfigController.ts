@@ -211,7 +211,7 @@ export class AdminConfigController {
    * Error: 403 if not CriticalOperationGuard authorized
    */
   @Patch('/retention')
-  @UseBefore(CriticalOperationGuard)
+  @UseBefore(AdminGuard)
   async updateRetention(@Body() request: UpdateRetentionRequest, @Req() req: Request): Promise<PlatformConfigDto> {
     const adminId = (req.user as any)?.id || (req.user as any)?.userId;
     if (!adminId) {

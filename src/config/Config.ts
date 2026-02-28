@@ -61,7 +61,7 @@ const conf = convict({
         },
         expiration: {
             format: "int",
-            default: 18000000, // 5 hours in milliseconds
+            default: 28800000, // 8 hours in milliseconds
             env: "JWT_EXPIRATION",
         },
     },

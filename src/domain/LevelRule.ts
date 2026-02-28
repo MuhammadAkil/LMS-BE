@@ -1,10 +1,11 @@
 import {
-  Entity,
   Column,
   PrimaryColumn,
 } from 'typeorm';
 
-@Entity('level_rules')
+// NOTE: This file is superseded by LevelRules.ts which maps the same table.
+// The @Entity decorator has been removed to prevent TypeORM sync conflicts.
+// Use LevelRules entity instead.
 export class LevelRule {
   @PrimaryColumn({ type: 'int' })
   level!: number;

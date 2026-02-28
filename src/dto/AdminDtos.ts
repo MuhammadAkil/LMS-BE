@@ -1,4 +1,5 @@
-import { IsNotEmpty, IsString, IsEmail, IsInt, IsOptional, Min, Max, IsEnum, IsJSON } from 'class-validator';
+import { IsNotEmpty, IsString, IsEmail, IsInt, IsOptional, Min, Max, IsEnum, IsJSON, IsDefined, IsNumber } from 'class-validator';
+import { Type } from 'class-transformer';
 
 // ==================== DASHBOARD DTOs ====================
 
@@ -78,7 +79,8 @@ export class UserDetailDto {
 }
 
 export class UpdateUserStatusRequest {
-  @IsNotEmpty({ message: 'Status ID is required' })
+  @IsDefined({ message: 'Status ID is required' })
+  @Type(() => Number)
   @IsInt()
   statusId!: number;
 
@@ -88,7 +90,8 @@ export class UpdateUserStatusRequest {
 }
 
 export class UpdateUserLevelRequest {
-  @IsNotEmpty({ message: 'Level is required' })
+  @IsDefined({ message: 'Level is required' })
+  @Type(() => Number)
   @IsInt()
   @Min(0)
   @Max(10)
@@ -155,6 +158,29 @@ export class PlatformConfigDto {
 }
 
 export class UpdateLoanRulesRequest {
+  // FE field names
+  @IsOptional()
+  maxLoanAmount?: number;
+
+  @IsOptional()
+  minLoanAmount?: number;
+
+  @IsOptional()
+  maxLoanTerm?: number;
+
+  @IsOptional()
+  minLoanTerm?: number;
+
+  @IsOptional()
+  interestRateMultiplier?: number;
+
+  @IsOptional()
+  minLenderOffer?: number;
+
+  @IsOptional()
+  levelConfigs?: any[];
+
+  // Legacy BE field names
   @IsOptional()
   minAmount?: number;
 
@@ -175,6 +201,17 @@ export class UpdateLoanRulesRequest {
 }
 
 export class UpdateLevelRulesRequest {
+  // FE field names
+  @IsOptional()
+  levelMinAmount?: number[];
+
+  @IsOptional()
+  levelMaxBids?: number[];
+
+  @IsOptional()
+  levelMaxLoans?: number[];
+
+  // Legacy BE field names
   @IsOptional()
   level0Amount?: number;
 
@@ -189,6 +226,29 @@ export class UpdateLevelRulesRequest {
 }
 
 export class UpdateFeesRequest {
+  // FE field names
+  @IsOptional()
+  platformFeePercentage?: number;
+
+  @IsOptional()
+  lenderFeePercentage?: number;
+
+  @IsOptional()
+  borrowerFeePercentage?: number;
+
+  @IsOptional()
+  companyCommissionPercentage?: number;
+
+  @IsOptional()
+  platformFee?: number;
+
+  @IsOptional()
+  latePaymentFee?: number;
+
+  @IsOptional()
+  commissionPercentage?: number;
+
+  // Legacy BE field names
   @IsOptional()
   processingFee?: number;
 
@@ -200,6 +260,26 @@ export class UpdateFeesRequest {
 }
 
 export class UpdateRemindersRequest {
+  // FE field names
+  @IsOptional()
+  paymentReminderDays?: number[];
+
+  @IsOptional()
+  verificationReminderDays?: number[];
+
+  @IsOptional()
+  docVerificationReminderDays?: number[];
+
+  @IsOptional()
+  daysBeforeDue?: number;
+
+  @IsOptional()
+  daysAfterDue?: number;
+
+  @IsOptional()
+  finalNoticeDays?: number;
+
+  // Legacy BE field names
   @IsOptional()
   dueDateReminderDays?: number;
 
@@ -211,6 +291,29 @@ export class UpdateRemindersRequest {
 }
 
 export class UpdateRetentionRequest {
+  // FE field names
+  @IsOptional()
+  userDataRetentionDays?: number;
+
+  @IsOptional()
+  auditLogRetentionDays?: number;
+
+  @IsOptional()
+  paymentRecordRetentionDays?: number;
+
+  @IsOptional()
+  gdprComplianceLevel?: string;
+
+  @IsOptional()
+  userDataYears?: number;
+
+  @IsOptional()
+  loanRecordsYears?: number;
+
+  @IsOptional()
+  auditLogsYears?: number;
+
+  // Legacy BE field names
   @IsOptional()
   dataRetentionDays?: number;
 

@@ -1,21 +1,13 @@
 /**
  * MarketplaceStatsService
  * Dashboard and analytics for marketplace activity
- * 
- * Responsibilities:
- * - Calculate marketplace statistics
- * - Track funding metrics
- * - Monitor lender/company participation
- * - Generate admin dashboard data
  */
 
-import { Injectable } from '@nestjs/common';
-import { DataSource } from 'typeorm';
+import { AppDataSource } from '../config/database';
 import { MarketplaceStatsResponse } from '../dto/MarketplaceDtos';
 
-@Injectable()
 export class MarketplaceStatsService {
-    constructor(private dataSource: DataSource) { }
+    constructor() { }
 
     /**
      * Get comprehensive marketplace statistics
@@ -28,7 +20,7 @@ export class MarketplaceStatsService {
      * - Lender/company participation
      */
     async getMarketplaceStats(): Promise<MarketplaceStatsResponse> {
-        const result = await this.dataSource.query(
+        const result = await AppDataSource.query(
             `SELECT 
          COUNT(DISTINCT lr.id) AS total_active_loans,
          COUNT(DISTINCT CASE WHEN mb.status IN ('ACTIVE', 'PARTIALLY_FILLED') THEN mb.id END) AS total_bids,
@@ -58,10 +50,11 @@ export class MarketplaceStatsService {
      * Get top lenders by bid volume
      */
     async getTopLenders(limit: number = 10): Promise<any[]> {
-        return this.dataSource.query(
+        return AppDataSource.query(
             `SELECT 
          mb.lender_id,
-         u.name AS lender_name,
+         CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, '')) AS lender_name,
+         u.email AS lender_email,
          COUNT(DISTINCT mb.id) AS bid_count,
          SUM(mb.bid_amount) AS total_bid_volume,
          SUM(mb.allocated_amount) AS total_allocated
@@ -79,7 +72,7 @@ export class MarketplaceStatsService {
      * Get top companies by bid volume
      */
     async getTopCompanies(limit: number = 10): Promise<any[]> {
-        return this.dataSource.query(
+        return AppDataSource.query(
             `SELECT 
          mb.company_id,
          c.name AS company_name,
@@ -100,7 +93,7 @@ export class MarketplaceStatsService {
      * Get funding timeline for a specific loan
      */
     async getFundingTimeline(loanRequestId: string): Promise<any[]> {
-        return this.dataSource.query(
+        return AppDataSource.query(
             `SELECT 
          mb.id,
          mb.bid_amount,
@@ -120,7 +113,7 @@ export class MarketplaceStatsService {
      * Get bids by status distribution
      */
     async getBidStatusDistribution(): Promise<any[]> {
-        return this.dataSource.query(
+        return AppDataSource.query(
             `SELECT 
          mb.status,
          COUNT(mb.id) AS bid_count,
@@ -135,7 +128,7 @@ export class MarketplaceStatsService {
      * Get loans by status distribution
      */
     async getLoanStatusDistribution(): Promise<any[]> {
-        return this.dataSource.query(
+        return AppDataSource.query(
             `SELECT 
          lr.status,
          COUNT(lr.id) AS loan_count,
@@ -151,7 +144,7 @@ export class MarketplaceStatsService {
      * Get funding success rate (loans that reached min threshold)
      */
     async getFundingSuccessRate(): Promise<{ success_rate: number; successful_loans: number; total_loans: number }> {
-        const result = await this.dataSource.query(
+        const result = await AppDataSource.query(
             `SELECT 
          COUNT(DISTINCT CASE WHEN lr.amount_funded >= lr.min_funding_threshold THEN lr.id END) AS successful_loans,
          COUNT(DISTINCT lr.id) AS total_loans
@@ -174,7 +167,7 @@ export class MarketplaceStatsService {
      * Get average bid size
      */
     async getAverageBidSize(): Promise<{ average_bid_size: number; median_bid_size: number }> {
-        const result = await this.dataSource.query(
+        const result = await AppDataSource.query(
             `SELECT 
          AVG(mb.bid_amount) AS average_bid_size
        FROM marketplace_bids mb
@@ -185,7 +178,7 @@ export class MarketplaceStatsService {
 
         // For median, we'd need a more complex query (depends on MySQL version)
         // This is a simplified version
-        const medianResult = await this.dataSource.query(
+        const medianResult = await AppDataSource.query(
             `SELECT 
          AVG(md.bid_amount) AS median_bid_size
        FROM (

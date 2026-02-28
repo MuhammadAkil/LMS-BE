@@ -59,10 +59,19 @@ export class AdminConfigService {
    */
   async updateLoanRules(request: UpdateLoanRulesRequest, adminId: number) {
     const rules = {
-      minAmount: request.minAmount,
-      maxAmount: request.maxAmount,
-      minTenor: request.minTenor,
-      maxTenor: request.maxTenor,
+      // FE field names (primary)
+      minLoanAmount: request.minLoanAmount ?? request.minAmount,
+      maxLoanAmount: request.maxLoanAmount ?? request.maxAmount,
+      minLoanTerm:   request.minLoanTerm ?? request.minTenor,
+      maxLoanTerm:   request.maxLoanTerm ?? request.maxTenor,
+      interestRateMultiplier: request.interestRateMultiplier,
+      minLenderOffer: request.minLenderOffer,
+      levelConfigs:   request.levelConfigs,
+      // Legacy field names (kept for backwards compat)
+      minAmount: request.minAmount ?? request.minLoanAmount,
+      maxAmount: request.maxAmount ?? request.maxLoanAmount,
+      minTenor:  request.minTenor ?? request.minLoanTerm,
+      maxTenor:  request.maxTenor ?? request.maxLoanTerm,
       minInterestRate: request.minInterestRate,
       maxInterestRate: request.maxInterestRate,
     };
@@ -90,6 +99,11 @@ export class AdminConfigService {
    */
   async updateLevelRules(request: UpdateLevelRulesRequest, adminId: number) {
     const rules = {
+      // FE field names (primary)
+      levelMinAmount: request.levelMinAmount,
+      levelMaxBids:   request.levelMaxBids,
+      levelMaxLoans:  request.levelMaxLoans,
+      // Legacy field names (kept for backwards compat)
       level0Amount: request.level0Amount,
       level1Amount: request.level1Amount,
       level2Amount: request.level2Amount,
@@ -118,9 +132,18 @@ export class AdminConfigService {
    */
   async updateFees(request: UpdateFeesRequest, adminId: number) {
     const fees = {
-      processingFee: request.processingFee,
-      latePenaltyRate: request.latePenaltyRate,
-      prePaymentPenaltyRate: request.prePaymentPenaltyRate,
+      // FE field names (primary)
+      platformFeePercentage:      request.platformFeePercentage ?? request.platformFee,
+      lenderFeePercentage:        request.lenderFeePercentage,
+      borrowerFeePercentage:      request.borrowerFeePercentage,
+      companyCommissionPercentage: request.companyCommissionPercentage ?? request.commissionPercentage,
+      platformFee:                request.platformFee ?? request.platformFeePercentage,
+      latePaymentFee:             request.latePaymentFee,
+      commissionPercentage:       request.commissionPercentage ?? request.companyCommissionPercentage,
+      // Legacy field names
+      processingFee:              request.processingFee,
+      latePenaltyRate:            request.latePenaltyRate,
+      prePaymentPenaltyRate:      request.prePaymentPenaltyRate,
     };
 
     const updated = await this.configRepo.updateByKey(
@@ -145,9 +168,17 @@ export class AdminConfigService {
    */
   async updateReminders(request: UpdateRemindersRequest, adminId: number) {
     const reminders = {
-      dueDateReminderDays: request.dueDateReminderDays,
-      latepaymentReminderDays: request.latepaymentReminderDays,
-      reminderFrequency: request.reminderFrequency,
+      // FE field names (primary)
+      daysBeforeDue:              request.daysBeforeDue ?? request.dueDateReminderDays,
+      daysAfterDue:               request.daysAfterDue ?? request.latepaymentReminderDays,
+      finalNoticeDays:            request.finalNoticeDays,
+      paymentReminderDays:        request.paymentReminderDays,
+      verificationReminderDays:   request.verificationReminderDays,
+      docVerificationReminderDays: request.docVerificationReminderDays,
+      // Legacy field names
+      dueDateReminderDays:        request.dueDateReminderDays ?? request.daysBeforeDue,
+      latepaymentReminderDays:    request.latepaymentReminderDays ?? request.daysAfterDue,
+      reminderFrequency:          request.reminderFrequency,
     };
 
     const updated = await this.configRepo.updateByKey(
@@ -173,9 +204,18 @@ export class AdminConfigService {
    */
   async updateRetention(request: UpdateRetentionRequest, adminId: number) {
     const retention = {
-      dataRetentionDays: request.dataRetentionDays,
-      auditLogRetentionYears: request.auditLogRetentionYears,
-      archiveExportedData: request.archiveExportedData,
+      // FE field names (primary)
+      userDataRetentionDays:       request.userDataRetentionDays ?? request.dataRetentionDays,
+      auditLogRetentionDays:       request.auditLogRetentionDays,
+      paymentRecordRetentionDays:  request.paymentRecordRetentionDays,
+      gdprComplianceLevel:         request.gdprComplianceLevel,
+      userDataYears:               request.userDataYears,
+      loanRecordsYears:            request.loanRecordsYears,
+      auditLogsYears:              request.auditLogsYears,
+      // Legacy field names
+      dataRetentionDays:           request.dataRetentionDays ?? request.userDataRetentionDays,
+      auditLogRetentionYears:      request.auditLogRetentionYears,
+      archiveExportedData:         request.archiveExportedData,
     };
 
     const updated = await this.configRepo.updateByKey(

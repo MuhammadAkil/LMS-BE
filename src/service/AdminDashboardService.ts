@@ -60,7 +60,7 @@ export class AdminDashboardService {
         SELECT 
           COUNT(*) as totalPayments,
           SUM(amount) as totalAmount,
-          SUM(CASE WHEN status_id = 4 THEN 1 ELSE 0 END) as failedPayments
+          SUM(CASE WHEN statusId = 4 THEN 1 ELSE 0 END) as failedPayments
         FROM payments
       `).catch(() => ({ totalPayments: 0, totalAmount: 0, failedPayments: 0 }));
 
@@ -142,7 +142,7 @@ export class AdminDashboardService {
       const queryRunner = AppDataSource.createQueryRunner();
       const overdueLoans = await queryRunner.query(`
         SELECT COUNT(*) as count FROM loans
-        WHERE status_id = 1 AND due_date < NOW()
+        WHERE statusId = 1 AND dueDate < NOW()
       `);
       await queryRunner.release();
 
@@ -166,7 +166,7 @@ export class AdminDashboardService {
       const queryRunner = AppDataSource.createQueryRunner();
       const failedPayments = await queryRunner.query(`
         SELECT COUNT(*) as count FROM payments
-        WHERE status_id = 4 AND created_at > DATE_SUB(NOW(), INTERVAL 24 HOUR)
+        WHERE statusId = 4 AND createdAt > DATE_SUB(NOW(), INTERVAL 24 HOUR)
       `);
       await queryRunner.release();
 

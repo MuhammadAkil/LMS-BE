@@ -3,14 +3,15 @@
  * Request/Response objects for marketplace endpoints
  * Compliance: Mask borrower/lender PII as required
  */
+import { IsOptional, IsNumber, IsString, IsIn, Min, IsNotEmpty } from 'class-validator';
 
 // ============================================
 // BID REQUEST/RESPONSE DTOs
 // ============================================
 
 export class CreateBidRequest {
-    loan_request_id: string;
-    bid_amount: number;               // Amount willing to fund (in cents/basis points)
+    @IsNotEmpty() @IsString() loan_request_id: string;
+    @IsNumber() @Min(1) bid_amount: number;               // Amount willing to fund (in cents/basis points)
 }
 
 export class BidResponse {
@@ -119,17 +120,25 @@ export class MarketplaceStatsResponse {
 }
 
 export class UpdateMarketplaceRuleRequest {
-    max_bid_per_lender?: number;
-    max_bid_per_company?: number;
-    funding_window_hours?: number;
-    allocation_strategy?: string;     // 'FIFO' | 'PRO_RATA'
+    // Frontend camelCase fields
+    @IsOptional() @IsNumber() minBidAmount?: number;
+    @IsOptional() @IsNumber() maxBidAmount?: number;
+    @IsOptional() @IsNumber() biddingTimeout?: number;
+    @IsOptional() @IsNumber() commissionPercentage?: number;
+    @IsOptional() @IsNumber() autoRejectThreshold?: number;
+    // Legacy snake_case fields
+    @IsOptional() @IsNumber() max_bid_per_lender?: number;
+    @IsOptional() @IsNumber() max_bid_per_company?: number;
+    @IsOptional() @IsNumber() funding_window_hours?: number;
+    @IsOptional() @IsString() allocation_strategy?: string;     // 'FIFO' | 'PRO_RATA'
 }
 
 export class AdminInterveneRequest {
-    action: 'CANCEL_BID' | 'CANCEL_LOAN' | 'FORCE_ACCEPT';
-    target_id: string;                // bid_id or loan_request_id
-    reason: string;                   // Audit reason
-    details?: any;
+    @IsNotEmpty() @IsString() @IsIn(['CANCEL_LISTING', 'OVERRIDE_BID', 'SUSPEND_LENDER', 'SUSPEND_COMPANY'])
+    action: 'CANCEL_LISTING' | 'OVERRIDE_BID' | 'SUSPEND_LENDER' | 'SUSPEND_COMPANY';
+    @IsNumber() loanId: number;                   // loan/bid/user/company ID depending on action
+    @IsNotEmpty() @IsString() reason: string;     // Audit reason
+    @IsOptional() details?: any;
 }
 
 // ============================================
