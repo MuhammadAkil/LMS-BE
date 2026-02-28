@@ -280,6 +280,21 @@ export class CompanyListItemDto {
   createdAt!: Date;
 }
 
+/** Performance KPIs for admin company detail */
+export interface CompanyPerformanceKpisDto {
+  performanceScore?: number;
+  activeLoans?: number;
+  totalLoans?: number;
+  defaultRate?: number;
+}
+
+/** Financial metrics for admin company detail */
+export interface CompanyFinancialMetricsDto {
+  managedFunds?: number;
+  minManagedAmount?: number;
+  commission?: number;
+}
+
 export class CompanyDetailDto {
   id!: number;
   name!: string;
@@ -293,6 +308,19 @@ export class CompanyDetailDto {
   metadata?: Record<string, any>;
   createdAt?: Date;
   updatedAt?: Date;
+  /** Registered/created date for display */
+  registeredDate?: Date;
+  /** Performance KPIs (flat for FE modal) */
+  performanceKpis?: CompanyPerformanceKpisDto;
+  /** Financial metrics (flat for FE modal) */
+  financialMetrics?: CompanyFinancialMetricsDto;
+  /** Flat fields for FE: managedFunds, commission (%), performanceScore, activeLoans, totalLoans, defaultRate (%) */
+  managedFunds?: number;
+  commission?: number;
+  performanceScore?: number;
+  activeLoans?: number;
+  totalLoans?: number;
+  defaultRate?: number;
 }
 
 export class ApproveCompanyRequest {
