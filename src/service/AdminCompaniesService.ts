@@ -2,6 +2,7 @@ import { AdminAuditService } from './AdminAuditService';
 import { CompanyRepository } from '../repository/CompanyRepository';
 import { UserRepository } from '../repository/UserRepository';
 import { LmsNotificationService } from './LmsNotificationService';
+import { CompanyDashboardService } from './CompanyDashboardService';
 import { CompanyListItemDto, CompanyDetailDto, ApproveCompanyRequest, RejectCompanyRequest, UpdateCompanyConditionsRequest } from '../dto/AdminDtos';
 
 /**
@@ -14,12 +15,14 @@ export class AdminCompaniesService {
   private readonly userRepo: UserRepository;
   private readonly auditService: AdminAuditService;
   private readonly notificationService: LmsNotificationService;
+  private readonly dashboardService: CompanyDashboardService;
 
   constructor() {
     this.companyRepo = new CompanyRepository();
     this.userRepo = new UserRepository();
     this.auditService = new AdminAuditService();
     this.notificationService = new LmsNotificationService();
+    this.dashboardService = new CompanyDashboardService();
   }
 
   /**
@@ -61,14 +64,56 @@ export class AdminCompaniesService {
       throw new Error(`Company ${companyId} not found`);
     }
 
+    const conditions = (typeof company.conditionsJson === 'string' ? JSON.parse(company.conditionsJson || '{}') : company.conditionsJson) || {};
+    const commissionPct = Number(company.commissionPct ?? 0);
+    const minManagedAmount = Number(company.minManagedAmount ?? 0);
+
+    let managedFunds = 0;
+    let activeLoans = 0;
+    let totalLoans = 0;
+    let defaultRate = 0;
+    try {
+      const dashboard = await this.dashboardService.getDashboard(companyId);
+      managedFunds = dashboard.managedFunds ?? 0;
+      activeLoans = dashboard.activeManagedLoans ?? 0;
+      const defaultedLoans = dashboard.defaultedLoans ?? 0;
+      totalLoans = activeLoans + defaultedLoans;
+      defaultRate = dashboard.defaultRate ?? 0;
+    } catch {
+    }
+
+    const performanceScore = totalLoans > 0 ? Math.round(Math.max(0, Math.min(100, 100 - defaultRate))) : undefined;
+
     return {
       id: company.id,
       name: company.name,
       statusId: company.statusId,
       statusName: this.getStatusName(company.statusId),
       bankAccount: company.bankAccount,
-      conditions: (typeof company.conditionsJson === 'string' ? JSON.parse(company.conditionsJson || '{}') : company.conditionsJson) || {},
+      conditions,
       approvedAt: company.approvedAt,
+      commissionPct,
+      minManagedAmount,
+      createdAt: company.createdAt,
+      updatedAt: company.updatedAt,
+      registeredDate: company.createdAt,
+      performanceKpis: {
+        performanceScore: performanceScore ?? 0,
+        activeLoans,
+        totalLoans,
+        defaultRate,
+      },
+      financialMetrics: {
+        managedFunds,
+        minManagedAmount,
+        commission: commissionPct,
+      },
+      managedFunds,
+      commission: commissionPct,
+      performanceScore,
+      activeLoans,
+      totalLoans,
+      defaultRate,
     };
   }
 
