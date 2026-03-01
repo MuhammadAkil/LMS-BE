@@ -30,11 +30,25 @@ export interface AddInterventionNoteRequest {
   note: string;
 }
 
+export interface AdminLoansStats {
+  totalActiveLoans: number;
+  totalActiveAmount: number;
+  fundedTodayCount: number;
+  fundedTodayAmount: number;
+  overdueCount: number;
+  overdueRatePercent: number;
+  avgInterestRatePercent: number;
+  platformCommissionMTD: number;
+  totalLoansTrendPercent?: number;
+  commissionTargetPercent?: number;
+}
+
 export interface AdminLoansListResponse {
   data: LoanListItemDto[];
   total: number;
   limit: number;
   offset: number;
+  stats?: AdminLoansStats;
 }
 
 const STATUS_NAMES: Record<number, string> = {
@@ -75,6 +89,9 @@ export class AdminLoansService {
       params
     );
     const total = Number(countRow.total);
+
+    // Platform-wide stats (no list filters) for dashboard cards
+    const stats = await this.getLoansStats();
 
     const rawLoans = await AppDataSource.query(
       `SELECT
@@ -121,7 +138,71 @@ export class AdminLoansService {
       };
     });
 
-    return { data, total, limit, offset };
+    return { data, total, limit, offset, stats };
+  }
+
+  /** Platform-wide loan stats for monitoring dashboard (no filters). */
+  private async getLoansStats(): Promise<AdminLoansStats> {
+    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+    try {
+      const [activeRow] = await AppDataSource.query(
+        `SELECT COUNT(*) AS cnt, COALESCE(SUM(l.totalAmount), 0) AS totalAmount
+         FROM loans l WHERE l.statusId = 1`,
+        []
+      );
+      const [fundedTodayRow] = await AppDataSource.query(
+        `SELECT COUNT(*) AS cnt, COALESCE(SUM(l.totalAmount), 0) AS totalAmount
+         FROM loans l WHERE l.statusId = 1 AND DATE(l.createdAt) = ?`,
+        [today]
+      );
+      const [overdueRow] = await AppDataSource.query(
+        `SELECT COUNT(*) AS cnt FROM loans l
+         WHERE l.statusId = 3 OR (l.statusId = 1 AND l.dueDate < CURDATE())`,
+        []
+      );
+      const [totalRow] = await AppDataSource.query(
+        `SELECT COUNT(*) AS total FROM loans l`,
+        []
+      );
+      const [avgRateRow] = await AppDataSource.query(
+        `SELECT AVG(l.interest_rate) AS avgRate FROM loans l WHERE l.interest_rate IS NOT NULL`,
+        []
+      );
+      const [commissionRow] = await AppDataSource.query(
+        `SELECT COALESCE(SUM(p.amount), 0) AS total
+         FROM payments p
+         WHERE p.payment_step = 'PORTAL_COMMISSION' AND p.statusId = 2
+         AND p.paid_at IS NOT NULL AND YEAR(p.paid_at) = YEAR(CURDATE()) AND MONTH(p.paid_at) = MONTH(CURDATE())`,
+        []
+      );
+      const totalLoans = Number(totalRow?.total ?? 0);
+      const overdueCount = Number(overdueRow?.cnt ?? 0);
+      const overdueRatePercent = totalLoans > 0 ? Math.round((overdueCount / totalLoans) * 1000) / 10 : 0;
+      const avgRate = avgRateRow?.avgRate != null ? Number(avgRateRow.avgRate) * 100 : 0;
+      return {
+        totalActiveLoans: Number(activeRow?.cnt ?? 0),
+        totalActiveAmount: Number(activeRow?.totalAmount ?? 0),
+        fundedTodayCount: Number(fundedTodayRow?.cnt ?? 0),
+        fundedTodayAmount: Number(fundedTodayRow?.totalAmount ?? 0),
+        overdueCount,
+        overdueRatePercent,
+        avgInterestRatePercent: Math.round(avgRate * 100) / 100,
+        platformCommissionMTD: Number(commissionRow?.total ?? 0),
+        commissionTargetPercent: 98,
+      };
+    } catch (e) {
+      return {
+        totalActiveLoans: 0,
+        totalActiveAmount: 0,
+        fundedTodayCount: 0,
+        fundedTodayAmount: 0,
+        overdueCount: 0,
+        overdueRatePercent: 0,
+        avgInterestRatePercent: 0,
+        platformCommissionMTD: 0,
+        commissionTargetPercent: 98,
+      };
+    }
   }
 
   async getLoanById(loanId: number): Promise<LoanDetailDto> {
