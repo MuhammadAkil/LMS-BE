@@ -336,6 +336,8 @@ export class TemplateDto {
   deprecatedAt?: Date;
   createdAt!: Date;
   updatedAt!: Date;
+  name?: string;
+  lastModified?: Date;
 }
 
 export class CreateTemplateRequest {
