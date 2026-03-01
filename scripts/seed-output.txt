@@ -1,0 +1,69 @@
+﻿Connected to DB Γ£ô
+
+ΓöÇΓöÇΓöÇ ┬º1 Creating test lender users ΓöÇΓöÇΓöÇ
+Created: lender2blocked(id=101), lender3frozen(id=102), lender5other(id=103), lender6managed(id=104) Γ£ô
+
+ΓöÇΓöÇΓöÇ ┬º2 Adding verifications for test lenders ΓöÇΓöÇΓöÇ
+Verifications + wallets for all 4 test lenders Γ£ô
+
+ΓöÇΓöÇΓöÇ ┬º3 Creating loan applications for test loans ΓöÇΓöÇΓöÇ
+Using borrower_id=3 for test loan applications
+Loan applications inserted (first ID: 35) Γ£ô
+
+ΓöÇΓöÇΓöÇ ┬º4 Creating test loans ΓöÇΓöÇΓöÇ
+Loans inserted: A=30(OPEN), B=31(OPEN), C=32(OPEN), D=33(ACTIVE), E=34(OPEN-near-full), F=35(CLOSED) Γ£ô
+
+ΓöÇΓöÇΓöÇ ┬º5 Creating loan offers / investments ΓöÇΓöÇΓöÇ
+Loan offers: lender4ΓåÆloanA(id=25), lender4ΓåÆloanD(id=26), lender5ΓåÆloanD(id=27) Γ£ô
+  Invest test: GET /lender/investments/26 = lender4's own investment Γ£ô
+  ISO test:    GET /lender/investments/27 as lender4 should 403 Γ£ô
+
+ΓöÇΓöÇΓöÇ ┬º6 Creating marketplace bids with diverse statuses ΓöÇΓöÇΓöÇ
+Marketplace bids (CONFIRMED, ACTIVE, PENDING, CANCELLED, PARTIALLY_FILLED) Γ£ô
+
+ΓöÇΓöÇΓöÇ ┬º7 Seeding full transaction history ΓöÇΓöÇΓöÇ
+12 transaction log entries across 6 months Γ£ô
+
+ΓöÇΓöÇΓöÇ ┬º8 Seeding notifications ΓöÇΓöÇΓöÇ
+9 notifications inserted (first ID: 56) Γ£ô
+  Cross-user isolation test: PATCH /lender/notifications/64/read as lender4 should 403 Γ£ô
+
+ΓöÇΓöÇΓöÇ ┬º9 Seeding export history ΓöÇΓöÇΓöÇ
+3 export history records added to exports table Γ£ô
+  ┬º12 test: GET /lender/exports/history ΓÇö should return 3 records for lender4 Γ£ô
+
+ΓöÇΓöÇΓöÇ ┬º10 Seeding management agreement for lender6managed ΓöÇΓöÇΓöÇ
+Management agreement: lender6managed(104) ΓåÆ company(4 Capital Partners Sp. z o.o.) Γ£ô
+  ┬º14.10 test: POST /lender/offers as lender6managed should 403 LENDER_IS_MANAGED
+
+ΓöÇΓöÇΓöÇ ┬º11 Creating lender with NO bank account (┬º4.12) ΓöÇΓöÇΓöÇ
+lender7nobank(id=105) ΓÇö POST /lender/offers should 403 Bank account required Γ£ô
+
+ΓöÇΓöÇΓöÇ ┬º12 Creating lender with level=0 (┬º4.13) ΓöÇΓöÇΓöÇ
+lender8level0(id=106) ΓÇö POST /lender/offers should 403 Insufficient verification level Γ£ô
+
+ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+Γ£à COMPREHENSIVE SEED COMPLETE
+ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
+
+Test Accounts Summary:
+  lender@lms.com        (id=4)   ACTIVE  level=2  ΓÇö Main lender
+  lender2blocked@lms.com(id=101)  BLOCKED level=2  ΓÇö ┬º14.7 all ops ΓåÆ 403 ACCOUNT_BLOCKED
+  lender3frozen@lms.com (id=102)  FROZEN  level=2  ΓÇö ┬º14.8 GET works, ┬º14.9 POST ΓåÆ 403 ACCOUNT_FROZEN
+  lender5other@lms.com  (id=103)  ACTIVE  level=2  ΓÇö Data isolation
+  lender6managed@lms.com(id=104)  ACTIVE  level=2  ΓÇö ┬º14.10 POST /offers ΓåÆ 403 LENDER_IS_MANAGED
+  lender7nobank@lms.com (id=105)  ACTIVE  level=2  ΓÇö ┬º4.12  POST /offers ΓåÆ 403 Bank account required
+  lender8level0@lms.com (id=106)  ACTIVE  level=0  ΓÇö ┬º4.13  POST /offers ΓåÆ 403 Insufficient level
+
+Key Test IDs:
+  Loan A (OPEN, lender4 has offer) : id=30  ΓåÆ ┬º4.8 duplicate offer test
+  Loan B (OPEN, available)         : id=31  ΓåÆ ┬º4.4 create valid offer
+  Loan C (OPEN, available)         : id=32  ΓåÆ ┬º4.1 browse / filter
+  Loan D (ACTIVE, investments)     : id=33  ΓåÆ ┬º5.x investment detail + repayments
+  Loan E (OPEN, 5 PLN remaining)   : id=34  ΓåÆ ┬º4.7 over-capacity test
+  Loan F (CLOSED)                  : id=35  ΓåÆ ┬º4.9 closed loan test
+  lender4ΓåÆloanD offer              : id=26 ΓåÆ ┬º5.2 own investment
+  lender5ΓåÆloanD offer              : id=27 ΓåÆ ┬º14.4 GET as lender4 ΓåÆ 403
+  lender5 notification             : id=64 ΓåÆ ┬º11.4 PATCH as lender4 ΓåÆ 403
+
+All passwords: Test@1234

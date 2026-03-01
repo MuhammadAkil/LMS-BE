@@ -1,7 +1,19 @@
 export class CustomUserDetails {
-  customerId!: String;
-  mobileNumber!: string;
-  fullName!: string;
+  // Customer fields (for regular users)
+  customerId?: String;
+  mobileNumber?: string;
+  fullName?: string;
+
+  // User fields (for admin/company users)
+  id?: number;
+  userId?: number;
+  email?: string;
+  roleId?: number;
+  isSuperAdmin?: boolean;
+  twoFAVerified?: boolean;
+
+  // Company-specific: populated for roleId === 4 (COMPANY) users
+  companyId?: number;
 
   static builder(): CustomUserDetailsBuilder {
     return new CustomUserDetailsBuilder();

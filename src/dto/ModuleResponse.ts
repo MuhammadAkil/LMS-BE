@@ -5,6 +5,8 @@ export class ModuleResponse {
   statusMessage?: string;
   statusMessageDetail?: string;
   dist?: any;
+  /** Alias for dist — matches what the Angular frontend reads as response.data */
+  data?: any;
   pagination?: any;
 
   constructor(
@@ -17,6 +19,7 @@ export class ModuleResponse {
     this.statusCode = statusCode;
     this.statusMessage = statusMessage;
     this.dist = dist;
+    this.data = dist;
     this.pagination = pagination;
     this.statusMessageDetail = statusMessageDetail;
   }

@@ -1,22 +1,30 @@
-import { Entity, Column, ObjectIdColumn, ObjectId } from 'typeorm';
+
+import {
+  Entity,
+  Column,
+  PrimaryGeneratedColumn,
+  CreateDateColumn,
+  UpdateDateColumn,
+} from 'typeorm';
 
 @Entity('customer_auth_session')
 export class CustomerAuthSession {
-  @ObjectIdColumn({ name: '_id' })
-  id!: ObjectId;
 
-  @Column()
+  @PrimaryGeneratedColumn('uuid')
+  id!: string;
+
+  @Column({ type: 'varchar', length: 255, name: 'customer_id' })
   customerId!: string;
 
-  @Column({ length: 256, unique: true })
+  @Column({ type: 'varchar', length: 256, unique: true, name: 'jwt_token' })
   jwtToken!: string;
 
-  @Column()
+  @Column({ type: 'timestamp' })
   expiresAt!: Date;
 
-  @Column()
+  @CreateDateColumn({ type: 'timestamp' })
   createdAt!: Date;
 
-  @Column()
+  @UpdateDateColumn({ type: 'timestamp' })
   updatedAt!: Date;
 }

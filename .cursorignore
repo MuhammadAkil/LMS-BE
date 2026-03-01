@@ -1,0 +1,78 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+out/
+.tmp/
+.cache/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment & secrets
+.env
+.env.*
+*.pem
+*.key
+*.crt
+secrets/
+credentials/
+
+# Test & coverage
+coverage/
+.nyc_output/
+jest-report/
+test-results/
+
+# Lockfiles (optional - ignore if large)
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+
+# Docker
+.docker/
+docker-compose.override.yml
+
+# Git
+.git/
+.gitignore
+
+# IDE files
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary
+tmp/
+temp/
+
+# Database / local storage
+*.sqlite
+*.sqlite3
+*.db
+
+# Uploads
+uploads/
+storage/
+
+# Generated docs
+docs/
+swagger.json
+openapi.json
+
+# Misc large files
+*.csv
+*.zip
+*.tar
+*.gz
+*.backup

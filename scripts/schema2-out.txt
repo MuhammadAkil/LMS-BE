@@ -1,0 +1,11 @@
+﻿repayments: id,amount,loanId,dueDate,paidAt
+audit_logs: id,user_id,action,entity,entity_id,created_at,metadata,ip
+loan_offers: id,amount,loanId,lenderId,createdAt,confirmed_amount
+node : Table 'lending_platform.documents' doesn't exist
+At line:1 char:1
++ node "f:\LMS\LMS-BE\scripts\check-schema2.js" 2>&1 | Out-File "f:\LMS ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Table 'lending_...' doesn't exist 
+   :String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 

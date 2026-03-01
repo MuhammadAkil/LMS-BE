@@ -1,17 +1,17 @@
-import { Entity, Column, ObjectIdColumn, ObjectId } from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn } from 'typeorm';
 
 export type CustomerStatus = 'PENDING' | 'ACTIVE' | 'BLOCKED';
 export type RiskTier = 'LOW' | 'MEDIUM' | 'HIGH';
 
 @Entity('customers')
 export class Customer {
-  @ObjectIdColumn()
-  id!: ObjectId;
+  @PrimaryGeneratedColumn('uuid')
+  id!: string;
 
-  @Column()
+  @Column({ name: 'mobile_number' })
   mobileNumber!: string;
 
-  @Column()
+  @Column({ name: 'full_name' })
   fullName!: string;
 
   @Column({ nullable: true })
@@ -23,21 +23,21 @@ export class Customer {
   @Column()
   status!: CustomerStatus;
 
-  @Column({ nullable: true })
+  @Column({ nullable: true, name: 'risk_tier' })
   riskTier?: RiskTier;
 
   @Column()
   password!: string;
 
-  @Column({ nullable: true })
+  @Column({ nullable: true, name: 'external_customer_id' })
   externalCustomerId?: string;
 
-  @Column()
+  @Column({ name: 'created_at' })
   createdAt!: Date;
 
-  @Column()
+  @Column({ name: 'updated_at' })
   updatedAt!: Date;
 
-  @Column({ nullable: true})
+  @Column({ nullable: true, name: 'date_of_birth' })
   dateOfBirth?: Date;
 }

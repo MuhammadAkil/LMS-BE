@@ -24,17 +24,66 @@
  *           description: Token expiration time
  */
 export class LoginResponse {
+  jwtToken!: string;
+  /** @deprecated use jwtToken */
   token!: string;
   userId!: number;
   email!: string;
   roleId!: number;
+  role!: string;
+  /** Roles array for clients that support multi-role (e.g. borrower+lender same account) */
+  roles!: string[];
+  /** ACTIVE | PENDING | BLOCKED | FROZEN */
+  accountStatus!: string;
+  verificationLevel!: number;
+  /** not_started | in_progress | pending_approval | approved — for borrower redirect/banners */
+  verificationStatus!: string;
   expiresAt!: Date;
+  /** Company role only: company record id */
+  companyId?: number;
+  /** Company role only: pending_approval | active | suspended */
+  companyStatus?: string;
+  /** Company role only: not_submitted | pending_approval | approved | revision_required */
+  conditionsStatus?: string;
 
-  constructor(token: string, userId: number, email: string, roleId: number, expiresAt: Date) {
+  constructor(
+    token: string,
+    userId: number,
+    email: string,
+    roleId: number,
+    expiresAt: Date,
+    role?: string,
+    accountStatus?: string,
+    verificationLevel?: number,
+    verificationStatus?: string,
+    companyId?: number,
+    companyStatus?: string,
+    conditionsStatus?: string
+  ) {
+    this.jwtToken = token;
     this.token = token;
     this.userId = userId;
     this.email = email;
     this.roleId = roleId;
+    this.role = role ?? LoginResponse.roleIdToName(roleId);
+    this.roles = [this.role];
+    this.accountStatus = accountStatus ?? 'ACTIVE';
+    this.verificationLevel = verificationLevel ?? 0;
+    this.verificationStatus = verificationStatus ?? (verificationLevel && verificationLevel > 0 ? 'approved' : 'not_started');
     this.expiresAt = expiresAt;
+    this.companyId = companyId;
+    this.companyStatus = companyStatus;
+    this.conditionsStatus = conditionsStatus;
   }
+
+  private static roleIdToName(roleId: number): string {
+    const map: Record<number, string> = {
+      1: 'ADMIN',
+      2: 'BORROWER',
+      3: 'LENDER',
+      4: 'COMPANY',
+    };
+    return map[roleId] ?? 'BORROWER';
+  }
+
 }

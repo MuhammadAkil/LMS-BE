@@ -7,7 +7,7 @@ import config from '../config/Config';
  */
 export class JwtTokenUtil {
   private static readonly SECRET = config.jwt.secret;
-  private static readonly JWT_TOKEN_VALIDITY = config.jwt.expiration; // 5 hours in milliseconds
+  private static readonly JWT_TOKEN_VALIDITY = config.jwt.expiration; // 8 hours in milliseconds
   private static readonly CLAIM_USER_ID = 'userId';
   private static readonly CLAIM_EMAIL = 'email';
   private static readonly CLAIM_ROLE_ID = 'roleId';

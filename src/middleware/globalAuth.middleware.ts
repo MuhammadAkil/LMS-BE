@@ -4,6 +4,8 @@ import { JwtTokenUtil } from '../util/JwtTokenUtil';
 import { CustomerAuthSessionRepository } from '../repository/CustomerAuthSessionRepository';
 import { CustomerService } from '../service/CustomerService';
 import { CustomUserDetails } from '../security/CustomUserDetails';
+import { UserService } from '../service/UserService';
+import { UserSessionRepository } from '../repository/UserSessionRepository';
 
 declare global {
     namespace Express {
@@ -14,14 +16,29 @@ declare global {
 }
 
 /**
- * Public routes that don't require authentication
- * These paths are relative to the routePrefix (/api) in useExpressServer
- * req.path in middleware is relative to routePrefix, so don't include /api here
+ * Public routes that don't require authentication.
+ * req.path in Express is the full path (e.g. /api/users/login),
+ * so we include both /api-prefixed and bare paths to be safe.
  */
 const getPublicRoutes = (): string[] => {
     return [
+        // With /api prefix (actual req.path value)
+        '/api/users/login',
+        '/api/users/signup',
+        '/api/users/logout',
+        '/api/auth/admin/login',
+        '/api/user/login',
+        '/api/user/signup',
+        '/api/user/logout',
+        '/api/docs',
+        '/api/docs/**',
+        // Without /api prefix (fallback)
+        '/users/login',
+        '/users/signup',
+        '/users/logout',
         '/user/login',
         '/user/signup',
+        '/user/logout',
         '/health',
         '/docs',
         '/docs/**',
@@ -32,11 +49,10 @@ const getPublicRoutes = (): string[] => {
  * Global authentication middleware
  * Requires authentication for all routes except those in PUBLIC_ROUTES
  */
-@Middleware({ type: 'before', priority: 1 })
+@Middleware({ type: 'before', priority: 100 })
 export class GlobalAuthMiddleware implements ExpressMiddlewareInterface {
     async use(req: Request, res: Response, next: NextFunction): Promise<void> {
-        // req.path in routing-controllers middleware is relative to routePrefix
-        // So for /api/user/login, req.path will be /user/login
+        // req.path is the full path including /api prefix (e.g. /api/users/login)
         const path = req.path;
 
         // Debug: log path to understand what we're receiving
@@ -85,69 +101,122 @@ export class GlobalAuthMiddleware implements ExpressMiddlewareInterface {
         }
 
         try {
-            const mobileNumber = JwtTokenUtil.getMobileNumberFromToken(token);
-            if (!mobileNumber) {
-                console.log('Invalid token: mobile number not found');
-                res.status(401).json({
-                    statusCode: '401',
-                    statusMessage: 'Unauthorized',
-                    statusMessageDetail: 'Invalid token',
-                });
-                return;
+            // All LMS routes use User JWT — treat every authenticated route as a User route
+            const isUserAuthRoute =
+                path.startsWith('/api/admin') ||
+                path.startsWith('/api/payments') ||
+                path.startsWith('/api/company') ||
+                path.startsWith('/api/lender') ||
+                path.startsWith('/api/borrower') ||
+                path.startsWith('/api/repayment') ||
+                // fallback without /api prefix
+                path.startsWith('/admin') ||
+                path.startsWith('/payments') ||
+                path.startsWith('/company') ||
+                path.startsWith('/lender') ||
+                path.startsWith('/borrower') ||
+                path.startsWith('/repayment');
+
+            if (isUserAuthRoute) {
+                // User JWT validation
+                if (!JwtTokenUtil.validateToken(token)) {
+                    res.status(401).json({
+                        statusCode: '401',
+                        statusMessage: 'Unauthorized',
+                        statusMessageDetail: 'Invalid or expired token',
+                    });
+                    return;
+                }
+
+                // Extract user info from token
+                const userId = JwtTokenUtil.getUserIdFromToken(token);
+                const email = JwtTokenUtil.getEmailFromToken(token);
+                const roleId = JwtTokenUtil.getRoleIdFromToken(token);
+
+                if (!userId || !email || !roleId) {
+                    res.status(401).json({
+                        statusCode: '401',
+                        statusMessage: 'Unauthorized',
+                        statusMessageDetail: 'Invalid token: missing user information',
+                    });
+                    return;
+                }
+
+                // Verify user exists and get full user details
+                const userService = new UserService();
+                const user = await userService.getUserById(userId);
+
+                if (!user) {
+                    res.status(401).json({
+                        statusCode: '401',
+                        statusMessage: 'Unauthorized',
+                        statusMessageDetail: 'User not found',
+                    });
+                    return;
+                }
+
+                // Check if session is active
+                const userSessionRepo = new UserSessionRepository();
+                const activeSession = await userSessionRepo.findByToken(token);
+
+                if (!activeSession) {
+                    res.status(401).json({
+                        statusCode: '401',
+                        statusMessage: 'Unauthorized',
+                        statusMessageDetail: 'Session expired or invalid',
+                    });
+                    return;
+                }
+
+                // Attach user info to request — set both id and userId so all guards work
+                const userDetails: CustomUserDetails = {
+                    id: user.id,
+                    userId: user.id,
+                    email: user.email,
+                    roleId: user.roleId,
+                    isSuperAdmin: user.isSuperAdmin ?? false,
+                    twoFAVerified: false,
+                };
+                // Also expose roleId, statusId, level for borrower/lender guards
+                (userDetails as any).roleId = user.roleId;
+                (userDetails as any).statusId = user.statusId;
+                (userDetails as any).level = user.level ?? 0;
+
+                // For COMPANY role (roleId === 4), resolve companyId from the user record
+                if (user.roleId === 4) {
+                    userDetails.companyId = user.companyId ?? undefined;
+                }
+
+                req.user = userDetails;
+                console.log(`Authenticated user request for user: ${email}, path: ${path}`);
+                next();
+            } else {
+                // Regular routes use Customer authentication
+                try {
+                    const decoded = JwtTokenUtil.decodeToken(token);
+
+                    // If token has userId, it's a User token — not valid for Customer routes
+                    if (decoded.userId) {
+                        res.status(401).json({
+                            statusCode: '401',
+                            statusMessage: 'Unauthorized',
+                            statusMessageDetail: 'Invalid token type for this route',
+                        });
+                        return;
+                    }
+
+                    // For Customer routes, we'd need Customer-specific token validation
+                    // TODO: Implement Customer token validation when Customer auth is needed
+                    next();
+                } catch (error: any) {
+                    console.log('Customer authentication error:', error);
+                    res.status(401).json({
+                        statusCode: '401',
+                        statusMessage: 'Unauthorized',
+                        statusMessageDetail: error.message || 'Authentication failed',
+                    });
+                }
             }
-
-            // Verify customer exists
-            const customerService = new CustomerService();
-            const customer = await customerService.getCustomerByMobileNumber(mobileNumber);
-
-            if (!customer) {
-                console.log(`Customer not found for mobile number: ${mobileNumber}`);
-                res.status(401).json({
-                    statusCode: '401',
-                    statusMessage: 'Unauthorized',
-                    statusMessageDetail: 'Customer not found',
-                });
-                return;
-            }
-
-            // Validate token with customerId
-            const customerIdFromToken = JwtTokenUtil.getCustomerIdFromToken(token);
-            const customerIdString = customer.id.toHexString();
-            const isValid = JwtTokenUtil.validateToken(token, customerIdString);
-
-            if (!isValid || customerIdFromToken !== customerIdString) {
-                console.log('Invalid JWT token or customerId mismatch');
-                res.status(401).json({
-                    statusCode: '401',
-                    statusMessage: 'Unauthorized',
-                    statusMessageDetail: 'Invalid token',
-                });
-                return;
-            }
-
-            // Check if session is active
-            const sessionRepository = new CustomerAuthSessionRepository();
-            const activeSession = await sessionRepository.findByJwtToken(token);
-
-            if (!activeSession) {
-                console.log('Token not found in active sessions');
-                res.status(401).json({
-                    statusCode: '401',
-                    statusMessage: 'Unauthorized',
-                    statusMessageDetail: 'Session expired or invalid',
-                });
-                return;
-            }
-
-            // Attach user info to request for use in controllers
-            const userDetails: CustomUserDetails = {
-                customerId: customer.id.toHexString(),
-                mobileNumber: customer.mobileNumber,
-                fullName: customer.fullName,
-            };
-            req.user = userDetails;
-            console.log(`Authenticated request for mobile: ${mobileNumber}, path: ${path}`);
-            next();
         } catch (error: any) {
             console.log('Authentication error:', error);
             res.status(401).json({

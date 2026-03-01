@@ -1,6 +1,7 @@
 import * as bcrypt from 'bcrypt';
 import { UserRepository } from '../repository/UserRepository';
 import { UserSessionRepository } from '../repository/UserSessionRepository';
+import { CompanyRepository } from '../repository/CompanyRepository';
 import { User } from '../domain/User';
 import { UserSession } from '../domain/UserSession';
 import { LoginRequest } from '../dto/LoginRequest';
@@ -95,13 +96,36 @@ export class UserService {
                 return ModuleResponse.generateCustomResponse(401, StateMessages.INVALID_CREDENTIALS);
             }
 
-            // Check if user account is active
-            if (user.statusId !== this.ACTIVE_STATUS_ID) {
-                console.log(`Login attempt for inactive user: ${user.id}`);
-                return ModuleResponse.generateCustomResponse(
-                    403,
-                    'User account is not active. Please contact support.'
-                );
+            // BLOCKED (statusId 3): cannot login at all
+            if (user.statusId === 3) {
+                console.log(`Login attempt for blocked user: ${user.id}`);
+                return ModuleResponse.generateCustomResponse(403, 'Your account has been blocked. Contact support for assistance.', {
+                    errorCode: 'ACCOUNT_BLOCKED',
+                    detail: 'Your account has been blocked. Contact support for assistance.',
+                });
+            }
+
+            // COMPANY role (4): resolve company and enforce suspended lockout
+            const COMPANY_ROLE_ID = 4;
+            let companyId: number | undefined;
+            let companyStatus: string | undefined;
+            let conditionsStatus: string | undefined;
+            if (user.roleId === COMPANY_ROLE_ID && user.companyId) {
+                const companyRepo = new CompanyRepository();
+                const company = await companyRepo.findById(user.companyId);
+                if (company) {
+                    companyId = company.id;
+                    // Company record status (companies.status_id): 1=pending, 2=approved/active, 3=suspended
+                    const cStatusId = company.statusId;
+                    companyStatus = cStatusId === 1 ? 'pending_approval' : cStatusId === 2 ? 'active' : 'suspended';
+                    conditionsStatus = company.conditionsStatus ?? (company.conditionsLockedAt ? 'approved' : (company.conditionsJson ? 'pending_approval' : 'not_submitted'));
+                    if (companyStatus === 'suspended') {
+                        return ModuleResponse.generateCustomResponse(423, 'Your company account has been suspended. Contact admin.', {
+                            errorCode: 'COMPANY_SUSPENDED',
+                            detail: 'Your company account has been suspended. Contact admin.',
+                        });
+                    }
+                }
             }
 
             // Generate JWT token
@@ -118,12 +142,21 @@ export class UserService {
 
             await this.userSessionRepository.save(userSession);
 
+            const accountStatus = this.getAccountStatusName(user.statusId);
+            const verificationStatus = this.getVerificationStatus(user.level ?? 0);
             const loginResponse = new LoginResponse(
                 jwtToken,
                 user.id,
                 user.email,
                 user.roleId,
-                expiresAt
+                expiresAt,
+                undefined,
+                accountStatus,
+                user.level ?? 0,
+                verificationStatus,
+                companyId,
+                companyStatus,
+                conditionsStatus
             );
 
             console.log(`User logged in successfully: ${user.email}`);
@@ -134,27 +167,113 @@ export class UserService {
         }
     }
 
+    private getAccountStatusName(statusId: number): string {
+        const map: Record<number, string> = { 1: 'PENDING', 2: 'ACTIVE', 3: 'BLOCKED', 4: 'FROZEN' };
+        return map[statusId] ?? 'PENDING';
+    }
+
+    /** Derive verificationStatus for borrower redirect/banners: not_started | in_progress | pending_approval | approved */
+    private getVerificationStatus(level: number): string {
+        if (level > 0) return 'approved';
+        return 'not_started';
+    }
+
+    /** Role ID for ADMIN (only role allowed to use admin login endpoint) */
+    private readonly ADMIN_ROLE_ID = 1;
+
+    /**
+     * Admin login: same as login but returns 403 if user is not ADMIN.
+     * Used by POST /api/auth/admin/login. JWT secret must come from env (Config).
+     */
+    async adminLogin(loginRequest: LoginRequest): Promise<ModuleResponse> {
+        try {
+            const user = await this.userRepository.findByEmail(loginRequest.email);
+            if (!user) {
+                return ModuleResponse.generateCustomResponse(401, StateMessages.INVALID_CREDENTIALS);
+            }
+            const isPasswordValid = await bcrypt.compare(loginRequest.password, user.passwordHash);
+            if (!isPasswordValid) {
+                return ModuleResponse.generateCustomResponse(401, StateMessages.INVALID_CREDENTIALS);
+            }
+            if (user.statusId !== this.ACTIVE_STATUS_ID) {
+                return ModuleResponse.generateCustomResponse(403, 'User account is not active. Please contact support.');
+            }
+            // Non-admin trying to use admin login — return 403 per spec
+            if (user.roleId !== this.ADMIN_ROLE_ID) {
+                return ModuleResponse.generateCustomResponse(403, 'Admin access only. Use the standard login.');
+            }
+            // 2FA: if enabled, return requires2FA and skip token for now (stub: no OTP flow yet)
+            // const has2FA = await this.checkUser2FA(user.id);
+            // if (has2FA && !loginRequest.twoFACode) {
+            //   return ModuleResponse.generateSuccessResponse({ requires2FA: true });
+            // }
+            const jwtToken = JwtTokenUtil.generateToken(user.id, user.email, user.roleId);
+            const expiresAt = new Date(Date.now() + JwtTokenUtil.getTokenExpiration());
+            await this.userSessionRepository.deleteByUserId(user.id);
+            const userSession = new UserSession();
+            userSession.userId = user.id;
+            userSession.token = jwtToken;
+            userSession.expiresAt = expiresAt;
+            await this.userSessionRepository.save(userSession);
+            const loginResponse = new LoginResponse(jwtToken, user.id, user.email, user.roleId, expiresAt);
+            return ModuleResponse.generateSuccessResponse(loginResponse);
+        } catch (error: any) {
+            console.error('Error during admin login:', error);
+            return ModuleResponse.generateServerErrorResponse('Login failed. Please try again.');
+        }
+    }
+
+    /**
+     * Change password: verify current password then update to new. Min 8 chars, complexity.
+     */
+    async changePassword(
+        userId: number,
+        currentPassword: string,
+        newPassword: string
+    ): Promise<ModuleResponse> {
+        try {
+            const user = await this.userRepository.findById(userId);
+            if (!user) {
+                return ModuleResponse.generateCustomResponse(404, 'User not found');
+            }
+            const valid = await bcrypt.compare(currentPassword, user.passwordHash);
+            if (!valid) {
+                return ModuleResponse.generateCustomResponse(401, 'Current password is incorrect');
+            }
+            if (newPassword.length < 8) {
+                return ModuleResponse.generateCustomResponse(400, 'New password must be at least 8 characters');
+            }
+            const hasUpper = /[A-Z]/.test(newPassword);
+            const hasLower = /[a-z]/.test(newPassword);
+            const hasNumber = /\d/.test(newPassword);
+            const hasSpecial = /[!@#$%^&*(),.?":{}|<>]/.test(newPassword);
+            if (!(hasUpper && hasLower && (hasNumber || hasSpecial))) {
+                return ModuleResponse.generateCustomResponse(
+                    400,
+                    'New password must contain uppercase, lowercase, and a number or special character'
+                );
+            }
+            user.passwordHash = await bcrypt.hash(newPassword, this.BCRYPT_SALT_ROUNDS);
+            await this.userRepository.save(user);
+            return ModuleResponse.generateSuccessResponse({ message: 'Password changed successfully' });
+        } catch (error: any) {
+            console.error('Error during change password:', error);
+            return ModuleResponse.generateServerErrorResponse('Failed to change password');
+        }
+    }
+
     /**
      * User logout
-     * Invalidates the user's current session token
+     * Expires the user's latest session by setting expires_at to now.
+     * No auth required: call with body { userId }. Idempotent: returns success
+     * even if no active session exists.
      */
-    async logout(token: string, userId: number): Promise<ModuleResponse> {
+    async logout(userIdFromBody: number, _authenticatedUserId?: number): Promise<ModuleResponse> {
         try {
-            // Verify token exists and belongs to user
-            const session = await this.userSessionRepository.findByToken(token);
-
-            if (!session) {
-                return ModuleResponse.generateCustomResponse(404, 'Session not found');
+            const updated = await this.userSessionRepository.expireLatestSessionByUserId(userIdFromBody);
+            if (updated) {
+                console.log(`User logged out successfully: userId=${userIdFromBody}`);
             }
-
-            if (session.userId !== userId) {
-                return ModuleResponse.generateCustomResponse(403, 'Token does not belong to user');
-            }
-
-            // Delete the session
-            await this.userSessionRepository.deleteByToken(token);
-
-            console.log(`User logged out successfully: ${userId}`);
             return ModuleResponse.generateSuccessResponse({
                 message: 'Logged out successfully',
             });

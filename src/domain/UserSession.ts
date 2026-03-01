@@ -13,20 +13,20 @@ export class UserSession {
     @PrimaryGeneratedColumn({ type: 'bigint' })
     id!: number;
 
-    @Column({ type: 'bigint' })
+    @Column({ type: 'bigint', name: 'user_id' })
     userId!: number;
 
     @Column({ type: 'varchar', length: 255, unique: true })
     token!: string;
 
-    @Column({ type: 'datetime', nullable: true })
+    @Column({ type: 'datetime', nullable: true, name: 'expires_at' })
     expiresAt?: Date;
 
-    @CreateDateColumn()
+    @CreateDateColumn({ name: 'created_at' })
     createdAt!: Date;
 
     // Relations
     @ManyToOne(() => User, { onDelete: 'CASCADE' })
-    @JoinColumn({ name: 'userId' })
+    @JoinColumn({ name: 'user_id' })
     user?: User;
 }
