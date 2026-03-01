@@ -13,6 +13,11 @@ export const AppDataSource = new DataSource({
   logging: config.env === 'development',
   timezone: '+00:00', // UTC timezone
   connectorPackage: 'mysql2',
+  extra: {
+    supportBigNumbers: true,
+    bigNumberStrings: false,
+    decimalNumbers: true,
+  },
 });
 
 export async function initializeDatabase(): Promise<void> {

@@ -1,3 +1,4 @@
+import { In } from 'typeorm';
 import { AppDataSource } from '../config/database';
 import { Loan } from '../domain/Loan';
 
@@ -31,6 +32,15 @@ export class LoanRepository {
         return await this.loanRepository.findAndCount({
             where: { borrowerId, statusId: 2 }, // statusId 2 = ACTIVE
             order: { createdAt: 'DESC' },
+            take: limit,
+            skip: offset,
+        });
+    }
+
+    async findHistoricalByBorrowerId(borrowerId: number, limit?: number, offset?: number): Promise<[Loan[], number]> {
+        return await this.loanRepository.findAndCount({
+            where: { borrowerId, statusId: In([3, 4]) }, // 3=REPAID, 4=DEFAULTED
+            order: { updatedAt: 'DESC' },
             take: limit,
             skip: offset,
         });

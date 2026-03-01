@@ -1,4 +1,8 @@
 import { AuditLogRepository } from '../repository/AuditLogRepository';
+import { LoanRepository } from '../repository/LoanRepository';
+import { LoanApplicationRepository } from '../repository/LoanApplicationRepository';
+import { RepaymentRepository } from '../repository/RepaymentRepository';
+import { AppDataSource } from '../config/database';
 import {
     LoanHistoryListResponse,
     LoanHistoryListItemDto,
@@ -6,43 +10,32 @@ import {
     ContractDto,
 } from '../dto/BorrowerDtos';
 
+const STATUS_LABEL: Record<number, string> = { 3: 'REPAID', 4: 'DEFAULTED', 2: 'ACTIVE' };
+
 /**
  * B-06: BORROWER LOAN HISTORY SERVICE
  * Provides view of completed/defaulted loans
  *
  * Rules:
- * - Includes REPAID and DEFAULTED loans only
+ * - Includes REPAID (statusId=3) and DEFAULTED (statusId=4) loans only
  * - Agreements downloadable from contracts table
- * - May include additional statements and documentation
  */
 export class BorrowerLoanHistoryService {
     private auditRepo: AuditLogRepository;
+    private loanRepo: LoanRepository;
+    private loanAppRepo: LoanApplicationRepository;
+    private repaymentRepo: RepaymentRepository;
 
     constructor() {
         this.auditRepo = new AuditLogRepository();
+        this.loanRepo = new LoanRepository();
+        this.loanAppRepo = new LoanApplicationRepository();
+        this.repaymentRepo = new RepaymentRepository();
     }
 
     /**
      * Get borrower's loan history (paginated)
-     * Only shows REPAID and DEFAULTED loans
-     *
-     * SQL:
-     * SELECT
-     *   l.id,
-     *   l.application_id,
-     *   la.amount,
-     *   la.duration_months,
-     *   ls.code as status,
-     *   l.created_at as disbursedAt,
-     *   l.updated_at as completedAt,
-     *   SUM(p.amount) as totalRepaid,
-     *   SUM(p.interest) as totalInterestPaid
-     * FROM loans l
-     * JOIN loan_applications la ON la.id = l.application_id
-     * JOIN loan_statuses ls ON ls.id = l.status_id
-     * LEFT JOIN payments p ON p.loan_id = l.id AND p.status_id = PAID_STATUS_ID
-     * WHERE l.borrower_id = ? AND l.status_id IN (REPAID_STATUS_ID, DEFAULTED_STATUS_ID)
-     * ORDER BY l.updated_at DESC
+     * Only shows REPAID (3) and DEFAULTED (4) loans
      */
     async getLoanHistoryPaginated(
         borrowerId: string,
@@ -53,25 +46,43 @@ export class BorrowerLoanHistoryService {
             const borrowerIdNum = parseInt(borrowerId, 10);
             const offset = (page - 1) * pageSize;
 
-            // TODO: Query loans with status = REPAID or DEFAULTED
-            const loans: LoanHistoryListItemDto[] = [];
-            const totalItems = 0;
-            const totalHistorical = 0;
+            const [historicalLoans, totalItems] = await this.loanRepo.findHistoricalByBorrowerId(
+                borrowerIdNum,
+                pageSize,
+                offset
+            );
 
-            // Sample data
-            loans.push({
-                id: 1,
-                applicationId: 100,
-                amount: 30000,
-                durationMonths: 12,
-                status: 'REPAID',
-                disbursedAt: '2025-01-01',
-                completedAt: '2026-01-01',
-                totalRepaid: 30000,
-                totalInterestPaid: 1500,
-            });
+            let totalHistorical = 0;
+            const loans: LoanHistoryListItemDto[] = await Promise.all(
+                historicalLoans.map(async (loan) => {
+                    const app = await this.loanAppRepo.findById(loan.applicationId);
+                    const amount = app ? Number(app.amount) : Number(loan.totalAmount);
+                    const durationMonths = app ? app.durationMonths : 0;
 
-            // Audit log
+                    const repayments = await this.repaymentRepo.findByLoanId(loan.id);
+                    let totalRepaid = 0;
+                    repayments.forEach((r) => { if (r.paidAt) totalRepaid += Number(r.amount); });
+
+                    totalHistorical += amount;
+
+                    const completedAt = loan.updatedAt
+                        ? loan.updatedAt.toISOString().split('T')[0]
+                        : loan.createdAt.toISOString().split('T')[0];
+
+                    return {
+                        id: loan.id,
+                        applicationId: loan.applicationId,
+                        amount,
+                        durationMonths,
+                        status: STATUS_LABEL[loan.statusId] ?? 'CLOSED',
+                        disbursedAt: loan.createdAt.toISOString().split('T')[0],
+                        completedAt,
+                        totalRepaid,
+                        totalInterestPaid: 0,
+                    };
+                })
+            );
+
             await this.auditRepo.create({
                 actorId: borrowerIdNum,
                 action: 'VIEW_LOAN_HISTORY',
@@ -98,54 +109,62 @@ export class BorrowerLoanHistoryService {
 
     /**
      * Get loan history detail with contract
-     *
-     * SQL:
-     * SELECT
-     *   l.*,
-     *   c.id,
-     *   c.file_path,
-     *   c.created_at,
-     *   c.signed_at
-     * FROM loans l
-     * LEFT JOIN contracts c ON c.loan_id = l.id
-     * WHERE l.id = ? AND l.borrower_id = ? AND l.status_id IN (REPAID_STATUS_ID, DEFAULTED_STATUS_ID)
      */
     async getLoanHistoryDetail(borrowerId: string, loanId: string): Promise<LoanHistoryDetailDto> {
         try {
             const borrowerIdNum = parseInt(borrowerId, 10);
             const loanIdNum = parseInt(loanId, 10);
 
-            // TODO: Query loan history detail with contract
+            const loan = await this.loanRepo.findById(loanIdNum);
+            if (!loan || Number(loan.borrowerId) !== borrowerIdNum) {
+                throw new Error('Loan not found');
+            }
 
-            const contract: ContractDto = {
-                id: 1,
-                loanId: loanIdNum,
-                documentPath: '/contracts/loan_1_contract.pdf',
-                createdAt: '2025-01-01',
-                signedAt: '2025-01-02',
-                downloadUrl: '/api/documents/1/download',
-            };
+            const app = await this.loanAppRepo.findById(loan.applicationId);
+            const amount = app ? Number(app.amount) : Number(loan.totalAmount);
+            const durationMonths = app ? app.durationMonths : 0;
 
-            const detail: LoanHistoryDetailDto = {
-                id: loanIdNum,
-                applicationId: 100,
-                amount: 30000,
-                durationMonths: 12,
-                status: 'REPAID',
-                disbursedAmount: 30000,
-                disbursedAt: '2025-01-01',
-                expectedCompletionDate: '2026-01-01',
-                actualCompletionDate: '2026-01-01',
-                remainingBalance: 0,
-                paidAmount: 30000,
-                delayedPaymentsCount: 0,
-                repaymentSchedule: [],
-                contract: contract,
-                finalPaymentDate: '2026-01-01',
-                totalInterestPaid: 1500,
-            };
+            const repayments = await this.repaymentRepo.findByLoanId(loanIdNum);
+            let paidAmount = 0;
+            let remainingBalance = 0;
+            const schedule: any[] = [];
 
-            // Audit log
+            repayments.forEach((r, i) => {
+                const isPaid = !!r.paidAt;
+                if (isPaid) paidAmount += Number(r.amount);
+                else remainingBalance += Number(r.amount);
+                schedule.push({
+                    installmentNumber: i + 1,
+                    dueDate: r.dueDate.toISOString().split('T')[0],
+                    amount: Number(r.amount),
+                    principal: Number(r.amount),
+                    interest: 0,
+                    status: isPaid ? 'PAID' : 'PENDING',
+                    paidAt: r.paidAt ? r.paidAt.toISOString().split('T')[0] : undefined,
+                });
+            });
+
+            // Fetch contract if exists
+            let contract: ContractDto | undefined;
+            try {
+                const db = AppDataSource;
+                const [rows]: any = await (db as any).query(
+                    'SELECT id, loanId, pdfPath, generatedAt, createdAt FROM contracts WHERE loanId = ? LIMIT 1',
+                    [loanIdNum]
+                );
+                const c = Array.isArray(rows) ? rows[0] : rows;
+                if (c) {
+                    contract = {
+                        id: c.id,
+                        loanId: c.loanId,
+                        documentPath: c.pdfPath,
+                        createdAt: c.createdAt ? new Date(c.createdAt).toISOString().split('T')[0] : '',
+                        signedAt: c.generatedAt ? new Date(c.generatedAt).toISOString().split('T')[0] : undefined,
+                        downloadUrl: `/api/borrower/documents/c_${c.id}/download`,
+                    };
+                }
+            } catch (_) { }
+
             await this.auditRepo.create({
                 actorId: borrowerIdNum,
                 action: 'VIEW_LOAN_HISTORY_DETAIL',
@@ -154,7 +173,28 @@ export class BorrowerLoanHistoryService {
                 createdAt: new Date(),
             } as any);
 
-            return detail;
+            const completedAt = loan.updatedAt
+                ? loan.updatedAt.toISOString().split('T')[0]
+                : loan.createdAt.toISOString().split('T')[0];
+
+            return {
+                id: loanIdNum,
+                applicationId: loan.applicationId,
+                amount,
+                durationMonths,
+                status: STATUS_LABEL[loan.statusId] ?? 'CLOSED',
+                disbursedAmount: Number(loan.fundedAmount),
+                disbursedAt: loan.createdAt.toISOString().split('T')[0],
+                expectedCompletionDate: completedAt,
+                actualCompletionDate: completedAt,
+                remainingBalance,
+                paidAmount,
+                delayedPaymentsCount: 0,
+                repaymentSchedule: schedule,
+                contract,
+                finalPaymentDate: completedAt,
+                totalInterestPaid: 0,
+            };
         } catch (error: any) {
             console.error('Error fetching loan history detail:', error);
             throw new Error('Failed to fetch loan history detail');

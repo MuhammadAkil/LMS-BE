@@ -319,7 +319,7 @@ export class BorrowerApplicationsService {
 
             // Query loan_applications + loans + loan_offers
             const application = await this.loanAppRepo.findById(appIdNum);
-            if (!application || application.borrowerId !== borrowerIdNum) {
+            if (!application || Number(application.borrowerId) !== borrowerIdNum) {
                 throw new Error('Application not found');
             }
 
@@ -393,7 +393,7 @@ export class BorrowerApplicationsService {
 
             // Query and validate application
             const application = await this.loanAppRepo.findById(appIdNum);
-            if (!application || application.borrowerId !== borrowerIdNum) {
+            if (!application || Number(application.borrowerId) !== borrowerIdNum) {
                 throw new Error('Application not found');
             }
 
@@ -450,7 +450,7 @@ export class BorrowerApplicationsService {
             const appIdNum = parseInt(applicationId, 10);
 
             const application = await this.loanAppRepo.findById(appIdNum);
-            if (!application || application.borrowerId !== borrowerIdNum) {
+            if (!application || Number(application.borrowerId) !== borrowerIdNum) {
                 throw new Error('Application not found');
             }
             if (application.statusId !== 1) {

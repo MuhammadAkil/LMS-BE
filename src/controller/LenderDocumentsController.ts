@@ -107,7 +107,7 @@ export class LenderDocumentsController {
             if (category === 'all' || category === 'export') {
                 const [exports] = await this.exportRepo.findByCreatedBy(lenderId, 100, 0);
                 for (const exp of exports) {
-                const meta = (exp as any).metadata ? JSON.parse((exp as any).metadata) : {};
+                    const meta = (exp as any).metadata ? JSON.parse((exp as any).metadata) : {};
                     const fmt = meta.format || (exp as any).exportTypeCode || 'CSV';
                     documents.push({
                         id: `export-${exp.id}`,

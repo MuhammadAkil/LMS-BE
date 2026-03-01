@@ -49,7 +49,7 @@ const getPublicRoutes = (): string[] => {
  * Global authentication middleware
  * Requires authentication for all routes except those in PUBLIC_ROUTES
  */
-@Middleware({ type: 'before', priority: 1 })
+@Middleware({ type: 'before', priority: 100 })
 export class GlobalAuthMiddleware implements ExpressMiddlewareInterface {
     async use(req: Request, res: Response, next: NextFunction): Promise<void> {
         // req.path is the full path including /api prefix (e.g. /api/users/login)

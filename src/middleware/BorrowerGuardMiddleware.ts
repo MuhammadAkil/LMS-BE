@@ -6,7 +6,7 @@ import { BorrowerRoleGuard, BorrowerStatusGuard } from './BorrowerGuards';
  * Runs after GlobalAuthMiddleware for routes under /api/borrower/*.
  * Enforces: borrower role (roleId === 2), then status (BLOCKED=403, FROZEN=GET only, ACTIVE=full).
  */
-@Middleware({ type: 'before', priority: 2 })
+@Middleware({ type: 'before', priority: 50 })
 export class BorrowerGuardMiddleware implements ExpressMiddlewareInterface {
     async use(req: Request, res: Response, next: NextFunction): Promise<void> {
         const path = (req as any).path ?? req.path ?? req.url;

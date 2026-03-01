@@ -267,6 +267,33 @@ export function registerBorrowerRoutes(app: Express): void {
         async (req: Request, res: Response) => loansController.getActiveLoansPaginated(req, res)
     );
 
+    // ============================================
+    // B-06: LOAN HISTORY (must be before /:id to avoid shadowing)
+    // ============================================
+
+    /**
+     * GET /api/borrower/loans/history
+     * Get loan history (REPAID and DEFAULTED loans)
+     * Query params: page, pageSize
+     * Guards: Role, Status (read-only), Verification (level 0)
+     */
+    app.get(
+        '/api/borrower/loans/history',
+        ...borrowerGuardChain(true, 0),
+        async (req: Request, res: Response) => loanHistoryController.getLoanHistoryPaginated(req, res)
+    );
+
+    /**
+     * GET /api/borrower/loans/history/:id
+     * Get loan history detail with contract
+     * Guards: Role, Status (read-only), Verification (level 0)
+     */
+    app.get(
+        '/api/borrower/loans/history/:id',
+        ...borrowerGuardChain(true, 0),
+        async (req: Request, res: Response) => loanHistoryController.getLoanHistoryDetail(req, res)
+    );
+
     /**
      * GET /api/borrower/loans/:id
      * Get loan detail with repayment schedule
@@ -299,33 +326,6 @@ export function registerBorrowerRoutes(app: Express): void {
         '/api/borrower/loans/:id/payments',
         ...borrowerGuardChain(true, 0),
         async (req: Request, res: Response) => loansController.getPaymentHistory(req, res)
-    );
-
-    // ============================================
-    // B-06: LOAN HISTORY
-    // ============================================
-
-    /**
-     * GET /api/borrower/loans/history
-     * Get loan history (REPAID and DEFAULTED loans)
-     * Query params: page, pageSize
-     * Guards: Role, Status (read-only), Verification (level 0)
-     */
-    app.get(
-        '/api/borrower/loans/history',
-        ...borrowerGuardChain(true, 0),
-        async (req: Request, res: Response) => loanHistoryController.getLoanHistoryPaginated(req, res)
-    );
-
-    /**
-     * GET /api/borrower/loans/history/:id
-     * Get loan history detail with contract
-     * Guards: Role, Status (read-only), Verification (level 0)
-     */
-    app.get(
-        '/api/borrower/loans/history/:id',
-        ...borrowerGuardChain(true, 0),
-        async (req: Request, res: Response) => loanHistoryController.getLoanHistoryDetail(req, res)
     );
 
     // ============================================

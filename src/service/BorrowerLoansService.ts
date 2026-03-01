@@ -83,7 +83,7 @@ export class BorrowerLoansService {
 
                     // Get repayments
                     const repayments = await this.repaymentRepo.findByLoanId(loan.id);
-                    
+
                     // Calculate paid and remaining amounts
                     let paidAmount = 0;
                     let remainingBalance = 0;
@@ -177,7 +177,7 @@ export class BorrowerLoansService {
 
             // Query loan details
             const loan = await this.loanRepo.findById(loanIdNum);
-            if (!loan || loan.borrowerId !== borrowerIdNum) {
+            if (!loan || Number(loan.borrowerId) !== borrowerIdNum) {
                 throw new Error('Loan not found');
             }
 
@@ -211,7 +211,7 @@ export class BorrowerLoansService {
                 } else {
                     remainingBalance += r.amount;
                     const isPastDue = r.dueDate < today;
-                    
+
                     schedule.push({
                         dueDate: r.dueDate.toISOString().split('T')[0],
                         amount: r.amount,
@@ -291,7 +291,7 @@ export class BorrowerLoansService {
 
             // Verify loan belongs to borrower
             const loan = await this.loanRepo.findById(loanIdNum);
-            if (!loan || loan.borrowerId !== borrowerIdNum) {
+            if (!loan || Number(loan.borrowerId) !== borrowerIdNum) {
                 throw new Error('Loan not found');
             }
 
@@ -404,10 +404,10 @@ export class BorrowerLoansService {
         const repaymentIdNum = parseInt(repaymentId, 10);
 
         const loan = await this.loanRepo.findById(loanIdNum);
-        if (!loan || loan.borrowerId !== borrowerIdNum) throw new Error('Loan not found');
+        if (!loan || Number(loan.borrowerId) !== borrowerIdNum) throw new Error('Loan not found');
 
         const repayment = await this.repaymentRepo.findById(repaymentIdNum);
-        if (!repayment || repayment.loanId !== loanIdNum) throw new Error('Repayment not found');
+        if (!repayment || Number(repayment.loanId) !== loanIdNum) throw new Error('Repayment not found');
         if (repayment.paidAt) throw new Error('This installment is already marked as paid');
 
         await this.repaymentRepo.update(repaymentIdNum, { paidAt: new Date() });

@@ -74,7 +74,7 @@ export class BorrowerPaymentsService {
     const appIdNum = Number(request.applicationId);
 
     const application = await this.loanAppRepo.findById(appIdNum);
-    if (!application || application.borrowerId !== borrowerIdNum) {
+    if (!application || Number(application.borrowerId) !== borrowerIdNum) {
       throw new Error('Application not found');
     }
 
@@ -179,7 +179,7 @@ export class BorrowerPaymentsService {
     const borrowerIdNum = parseInt(borrowerId, 10);
 
     const application = await this.loanAppRepo.findById(applicationId);
-    if (!application || application.borrowerId !== borrowerIdNum) {
+    if (!application || Number(application.borrowerId) !== borrowerIdNum) {
       throw new Error('Application not found');
     }
 
@@ -498,7 +498,7 @@ export class BorrowerPaymentsService {
   async getPaymentSteps(borrowerId: string, applicationId: number): Promise<any[]> {
     const borrowerIdNum = parseInt(borrowerId, 10);
     const application = await this.loanAppRepo.findById(applicationId);
-    if (!application || application.borrowerId !== borrowerIdNum) {
+    if (!application || Number(application.borrowerId) !== borrowerIdNum) {
       throw new Error('Application not found');
     }
 
@@ -544,7 +544,7 @@ export class BorrowerPaymentsService {
   async setVoluntaryCommission(borrowerId: string, applicationId: number, amount: number): Promise<void> {
     const borrowerIdNum = parseInt(borrowerId, 10);
     const application = await this.loanAppRepo.findById(applicationId);
-    if (!application || application.borrowerId !== borrowerIdNum) {
+    if (!application || Number(application.borrowerId) !== borrowerIdNum) {
       throw new Error('Application not found');
     }
     if (application.statusId === 4) throw new Error('Application is cancelled');

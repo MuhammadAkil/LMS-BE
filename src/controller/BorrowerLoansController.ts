@@ -1,11 +1,14 @@
 import { Req, Res, Controller, Get, Post, Param, QueryParam, HttpCode } from 'routing-controllers';
 import { Request, Response } from 'express';
 import { BorrowerLoansService } from '../service/BorrowerLoansService';
+import { BorrowerLoanHistoryService } from '../service/BorrowerLoanHistoryService';
 import {
     ActiveLoanListResponse,
     LoanDetailDto,
     RepaymentScheduleItemDto,
     PaymentHistoryDto,
+    LoanHistoryListResponse,
+    LoanHistoryDetailDto,
     BorrowerApiResponse,
 } from '../dto/BorrowerDtos';
 
@@ -21,9 +24,11 @@ import {
 @Controller('/borrower/loans')
 export class BorrowerLoansController {
     private loansService: BorrowerLoansService;
+    private loanHistoryService: BorrowerLoanHistoryService;
 
     constructor() {
         this.loansService = new BorrowerLoansService();
+        this.loanHistoryService = new BorrowerLoanHistoryService();
     }
 
     /**
@@ -57,6 +62,69 @@ export class BorrowerLoansController {
                 errors: [error.message],
                 timestamp: new Date().toISOString(),
             };
+        }
+    }
+
+    /**
+     * GET /api/borrower/loans/history
+     * Get loan history (REPAID and DEFAULTED loans)
+     * IMPORTANT: must be declared before /:id to avoid shadowing
+     */
+    @Get('/history')
+    async getLoanHistoryPaginated(@Req() req: Request, @Res() res: Response): Promise<void> {
+        try {
+            const user = (req as any).user;
+            const borrowerId = user.id.toString();
+            const page = parseInt(req.query.page as string) || 1;
+            const pageSize = parseInt(req.query.pageSize as string) || 10;
+
+            const result = await this.loanHistoryService.getLoanHistoryPaginated(borrowerId, page, pageSize);
+
+            res.status(200).json({
+                statusCode: '200',
+                statusMessage: 'Loan history retrieved successfully',
+                data: result,
+                timestamp: new Date().toISOString(),
+            } as BorrowerApiResponse<LoanHistoryListResponse>);
+        } catch (error: any) {
+            console.error('Error in getLoanHistoryPaginated:', error);
+            res.status(500).json({
+                statusCode: '500',
+                statusMessage: 'Internal server error',
+                errors: [error.message],
+                timestamp: new Date().toISOString(),
+            });
+        }
+    }
+
+    /**
+     * GET /api/borrower/loans/history/:histId
+     * Get loan history detail with contract
+     * IMPORTANT: must be declared before /:id to avoid shadowing
+     */
+    @Get('/history/:histId')
+    async getLoanHistoryDetail(@Req() req: Request, @Res() res: Response): Promise<void> {
+        try {
+            const user = (req as any).user;
+            const borrowerId = user.id.toString();
+            const loanId = req.params.histId;
+
+            const result = await this.loanHistoryService.getLoanHistoryDetail(borrowerId, loanId);
+
+            res.status(200).json({
+                statusCode: '200',
+                statusMessage: 'Loan history detail retrieved successfully',
+                data: result,
+                timestamp: new Date().toISOString(),
+            } as BorrowerApiResponse<LoanHistoryDetailDto>);
+        } catch (error: any) {
+            console.error('Error in getLoanHistoryDetail:', error);
+            res.status(500).json({
+                statusCode: '500',
+                statusMessage: 'Internal server error',
+                errors: [error.message],
+                timestamp: new Date().toISOString(),
+            });
         }
     }
 

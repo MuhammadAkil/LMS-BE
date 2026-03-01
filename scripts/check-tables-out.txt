@@ -1,0 +1,8 @@
+﻿node : connect ENETUNREACH 209.182.238.150:3306
+At line:1 char:1
++ node "f:\LMS\LMS-BE\scripts\check-tables.js" 2>&1 | Out-File "f:\LMS\ ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (connect ENETUNREACH 209.182.238.1 
+   50:3306:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 

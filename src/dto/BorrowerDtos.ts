@@ -402,6 +402,8 @@ export class DocumentListItemDto {
     createdAt!: string;
     expiresAt?: string;
     downloadUrl?: string;
+    status?: string;     // PENDING, APPROVED, REJECTED, verified
+    filePath?: string;   // internal path reference
 }
 
 export class DocumentListResponse {
