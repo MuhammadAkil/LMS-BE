@@ -76,10 +76,18 @@ export class LenderInvestmentsController {
             });
         } catch (error: any) {
             console.error('Error in getInvestmentDetail:', error);
+            if (error.message?.startsWith('FORBIDDEN:')) {
+                res.status(403).json({
+                    statusCode: '403',
+                    statusMessage: 'Forbidden: Access denied to this investment',
+                    timestamp: new Date().toISOString(),
+                });
+                return;
+            }
             const statusCode = error.message === 'Investment not found' ? '404' : '500';
             res.status(parseInt(statusCode)).json({
                 statusCode,
-                statusMessage: 'Failed to retrieve investment detail',
+                statusMessage: error.message === 'Investment not found' ? 'Investment not found' : 'Failed to retrieve investment detail',
                 errors: [error.message],
                 timestamp: new Date().toISOString(),
             });

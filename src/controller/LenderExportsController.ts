@@ -1,4 +1,6 @@
 import { Request, Response } from 'express';
+import * as fs from 'fs';
+import * as path from 'path';
 import { Body, Controller, Get, Post, Req, Res, UseBefore } from 'routing-controllers';
 import { LenderRemindersService, LenderExportsService } from '../service/LenderExportsService';
 import {
@@ -10,6 +12,7 @@ import {
 import { AuthenticationMiddleware } from '../middleware/AuthenticationMiddleware';
 import { LenderRoleGuard } from '../middleware/LenderGuards';
 import { withLenderStatusGuard, withLenderVerificationGuard } from '../middleware/LenderGuardWrappers';
+import { ExportRepository } from '../repository/ExportRepository';
 
 /**
  * L-05: LENDER REMINDERS CONTROLLER
@@ -93,9 +96,11 @@ export class LenderRemindersController {
 @UseBefore(AuthenticationMiddleware.verifyToken, LenderRoleGuard)
 export class LenderExportsController {
     private exportsService: LenderExportsService;
+    private exportRepo: ExportRepository;
 
     constructor() {
         this.exportsService = new LenderExportsService();
+        this.exportRepo = new ExportRepository();
     }
 
     /**
@@ -174,6 +179,84 @@ export class LenderExportsController {
             res.status(500).json({
                 statusCode: '500',
                 statusMessage: 'Failed to export XML',
+                errors: [error.message],
+                timestamp: new Date().toISOString(),
+            });
+        }
+    }
+
+    /**
+     * GET /lender/exports/download/:exportId
+     * Download an export file by ID (streams file or returns inline generated content)
+     * Verifies the export belongs to the requesting lender before serving.
+     */
+    @Get('/exports/download/:exportId')
+    @UseBefore(withLenderStatusGuard(true))
+    async downloadExport(@Req() req: Request, @Res() res: Response): Promise<void> {
+        try {
+            const lenderId = Number((req as any).user?.id);
+            const exportId = parseInt(req.params.exportId, 10);
+
+            if (isNaN(exportId)) {
+                res.status(400).json({ statusCode: '400', statusMessage: 'Invalid export ID' });
+                return;
+            }
+
+            const exportRecord = await this.exportRepo.findById(exportId);
+            if (!exportRecord) {
+                res.status(404).json({ statusCode: '404', statusMessage: 'Export not found' });
+                return;
+            }
+            if (Number(exportRecord.createdBy) !== lenderId) {
+                res.status(403).json({ statusCode: '403', statusMessage: 'Access denied to this export' });
+                return;
+            }
+
+            const storedPath = exportRecord.filePath || '';
+            const fileName = storedPath ? path.basename(storedPath) : `export-${exportId}.csv`;
+            const isXml = fileName.endsWith('.xml') || storedPath.includes('.xml');
+            const mimeType = isXml ? 'application/xml' : 'text/csv';
+            const downloadName = isXml ? `export-${exportId}.xml` : `export-${exportId}.csv`;
+
+            // Try to stream the file from disk
+            const absolutePath = storedPath
+                ? path.join(process.cwd(), storedPath.startsWith('/') ? storedPath.slice(1) : storedPath)
+                : null;
+
+            if (absolutePath && fs.existsSync(absolutePath)) {
+                res.setHeader('Content-Disposition', `attachment; filename="${downloadName}"`);
+                res.setHeader('Content-Type', mimeType);
+                fs.createReadStream(absolutePath).pipe(res);
+                return;
+            }
+
+            // Fallback: generate minimal inline content
+            const meta = exportRecord.metadata ? JSON.parse(exportRecord.metadata) : {};
+            const period = meta.period || 'all';
+            const recordCount = exportRecord.recordCount ?? 0;
+            const generatedAt = new Date().toISOString();
+
+            if (isXml) {
+                const xml = [
+                    '<?xml version="1.0" encoding="UTF-8"?>',
+                    `<LMSExport exportId="${exportId}" lenderId="${lenderId}" period="${period}" generatedAt="${generatedAt}">`,
+                    `  <RecordCount>${recordCount}</RecordCount>`,
+                    '</LMSExport>',
+                ].join('\n');
+                res.setHeader('Content-Disposition', `attachment; filename="${downloadName}"`);
+                res.setHeader('Content-Type', 'application/xml');
+                res.send(xml);
+            } else {
+                const csv = `export_id,lender_id,period,record_count,generated_at\n${exportId},${lenderId},"${period}",${recordCount},${generatedAt}\n`;
+                res.setHeader('Content-Disposition', `attachment; filename="${downloadName}"`);
+                res.setHeader('Content-Type', 'text/csv');
+                res.send(csv);
+            }
+        } catch (error: any) {
+            console.error('Error in downloadExport:', error);
+            res.status(500).json({
+                statusCode: '500',
+                statusMessage: 'Failed to download export',
                 errors: [error.message],
                 timestamp: new Date().toISOString(),
             });

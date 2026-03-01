@@ -93,7 +93,8 @@ export class LenderInvestmentsService {
         const lenderIdNum = parseInt(lenderId, 10);
         const offerIdNum = parseInt(investmentId, 10);
         const offer = await this.loanOfferRepo.findById(offerIdNum);
-        if (!offer || offer.lenderId !== lenderIdNum) throw new Error('Investment not found');
+        if (!offer) throw new Error('Investment not found');
+        if (Number(offer.lenderId) !== lenderIdNum) throw new Error('FORBIDDEN: Investment does not belong to this lender');
 
         const loan = await this.loanRepo.findById(offer.loanId);
         if (!loan) throw new Error('Investment not found');
