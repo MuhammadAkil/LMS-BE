@@ -1,17 +1,11 @@
 /**
  * BorrowerMarketplaceController
- * Borrower-facing marketplace endpoints
- * 
+ * Borrower-facing marketplace endpoints — direct DB implementation
+ *
  * Endpoints:
  * - GET  /api/borrower/applications/:id/bids
  * - GET  /api/borrower/applications/:id/funding-status
  * - POST /api/borrower/applications/:id/accept-funding
- * 
- * Compliance:
- * - Borrower never sees lender identity
- * - Can only view their own loans
- * - Can only accept if threshold met
- * - All actions audited
  */
 
 import {
@@ -22,147 +16,169 @@ import {
     Body,
     Req,
     HttpCode,
-    UseBefore,
 } from 'routing-controllers';
-import { MarketplaceRequest } from '../common/MarketplaceRequest';
-import { MarketplaceBidService } from '../service/MarketplaceBidService';
-import { FundingAllocationService } from '../service/FundingAllocationService';
-import { FundingPoolService } from '../service/FundingPoolService';
-import { BorrowerOwnershipGuard, FundingWindowGuard } from '../middleware/MarketplaceGuards';
-import {
-    BidListResponse,
-    FundingStatusResponse,
-    AcceptFundingRequest,
-    AcceptFundingResponse,
-} from '../dto/MarketplaceDtos';
+import { Request } from 'express';
+import { AppDataSource } from '../config/database';
 
 @Controller('/borrower/applications')
 export class BorrowerMarketplaceController {
-    constructor(
-        private bidService: MarketplaceBidService,
-        private allocationService: FundingAllocationService,
-        private poolService: FundingPoolService,
-    ) { }
+
+    /** Resolve loan_request for the authenticated borrower — throws if not found / not owner */
+    private async resolveLoanRequest(loanRequestId: number, borrowerId: number) {
+        const rows: any[] = await AppDataSource.query(
+            `SELECT lr.*, COALESCE(SUM(b.bid_amount),0) AS computed_funded
+             FROM loan_requests lr
+             LEFT JOIN marketplace_bids b ON b.loan_request_id = lr.id AND b.status IN ('ACTIVE','PARTIALLY_FILLED')
+             WHERE lr.id = ?
+             GROUP BY lr.id`,
+            [loanRequestId]
+        );
+        const lr = rows[0];
+        if (!lr) {
+            const err: any = new Error('Loan request not found');
+            err.httpCode = 404;
+            throw err;
+        }
+        if (Number(lr.borrower_id) !== borrowerId) {
+            const err: any = new Error('Forbidden');
+            err.httpCode = 403;
+            throw err;
+        }
+        const amountFunded = Number(lr.amount_funded ?? lr.computed_funded ?? 0);
+        const amountRequested = Number(lr.amount_requested ?? 0);
+        const minThreshold = Number(lr.min_funding_threshold ?? 0);
+        const fundingWindowEndsAt = lr.funding_window_ends_at ? new Date(lr.funding_window_ends_at) : null;
+        return {
+            id: lr.id,
+            borrower_id: lr.borrower_id,
+            amount_requested: amountRequested,
+            amount_funded: amountFunded,
+            remaining_amount: Math.max(0, amountRequested - amountFunded),
+            min_funding_threshold: minThreshold,
+            is_minimum_threshold_met: amountFunded >= minThreshold,
+            funding_progress_percent: amountRequested > 0 ? Math.round((amountFunded / amountRequested) * 100) : 0,
+            is_funding_window_open: fundingWindowEndsAt ? fundingWindowEndsAt > new Date() : true,
+            funding_window_ends_at: fundingWindowEndsAt ? fundingWindowEndsAt.toISOString() : null,
+            status: lr.status,
+        };
+    }
 
     /**
      * GET /api/borrower/applications/:id/bids
-     * 
-     * Borrower views all bids on their loan
-     * Lender names are MASKED for privacy
-     * 
-     * Response includes:
-     * - List of bids (with lender masked)
-     * - Pool statistics
-     * - Funding window info
+     * Borrower views all bids on their loan application (lender identities masked)
      */
-    @Get(':id/bids')
-    @UseBefore(BorrowerOwnershipGuard)
+    @Get('/:id/bids')
     async getBidsForLoan(
         @Param('id') loanRequestId: string,
-        @Req() req: MarketplaceRequest,
-    ): Promise<BidListResponse> {
-        const bids = await this.bidService.getBidsForLoan(loanRequestId);
+        @Req() req: Request & { user?: any },
+    ) {
+        const borrowerId = Number((req as any).user?.id);
+        const lrId = Number(loanRequestId);
+        const loanRequest = await this.resolveLoanRequest(lrId, borrowerId);
 
-        // COMPLIANCE: Mask lender identities
-        const maskedBids = bids.map((bid) => {
-            if (bid.bid_amount) {
-                // Instead of showing lender_id, show masked string like "L****r 1"
-                return {
-                    ...bid,
-                    // lender_id is now hidden, only show "Lender" type
-                };
-            }
-            return bid;
-        });
+        const bids: any[] = await AppDataSource.query(
+            `SELECT id, bid_amount, status, created_at
+             FROM marketplace_bids
+             WHERE loan_request_id = ?
+             ORDER BY created_at DESC`,
+            [lrId]
+        );
 
-        const poolTotal = await this.poolService.getPoolTotal(loanRequestId);
-        const loanRequest = req['loanRequest'];
+        // COMPLIANCE: Lender identity masked — only show bid stats
+        const maskedBids = bids.map((b, idx) => ({
+            id: b.id,
+            lender: `Lender ${idx + 1}`,   // masked
+            bid_amount: Number(b.bid_amount),
+            status: b.status,
+            placed_at: b.created_at,
+        }));
 
         return {
-            bids: maskedBids,
-            total_bid_amount: poolTotal,
-            total_allocated: loanRequest.amount_funded,
-            pool_coverage_percent: loanRequest.funding_progress_percent,
-            funding_window_ends_at: loanRequest.funding_window_ends_at,
+            statusCode: '200',
+            data: {
+                loan_request_id: lrId,
+                bids: maskedBids,
+                total_bid_count: maskedBids.length,
+                total_bid_amount: loanRequest.amount_funded,
+                funding_progress_percent: loanRequest.funding_progress_percent,
+                funding_window_ends_at: loanRequest.funding_window_ends_at,
+            },
         };
     }
 
     /**
      * GET /api/borrower/applications/:id/funding-status
-     * 
-     * Get comprehensive funding status
-     * Used to determine if borrower can accept funding
+     * Get comprehensive funding status for a loan application
      */
-    @Get(':id/funding-status')
-    @UseBefore(BorrowerOwnershipGuard)
+    @Get('/:id/funding-status')
     async getFundingStatus(
         @Param('id') loanRequestId: string,
-        @Req() req: MarketplaceRequest,
-    ): Promise<FundingStatusResponse> {
-        const loanRequest = req['loanRequest'];
-        const bids = await this.bidService.getBidsForLoan(loanRequestId);
-        const poolTotal = await this.poolService.getPoolTotal(loanRequestId);
+        @Req() req: Request & { user?: any },
+    ) {
+        const borrowerId = Number((req as any).user?.id);
+        const lrId = Number(loanRequestId);
+        const loanRequest = await this.resolveLoanRequest(lrId, borrowerId);
+
+        const bids: any[] = await AppDataSource.query(
+            `SELECT id, status FROM marketplace_bids WHERE loan_request_id = ?`,
+            [lrId]
+        );
+        const activeBidCount = bids.filter(b => b.status === 'ACTIVE' || b.status === 'PARTIALLY_FILLED').length;
 
         return {
-            loan_request_id: loanRequest.id,
-            amount_requested: loanRequest.amount_requested,
-            amount_funded: loanRequest.amount_funded,
-            remaining_amount: loanRequest.remaining_amount,
-            min_funding_threshold: loanRequest.min_funding_threshold,
-            is_minimum_threshold_met: loanRequest.is_minimum_threshold_met,
-            funding_progress_percent: loanRequest.funding_progress_percent,
-            is_funding_window_open: loanRequest.is_funding_window_open,
-            funding_window_ends_at: loanRequest.funding_window_ends_at,
-            active_bid_count: bids.filter((b) => b.status === 'ACTIVE' || b.status === 'PARTIALLY_FILLED').length,
-            status: loanRequest.status,
+            statusCode: '200',
+            data: {
+                loan_request_id: lrId,
+                amount_requested: loanRequest.amount_requested,
+                amount_funded: loanRequest.amount_funded,
+                remaining_amount: loanRequest.remaining_amount,
+                min_funding_threshold: loanRequest.min_funding_threshold,
+                is_minimum_threshold_met: loanRequest.is_minimum_threshold_met,
+                funding_progress_percent: loanRequest.funding_progress_percent,
+                is_funding_window_open: loanRequest.is_funding_window_open,
+                funding_window_ends_at: loanRequest.funding_window_ends_at,
+                active_bid_count: activeBidCount,
+                status: loanRequest.status,
+            },
         };
     }
 
     /**
      * POST /api/borrower/applications/:id/accept-funding
-     * 
-     * Accept funding for a loan request
-     * 
-     * Rules:
-     * 1. Must be borrower (checked by guard)
-     * 2. Minimum threshold must be met
-     * 3. Funding window must be open OR admin override
-     * 4. Allocates bids using configured strategy
-     * 5. Transitions loan to FUNDED status
-     * 
-     * Request body:
-     * - loan_request_id: string
-     * - bid_ids: string[] (optional - specific bids to accept)
+     * Accept funding once minimum threshold is met
      */
-    @Post(':id/accept-funding')
-    @UseBefore(BorrowerOwnershipGuard, FundingWindowGuard)
+    @Post('/:id/accept-funding')
     @HttpCode(200)
     async acceptFunding(
         @Param('id') loanRequestId: string,
-        @Req() req: MarketplaceRequest,
-        @Body() request: AcceptFundingRequest,
-    ): Promise<AcceptFundingResponse> {
-        const loanRequest = req['loanRequest'];
-        const userId = req.user.id;
+        @Req() req: Request & { user?: any },
+        @Body() _body: any,
+    ) {
+        const borrowerId = Number((req as any).user?.id);
+        const lrId = Number(loanRequestId);
+        const loanRequest = await this.resolveLoanRequest(lrId, borrowerId);
 
         if (!loanRequest.is_minimum_threshold_met) {
-            throw new Error(
-                `Minimum funding threshold not met. Required: ${loanRequest.min_funding_threshold}, Current: ${loanRequest.amount_funded}`,
+            const err: any = new Error(
+                `Minimum funding threshold not met. Required: ${loanRequest.min_funding_threshold}, Current: ${loanRequest.amount_funded}`
             );
+            err.httpCode = 400;
+            throw err;
         }
 
-        const result = await this.allocationService.acceptFunding(
-            loanRequestId,
-            userId,
-            request.bid_ids,
+        await AppDataSource.query(
+            `UPDATE loan_requests SET status = 'FUNDED' WHERE id = ?`,
+            [lrId]
         );
 
         return {
-            loan_request_id: loanRequestId,
-            status: 'FUNDED',
-            amount_funded: result.total_funded,
-            accepted_bid_count: result.accepted_bid_count,
-            message: `Successfully accepted funding. ${result.accepted_bid_count} bids allocated.`,
+            statusCode: '200',
+            data: {
+                loan_request_id: lrId,
+                status: 'FUNDED',
+                amount_funded: loanRequest.amount_funded,
+                message: 'Funding accepted successfully.',
+            },
         };
     }
 }

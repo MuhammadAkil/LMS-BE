@@ -62,6 +62,8 @@ export class BorrowerLoanHistoryService {
                     const repayments = await this.repaymentRepo.findByLoanId(loan.id);
                     let totalRepaid = 0;
                     repayments.forEach((r) => { if (r.paidAt) totalRepaid += Number(r.amount); });
+                    // Interest paid ≈ amount repaid above the principal (annuity schedule)
+                    const totalInterestPaid = Math.max(0, +(totalRepaid - amount).toFixed(2));
 
                     totalHistorical += amount;
 
@@ -78,7 +80,7 @@ export class BorrowerLoanHistoryService {
                         disbursedAt: loan.createdAt.toISOString().split('T')[0],
                         completedAt,
                         totalRepaid,
-                        totalInterestPaid: 0,
+                        totalInterestPaid,
                     };
                 })
             );
@@ -127,12 +129,20 @@ export class BorrowerLoanHistoryService {
             const repayments = await this.repaymentRepo.findByLoanId(loanIdNum);
             let paidAmount = 0;
             let remainingBalance = 0;
+            let delayedPaymentsCount = 0;
             const schedule: any[] = [];
 
             repayments.forEach((r, i) => {
                 const isPaid = !!r.paidAt;
-                if (isPaid) paidAmount += Number(r.amount);
-                else remainingBalance += Number(r.amount);
+                if (isPaid) {
+                    paidAmount += Number(r.amount);
+                    // Count delayed: paid after due date
+                    const paidDate = new Date(r.paidAt!);
+                    const dueDate2 = new Date(r.dueDate);
+                    if (paidDate > dueDate2) delayedPaymentsCount++;
+                } else {
+                    remainingBalance += Number(r.amount);
+                }
                 schedule.push({
                     installmentNumber: i + 1,
                     dueDate: r.dueDate.toISOString().split('T')[0],
@@ -189,11 +199,11 @@ export class BorrowerLoanHistoryService {
                 actualCompletionDate: completedAt,
                 remainingBalance,
                 paidAmount,
-                delayedPaymentsCount: 0,
+                delayedPaymentsCount,
                 repaymentSchedule: schedule,
                 contract,
                 finalPaymentDate: completedAt,
-                totalInterestPaid: 0,
+                totalInterestPaid: Math.max(0, +(paidAmount - amount).toFixed(2)),
             };
         } catch (error: any) {
             console.error('Error fetching loan history detail:', error);

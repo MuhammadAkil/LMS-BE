@@ -11,6 +11,23 @@ import {
     PaymentItemDto,
 } from '../dto/BorrowerDtos';
 
+// ── Helpers ──────────────────────────────────────────────────────────────────
+// mysql2 MAY return Date columns as strings ("YYYY-MM-DD") or Date objects.
+// These helpers normalise both cases.
+
+function toDateStr(val: Date | string | null | undefined): string | null {
+    if (!val) return null;
+    if (typeof val === 'string') return val.slice(0, 10);
+    return val.toISOString().slice(0, 10);
+}
+
+function toDateObj(val: Date | string | null | undefined): Date | null {
+    if (!val) return null;
+    if (typeof val === 'string') return new Date(val);
+    return val;
+}
+
+
 /**
  * B-05: BORROWER ACTIVE LOANS SERVICE
  * Provides views of active loans, repayment schedules, and payment history
@@ -92,19 +109,21 @@ export class BorrowerLoansService {
 
                     repayments.forEach((r) => {
                         if (r.paidAt) {
-                            paidAmount += r.amount;
+                            paidAmount += Number(r.amount);
                         } else {
-                            remainingBalance += r.amount;
-                            if (!nextRepaymentDate || r.dueDate < new Date(nextRepaymentDate)) {
-                                nextRepaymentDate = r.dueDate.toISOString();
-                                nextRepaymentAmount = r.amount;
+                            remainingBalance += Number(r.amount);
+                            const dueDateObj = toDateObj(r.dueDate)!;
+                            if (!nextRepaymentDate || dueDateObj < new Date(nextRepaymentDate)) {
+                                nextRepaymentDate = dueDateObj.toISOString();
+                                nextRepaymentAmount = Number(r.amount);
                             }
                         }
                     });
 
                     totalOutstanding += remainingBalance;
 
-                    const expectedCompletionDate = new Date(loan.createdAt);
+                    const loanCreatedAt = loan.createdAt ? new Date(loan.createdAt) : new Date();
+                    const expectedCompletionDate = new Date(loanCreatedAt);
                     expectedCompletionDate.setMonth(expectedCompletionDate.getMonth() + app.durationMonths);
 
                     return {
@@ -114,7 +133,7 @@ export class BorrowerLoansService {
                         durationMonths: app.durationMonths,
                         status: 'ACTIVE',
                         disbursedAmount: loan.fundedAmount,
-                        disbursedAt: loan.createdAt.toISOString().split('T')[0],
+                        disbursedAt: loan.createdAt ? new Date(loan.createdAt).toISOString().slice(0, 10) : null,
                         expectedCompletionDate: expectedCompletionDate.toISOString().split('T')[0],
                         nextRepaymentDate: nextRepaymentDate?.split('T')[0] || null,
                         nextRepaymentAmount: nextRepaymentAmount,
@@ -200,21 +219,22 @@ export class BorrowerLoansService {
 
             repayments.forEach((r) => {
                 if (r.paidAt) {
-                    paidAmount += r.amount;
+                    paidAmount += Number(r.amount);
                     schedule.push({
-                        dueDate: r.dueDate.toISOString().split('T')[0],
-                        amount: r.amount,
+                        dueDate: toDateStr(r.dueDate)!,
+                        amount: Number(r.amount),
                         status: 'PAID',
-                        paidAmount: r.amount,
-                        paidDate: r.paidAt.toISOString().split('T')[0],
+                        paidAmount: Number(r.amount),
+                        paidDate: toDateStr(r.paidAt)!,
                     });
                 } else {
-                    remainingBalance += r.amount;
-                    const isPastDue = r.dueDate < today;
+                    remainingBalance += Number(r.amount);
+                    const dueDateObj = toDateObj(r.dueDate)!;
+                    const isPastDue = dueDateObj < today;
 
                     schedule.push({
-                        dueDate: r.dueDate.toISOString().split('T')[0],
-                        amount: r.amount,
+                        dueDate: toDateStr(r.dueDate)!,
+                        amount: Number(r.amount),
                         status: isPastDue ? 'OVERDUE' : 'PENDING',
                     });
 
@@ -222,14 +242,15 @@ export class BorrowerLoansService {
                         delayedPaymentsCount++;
                     }
 
-                    if (!nextRepaymentDate || r.dueDate < new Date(nextRepaymentDate)) {
-                        nextRepaymentDate = r.dueDate.toISOString().split('T')[0];
-                        nextRepaymentAmount = r.amount;
+                    if (!nextRepaymentDate || dueDateObj < new Date(nextRepaymentDate)) {
+                        nextRepaymentDate = toDateStr(r.dueDate)!;
+                        nextRepaymentAmount = Number(r.amount);
                     }
                 }
             });
 
-            const expectedCompletionDate = new Date(loan.createdAt);
+            const loanCreatedAt = loan.createdAt ? new Date(loan.createdAt) : new Date();
+            const expectedCompletionDate = new Date(loanCreatedAt);
             expectedCompletionDate.setMonth(expectedCompletionDate.getMonth() + app.durationMonths);
 
             const loanDetail: LoanDetailDto = {
@@ -239,7 +260,7 @@ export class BorrowerLoansService {
                 durationMonths: app.durationMonths,
                 status: 'ACTIVE',
                 disbursedAmount: loan.fundedAmount,
-                disbursedAt: loan.createdAt.toISOString().split('T')[0],
+                disbursedAt: loan.createdAt ? new Date(loan.createdAt).toISOString().slice(0, 10) : null,
                 expectedCompletionDate: expectedCompletionDate.toISOString().split('T')[0],
                 remainingBalance: remainingBalance,
                 paidAmount: paidAmount,
@@ -302,17 +323,18 @@ export class BorrowerLoansService {
             const schedule: RepaymentScheduleItemDto[] = repayments.map((r) => {
                 if (r.paidAt) {
                     return {
-                        dueDate: r.dueDate.toISOString().split('T')[0],
-                        amount: r.amount,
+                        dueDate: toDateStr(r.dueDate)!,
+                        amount: Number(r.amount),
                         status: 'PAID',
-                        paidAmount: r.amount,
-                        paidDate: r.paidAt.toISOString().split('T')[0],
+                        paidAmount: Number(r.amount),
+                        paidDate: toDateStr(r.paidAt)!,
                     };
                 } else {
-                    const isPastDue = r.dueDate < today;
+                    const dueDateObj = toDateObj(r.dueDate)!;
+                    const isPastDue = dueDateObj < today;
                     return {
-                        dueDate: r.dueDate.toISOString().split('T')[0],
-                        amount: r.amount,
+                        dueDate: toDateStr(r.dueDate)!,
+                        amount: Number(r.amount),
                         status: isPastDue ? 'OVERDUE' : 'PENDING',
                     };
                 }
@@ -364,10 +386,40 @@ export class BorrowerLoansService {
             const loanIdNum = parseInt(loanId, 10);
             const offset = (page - 1) * pageSize;
 
-            // TODO: Query payments for loan_id
-            const payments: PaymentItemDto[] = [];
-            const totalItems = 0;
-            const totalPaid = 0;
+            // Verify the loan belongs to this borrower
+            const loan = await this.loanRepo.findById(loanIdNum);
+            if (!loan || Number(loan.borrowerId) !== borrowerIdNum) {
+                throw new Error('Loan not found');
+            }
+
+            // Fetch all repayments for this loan
+            const allRepayments = await this.repaymentRepo.findByLoanId(loanIdNum);
+            // For payment history, show all repayments sorted by dueDate DESC
+            const sorted = [...allRepayments].sort((a, b) => new Date(b.dueDate).getTime() - new Date(a.dueDate).getTime());
+            const totalItems = sorted.length;
+            const paginated = sorted.slice(offset, offset + pageSize);
+
+            const today = new Date();
+            let totalPaid = 0;
+            allRepayments.forEach(r => { if (r.paidAt) totalPaid += Number(r.amount); });
+
+            const payments: PaymentItemDto[] = paginated.map(r => {
+                const dueDate = new Date(r.dueDate);
+                let status = 'PENDING';
+                if (r.paidAt) {
+                    status = 'PAID';
+                } else if (dueDate < today) {
+                    status = 'OVERDUE';
+                }
+                return {
+                    id: Number(r.id),
+                    amount: Number(r.amount),
+                    status,
+                    paymentMethod: r.paidAt ? 'SELF_REPORTED' : '—',
+                    paidDate: r.paidAt ? new Date(r.paidAt).toISOString() : undefined,
+                    reference: `REP-${r.id}`,
+                };
+            });
 
             // Audit log
             await this.auditRepo.create({

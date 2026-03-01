@@ -33,7 +33,8 @@ export class BorrowerDocumentsService {
             const db = AppDataSource;
 
             // Query contracts via loans
-            const [contractRows]: any[] = await db.query(
+            // Note: TypeORM DataSource.query() returns the rows array directly (not [rows, fields])
+            const contractRows: any[] = await db.query(
                 `SELECT c.id, c.loanId, c.pdfPath, c.createdAt
                  FROM contracts c
                  JOIN loans l ON l.id = c.loanId
@@ -43,7 +44,7 @@ export class BorrowerDocumentsService {
             );
 
             // Query verification documents
-            const [verRows]: any[] = await db.query(
+            const verRows: any[] = await db.query(
                 `SELECT vd.id, vd.verificationId, vd.filePath, vd.uploadedAt,
                         vt.code as vtCode, uv.status_id as uvStatus
                  FROM verification_documents vd
@@ -126,7 +127,7 @@ export class BorrowerDocumentsService {
             if (docIdNum >= this.CONTRACT_OFFSET) {
                 // Contract
                 const contractId = docIdNum - this.CONTRACT_OFFSET;
-                const [rows]: any[] = await db.query(
+                const rows: any[] = await db.query(
                     'SELECT c.id, c.loanId, c.pdfPath, c.createdAt FROM contracts c JOIN loans l ON l.id = c.loanId WHERE c.id = ? AND l.borrowerId = ?',
                     [contractId, borrowerIdNum]
                 );
@@ -145,7 +146,7 @@ export class BorrowerDocumentsService {
                 };
             } else {
                 // Verification document
-                const [rows]: any[] = await db.query(
+                const rows: any[] = await db.query(
                     `SELECT vd.id, vd.filePath, vd.uploadedAt, vt.code as vtCode
                      FROM verification_documents vd
                      JOIN user_verifications uv ON uv.id = vd.verificationId
@@ -186,14 +187,14 @@ export class BorrowerDocumentsService {
 
             if (docIdNum >= this.CONTRACT_OFFSET) {
                 const contractId = docIdNum - this.CONTRACT_OFFSET;
-                const [rows]: any[] = await db.query(
+                const rows: any[] = await db.query(
                     'SELECT c.pdfPath FROM contracts c JOIN loans l ON l.id = c.loanId WHERE c.id = ? AND l.borrowerId = ?',
                     [contractId, borrowerIdNum]
                 );
                 const row = Array.isArray(rows) ? rows[0] : null;
                 filePath = row?.pdfPath ?? '';
             } else {
-                const [rows]: any[] = await db.query(
+                const rows: any[] = await db.query(
                     `SELECT vd.filePath FROM verification_documents vd
                      JOIN user_verifications uv ON uv.id = vd.verificationId
                      WHERE vd.id = ? AND uv.user_id = ? AND vd.deletedAt IS NULL`,

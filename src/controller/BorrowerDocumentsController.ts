@@ -99,16 +99,36 @@ export class BorrowerDocumentsController {
 
             const filePath = await this.documentsService.downloadDocument(borrowerId, documentId);
 
-            // TODO: Stream file to response
-            // res.download(filePath, 'document.pdf');
-            // or for S3: res.redirect(s3SignedUrl);
-
-            res.status(200).json({
-                statusCode: '200',
-                statusMessage: 'Document download link generated',
-                data: { downloadUrl: filePath },
-                timestamp: new Date().toISOString(),
-            });
+            // Stream the file if it exists on disk, otherwise return the URL
+            const fs = require('fs');
+            const path = require('path');
+            if (filePath && !filePath.startsWith('http') && fs.existsSync(filePath)) {
+                const fileName = path.basename(filePath);
+                res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+                res.setHeader('Content-Type', 'application/pdf');
+                const fileStream = fs.createReadStream(filePath);
+                fileStream.on('error', () => {
+                    if (!res.headersSent) {
+                        res.status(404).json({
+                            statusCode: '404',
+                            statusMessage: 'File not found',
+                            errors: ['Document file not found on server'],
+                            timestamp: new Date().toISOString(),
+                        });
+                    }
+                });
+                fileStream.pipe(res);
+            } else if (filePath && filePath.startsWith('http')) {
+                // External URL (e.g. S3): redirect to it
+                res.redirect(302, filePath);
+            } else {
+                res.status(404).json({
+                    statusCode: '404',
+                    statusMessage: 'Document not available',
+                    errors: ['No file path associated with this document'],
+                    timestamp: new Date().toISOString(),
+                });
+            }
         } catch (error: any) {
             console.error('Error in downloadDocument:', error);
             res.status(500).json({

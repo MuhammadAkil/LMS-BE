@@ -245,7 +245,7 @@ export class AdminDashboardService {
         WHERE createdAt >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
         GROUP BY yr, mo, label
         ORDER BY yr ASC, mo ASC
-      `).catch(() => []);
+      `).catch((): any[] => []);
 
       // Top 5 borrowers by total funded amount
       const topBorrowers = await qr.query(`
@@ -258,7 +258,7 @@ export class AdminDashboardService {
         GROUP BY l.borrowerId, u.first_name, u.last_name, u.email
         ORDER BY amount DESC
         LIMIT 5
-      `).catch(() => []);
+      `).catch((): any[] => []);
 
       // Loan amount distribution buckets
       const distribution = await qr.query(`
@@ -269,12 +269,12 @@ export class AdminDashboardService {
           SUM(CASE WHEN totalAmount >= 10000 AND totalAmount < 50000 THEN 1 ELSE 0 END) AS b3,
           SUM(CASE WHEN totalAmount >= 50000 THEN 1 ELSE 0 END) AS b4
         FROM loans
-      `).catch(() => [{}]);
+      `).catch((): any[] => [{}]);
 
       // Loan status counts
       const statusCounts = await qr.query(`
         SELECT statusId, COUNT(*) AS cnt FROM loans GROUP BY statusId
-      `).catch(() => []);
+      `).catch((): any[] => []);
 
       const statusNames: Record<number, string> = { 1: 'Active', 2: 'Completed', 3: 'Defaulted', 4: 'Suspended' };
       const dist = distribution[0] || {};

@@ -63,7 +63,8 @@ export class BorrowerDashboardController {
      * GET /api/borrower/dashboard/stats
      * Returns only dashboard statistics
      */
-    async getStats(req: Request, res: Response): Promise<void> {
+    @Get('/stats')
+    async getStats(@Req() req: Request, @Res() res: Response): Promise<void> {
         try {
             const user = (req as any).user;
             const borrowerId = user.id.toString();
@@ -91,7 +92,8 @@ export class BorrowerDashboardController {
      * GET /api/borrower/dashboard/alerts
      * Returns dashboard alerts
      */
-    async getAlerts(req: Request, res: Response): Promise<void> {
+    @Get('/alerts')
+    async getAlerts(@Req() req: Request, @Res() res: Response): Promise<void> {
         try {
             const user = (req as any).user;
             const borrowerId = user.id.toString();
