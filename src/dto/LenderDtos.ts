@@ -25,6 +25,17 @@ export interface LenderDashboardStatsResponse {
     managedBy: ManagedByDto | null;
     /** Total earnings (voluntary commissions + interest received) — placeholder if not tracked */
     earnings?: number;
+    /** Wallet snapshot */
+    walletBalance?: number;
+    walletAvailable?: number;
+    walletReserved?: number;
+    /** Bid / offer status breakdown from marketplace_bids */
+    bidsTotal?: number;
+    bidsConfirmed?: number;
+    bidsPending?: number;
+    bidsRejected?: number;
+    /** Last 6 months of activity (sum of TOP_UP + INVESTMENT amounts) */
+    monthlyActivity?: Array<{ month: string; label: string; totalAmount: number }>;
 }
 
 export interface LenderAlertDto {
