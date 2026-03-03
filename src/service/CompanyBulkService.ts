@@ -57,8 +57,9 @@ export class CompanyBulkService {
                 `
         SELECT COUNT(DISTINCT l.id) as validCount
         FROM loans l
-        INNER JOIN company_lenders cl ON l.lender_id = cl.lender_id
-        WHERE cl.company_id = ? AND l.id IN (?)
+        INNER JOIN loan_offers lo ON lo.loanId = l.id
+        INNER JOIN company_lenders cl ON cl.lenderId = lo.lenderId
+        WHERE cl.companyId = ? AND l.id IN (?)
         `,
                 [companyId, loanIds]
             );
@@ -72,40 +73,22 @@ export class CompanyBulkService {
                 queryRunner.query(
                     `
           INSERT INTO reminders (
-            loan_id,
-            company_id,
-            reminder_type,
-            message,
-            status,
-            created_at
-          ) VALUES (?, ?, ?, ?, 'PENDING', NOW())
+            loanId,
+            channel,
+            sentAt,
+            createdAt
+          ) VALUES (?, ?, NOW(), NOW())
           `,
                     [
                         loanId,
-                        companyId,
                         request.reminderType || 'EMAIL',
-                        request.message,
                     ]
                 )
             );
 
             await Promise.all(insertPromises);
 
-            // Create export record for tracking
-            const exportResult = await queryRunner.query(
-                `
-        INSERT INTO exports (
-          company_id,
-          type,
-          item_count,
-          status,
-          created_at
-        ) VALUES (?, 'REMINDERS', ?, 'COMPLETED', NOW())
-        `,
-                [companyId, loanIds.length]
-            );
-
-            const exportId = exportResult.insertId;
+            const exportId = 0; // reminders don't create an exports record
 
             // Audit the bulk action
             await this.auditService.logAction(
@@ -153,8 +136,9 @@ export class CompanyBulkService {
                 `
         SELECT COUNT(DISTINCT l.id) as validCount
         FROM loans l
-        INNER JOIN company_lenders cl ON l.lender_id = cl.lender_id
-        WHERE cl.company_id = ? AND l.id IN (?)
+        INNER JOIN loan_offers lo ON lo.loanId = l.id
+        INNER JOIN company_lenders cl ON cl.lenderId = lo.lenderId
+        WHERE cl.companyId = ? AND l.id IN (?)
         `,
                 [companyId, loanIds]
             );
@@ -163,22 +147,19 @@ export class CompanyBulkService {
                 throw new Error('Company does not have access to all specified loans');
             }
 
-            // Create export record
+            // Create export record (export_type_id=1 for CSV)
             const exportResult = await queryRunner.query(
                 `
         INSERT INTO exports (
-          company_id,
-          type,
-          item_count,
-          status,
-          file_name,
+          export_type_id,
+          created_by,
+          record_count,
           created_at
-        ) VALUES (?, 'CSV', ?, 'PENDING', ?, NOW())
+        ) VALUES (1, ?, ?, NOW())
         `,
                 [
-                    companyId,
+                    userId,
                     loanIds.length,
-                    request.fileName || `loans_export_${Date.now()}.csv`,
                 ]
             );
 
@@ -248,8 +229,9 @@ export class CompanyBulkService {
                 `
         SELECT COUNT(DISTINCT l.id) as validCount
         FROM loans l
-        INNER JOIN company_lenders cl ON l.lender_id = cl.lender_id
-        WHERE cl.company_id = ? AND l.id IN (?)
+        INNER JOIN loan_offers lo ON lo.loanId = l.id
+        INNER JOIN company_lenders cl ON cl.lenderId = lo.lenderId
+        WHERE cl.companyId = ? AND l.id IN (?)
         `,
                 [companyId, loanIds]
             );
@@ -258,22 +240,19 @@ export class CompanyBulkService {
                 throw new Error('Company does not have access to all specified loans');
             }
 
-            // Create export record
+            // Create export record (export_type_id=2 for XML)
             const exportResult = await queryRunner.query(
                 `
         INSERT INTO exports (
-          company_id,
-          type,
-          item_count,
-          status,
-          file_name,
+          export_type_id,
+          created_by,
+          record_count,
           created_at
-        ) VALUES (?, 'XML', ?, 'PENDING', ?, NOW())
+        ) VALUES (2, ?, ?, NOW())
         `,
                 [
-                    companyId,
+                    userId,
                     loanIds.length,
-                    `loans_export_${Date.now()}.xml`,
                 ]
             );
 
@@ -340,8 +319,9 @@ export class CompanyBulkService {
                 `
         SELECT COUNT(DISTINCT l.id) as count
         FROM loans l
-        INNER JOIN company_lenders cl ON l.lender_id = cl.lender_id
-        WHERE cl.company_id = ? AND l.id IN (?) AND l.status_id = 3
+        INNER JOIN loan_offers lo ON lo.loanId = l.id
+        INNER JOIN company_lenders cl ON cl.lenderId = lo.lenderId
+        WHERE cl.companyId = ? AND l.id IN (?) AND l.statusId = 3
         `,
                 [companyId, loanIds]
             );
@@ -355,40 +335,18 @@ export class CompanyBulkService {
                 queryRunner.query(
                     `
           INSERT INTO claims (
-            loan_id,
-            company_id,
-            claim_type,
-            reason,
-            status,
-            created_at
-          ) VALUES (?, ?, ?, ?, 'PENDING', NOW())
+            loanId,
+            generatedAt,
+            createdAt
+          ) VALUES (?, NOW(), NOW())
           `,
-                    [
-                        loanId,
-                        companyId,
-                        request.claimType || 'DEFAULT',
-                        request.reason,
-                    ]
+                    [loanId]
                 )
             );
 
             await Promise.all(insertPromises);
 
-            // Create export record for tracking
-            const exportResult = await queryRunner.query(
-                `
-        INSERT INTO exports (
-          company_id,
-          type,
-          item_count,
-          status,
-          created_at
-        ) VALUES (?, 'CLAIMS', ?, 'COMPLETED', NOW())
-        `,
-                [companyId, loanIds.length]
-            );
-
-            const exportId = exportResult.insertId;
+            const exportId = 0; // claims don't create a separate exports record
 
             // Audit the bulk action
             await this.auditService.logAction(

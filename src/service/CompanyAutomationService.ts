@@ -35,16 +35,15 @@ export class CompanyAutomationService {
                 `
         SELECT 
           id,
-          company_id as companyId,
-          min_level as minLevel,
-          max_amount as maxAmount,
+          companyId,
+          minLevel,
+          maxAmount,
           active,
-          priority,
-          created_at as createdAt,
-          updated_at as updatedAt
+          createdAt,
+          updatedAt
         FROM auto_invest_rules
-        WHERE company_id = ?
-        ORDER BY priority ASC, created_at DESC
+        WHERE companyId = ?
+        ORDER BY createdAt DESC
         `,
                 [companyId]
             );
@@ -55,7 +54,7 @@ export class CompanyAutomationService {
                 minLevel: row.minLevel,
                 maxAmount: parseFloat(row.maxAmount || 0),
                 active: Boolean(row.active),
-                priority: row.priority || 0,
+                priority: 0,
                 createdAt: row.createdAt,
                 updatedAt: row.updatedAt,
             }));
@@ -83,13 +82,11 @@ export class CompanyAutomationService {
             // Validate minLevel is within platform constraints
             const levelRules = await queryRunner.query(
                 `
-        SELECT max_level FROM level_rules
-        WHERE status = 'ACTIVE'
-        LIMIT 1
+        SELECT MAX(level) as max_level FROM level_rules
         `
             );
 
-            if (levelRules && levelRules.length > 0) {
+            if (levelRules && levelRules.length > 0 && levelRules[0].max_level != null) {
                 const maxPlatformLevel = levelRules[0].max_level;
                 if (request.minLevel > maxPlatformLevel) {
                     throw new Error(
@@ -102,20 +99,18 @@ export class CompanyAutomationService {
             const result = await queryRunner.query(
                 `
         INSERT INTO auto_invest_rules (
-          company_id,
-          min_level,
-          max_amount,
-          priority,
+          companyId,
+          minLevel,
+          maxAmount,
           active,
-          created_at,
-          updated_at
-        ) VALUES (?, ?, ?, ?, ?, NOW(), NOW())
+          createdAt,
+          updatedAt
+        ) VALUES (?, ?, ?, ?, NOW(), NOW())
         `,
                 [
                     companyId,
                     request.minLevel,
                     request.maxAmount,
-                    request.priority || 0,
                     request.active !== false,
                 ]
             );
@@ -179,46 +174,37 @@ export class CompanyAutomationService {
             const existing = await queryRunner.query(
                 `
         SELECT * FROM auto_invest_rules
-        WHERE company_id = ? AND id = ?
+        WHERE companyId = ? AND id = ?
         `,
                 [companyId, ruleId]
             );
-
-            if (!existing || existing.length === 0) {
-                throw new Error('Automation rule not found');
-            }
-
-            const updateFields = [];
             const updateValues = [];
 
             if (request.minLevel !== undefined) {
                 // Validate against platform constraints
                 const levelRules = await queryRunner.query(
                     `
-          SELECT max_level FROM level_rules
-          WHERE status = 'ACTIVE'
-          LIMIT 1
+          SELECT MAX(level) as max_level FROM level_rules
           `
                 );
 
-                if (levelRules && levelRules.length > 0) {
+                if (levelRules && levelRules.length > 0 && levelRules[0].max_level != null) {
                     if (request.minLevel > levelRules[0].max_level) {
                         throw new Error('Minimum level exceeds platform constraint');
                     }
                 }
 
-                updateFields.push('min_level = ?');
+                updateFields.push('minLevel = ?');
                 updateValues.push(request.minLevel);
             }
 
             if (request.maxAmount !== undefined) {
-                updateFields.push('max_amount = ?');
+                updateFields.push('maxAmount = ?');
                 updateValues.push(request.maxAmount);
             }
 
             if (request.priority !== undefined) {
-                updateFields.push('priority = ?');
-                updateValues.push(request.priority);
+                // priority column does not exist, skip
             }
 
             if (request.active !== undefined) {
@@ -230,7 +216,7 @@ export class CompanyAutomationService {
                 throw new Error('No fields to update');
             }
 
-            updateFields.push('updated_at = NOW()');
+            updateFields.push('updatedAt = NOW()');
             updateValues.push(companyId);
             updateValues.push(ruleId);
 
@@ -239,7 +225,7 @@ export class CompanyAutomationService {
                 `
         UPDATE auto_invest_rules
         SET ${updateFields.join(', ')}
-        WHERE company_id = ? AND id = ?
+        WHERE companyId = ? AND id = ?
         `,
                 updateValues
             );
@@ -286,7 +272,7 @@ export class CompanyAutomationService {
             const existing = await queryRunner.query(
                 `
         SELECT * FROM auto_invest_rules
-        WHERE company_id = ? AND id = ?
+        WHERE companyId = ? AND id = ?
         `,
                 [companyId, ruleId]
             );
@@ -299,7 +285,7 @@ export class CompanyAutomationService {
             await queryRunner.query(
                 `
         DELETE FROM auto_invest_rules
-        WHERE company_id = ? AND id = ?
+        WHERE companyId = ? AND id = ?
         `,
                 [companyId, ruleId]
             );

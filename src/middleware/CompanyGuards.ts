@@ -171,9 +171,9 @@ export async function AgreementSignatureGuard(
         // Check if signed agreement exists
         const agreement = await queryRunner.query(
             `
-      SELECT id, signed_at, amount
+      SELECT id, signedAt, amount
       FROM management_agreements
-      WHERE company_id = ? AND signed_at IS NOT NULL
+      WHERE companyId = ? AND signedAt IS NOT NULL
       LIMIT 1
       `,
             [user.companyId]

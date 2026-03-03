@@ -35,13 +35,12 @@ export class CompanyAgreementService {
                 `
         SELECT 
           id,
-          company_id as companyId,
+          companyId,
           amount,
-          signed_at as signedAt,
-          created_at as createdAt,
-          updated_at as updatedAt
+          signedAt,
+          createdAt
         FROM management_agreements
-        WHERE company_id = ?
+        WHERE companyId = ?
         LIMIT 1
         `,
                 [companyId]
@@ -86,8 +85,8 @@ export class CompanyAgreementService {
             // Check if agreement exists
             const agreement = await queryRunner.query(
                 `
-        SELECT id, signed_at FROM management_agreements
-        WHERE company_id = ? AND id = ?
+        SELECT id, signedAt FROM management_agreements
+        WHERE companyId = ? AND id = ?
         `,
                 [companyId, request.agreementId]
             );
@@ -96,7 +95,7 @@ export class CompanyAgreementService {
                 throw new Error('Agreement not found');
             }
 
-            if (agreement[0].signed_at) {
+            if (agreement[0].signedAt) {
                 throw new Error('Agreement already signed');
             }
 
@@ -106,8 +105,8 @@ export class CompanyAgreementService {
             await queryRunner.query(
                 `
         UPDATE management_agreements
-        SET signed_at = ?, updated_at = NOW()
-        WHERE id = ? AND company_id = ?
+        SET signedAt = ?
+        WHERE id = ? AND companyId = ?
         `,
                 [now, request.agreementId, companyId]
             );
@@ -201,7 +200,7 @@ export class CompanyAgreementService {
           c.created_at as createdAt
         FROM contracts c
         INNER JOIN management_agreements ma ON c.management_agreement_id = ma.id
-        WHERE ma.company_id = ? AND ma.signed_at IS NOT NULL
+        WHERE ma.companyId = ? AND ma.signedAt IS NOT NULL
         ORDER BY c.created_at DESC
         LIMIT 1
         `,

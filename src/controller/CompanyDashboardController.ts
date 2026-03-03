@@ -1,5 +1,6 @@
 import { Controller, Get, Post, Put, Delete, UseBefore, Req, Body, Param, QueryParams } from 'routing-controllers';
 import { Request } from 'express';
+import { AppDataSource } from '../config/database';
 import { CompanyDashboardService } from '../service/CompanyDashboardService';
 import { CompanyProfileService } from '../service/CompanyProfileService';
 import { CompanyAgreementService } from '../service/CompanyAgreementService';
@@ -77,10 +78,11 @@ export class CompanyDashboardController {
     @Get('')
     async getDashboard(@Req() req: Request): Promise<CompanyDashboardResponse> {
         const companyId = (req.user as any)?.companyId;
+        const userId = (req.user as any)?.id;
         if (!companyId) {
             throw new Error('Company ID not found in request');
         }
-        return this.dashboardService.getDashboard(companyId);
+        return this.dashboardService.getDashboard(companyId, userId);
     }
 }
 
@@ -355,7 +357,7 @@ export class CompanyAutomationController {
  * - read-only
  */
 @Controller('/company/loans')
-@UseBefore(CompanyGuard, CompanyStatusGuard, ConditionsApprovedGuard)
+@UseBefore(CompanyGuard, CompanyReadonlyGuard)
 export class CompanyLoansController {
     private readonly loansService: CompanyLoansService;
 
@@ -558,5 +560,119 @@ export class CompanyNotificationsController {
             throw new Error('User ID not found in request');
         }
         return this.notificationsService.markAsRead(userId, notificationId);
+    }
+}
+
+/**
+ * ================================
+ * C-10 MARKETPLACE AUTOMATION CONTROLLER
+ * ================================
+ * GET /api/company/marketplace/config
+ * PUT /api/company/marketplace/config
+ * GET /api/company/marketplace/activity
+ *
+ * Rules:
+ * - config stored in companies.auto_bid_config (JSON)
+ * - activity = recent loan_offers for this company's lenders
+ */
+@Controller('/company/marketplace')
+@UseBefore(CompanyGuard, CompanyReadonlyGuard)
+export class CompanyMarketplaceController {
+
+    @Get('/config')
+    async getAutoBidConfig(@Req() req: Request): Promise<any> {
+        const companyId = (req.user as any)?.companyId;
+        if (!companyId) throw new Error('Company ID not found in request');
+
+        const rows = await AppDataSource.query(
+            `SELECT auto_bid_config FROM companies WHERE id = ? LIMIT 1`,
+            [companyId]
+        );
+        const raw = rows?.[0]?.auto_bid_config;
+        const config = typeof raw === 'string' ? JSON.parse(raw) : (raw ?? {});
+        return {
+            enabled: config.enabled ?? false,
+            capitalPool: config.capitalPool ?? 0,
+            maxBidPerLoan: config.maxBidPerLoan ?? 0,
+            maxExposurePerBorrower: config.maxExposurePerBorrower ?? 0,
+            minimumBorrowerLevel: config.minimumBorrowerLevel ?? 1,
+            durationRange: {
+                min: config.durationMin ?? 1,
+                max: config.durationMax ?? 6,
+            },
+            priorityRules: {
+                timeBasedBidding: config.timeBasedBidding ?? false,
+            },
+        };
+    }
+
+    @Put('/config')
+    @UseBefore(CompanyStatusGuard)
+    async saveAutoBidConfig(@Req() req: Request, @Body() body: any): Promise<any> {
+        const companyId = (req.user as any)?.companyId;
+        if (!companyId) throw new Error('Company ID not found in request');
+
+        const config = {
+            enabled: body.enabled ?? false,
+            capitalPool: body.capitalPool ?? 0,
+            maxBidPerLoan: body.maxBidPerLoan ?? 0,
+            maxExposurePerBorrower: body.maxExposurePerBorrower ?? 0,
+            minimumBorrowerLevel: body.minimumBorrowerLevel ?? 1,
+            durationMin: body.durationMin ?? 1,
+            durationMax: body.durationMax ?? 6,
+            timeBasedBidding: body.timeBasedBidding ?? false,
+        };
+        await AppDataSource.query(
+            `UPDATE companies SET auto_bid_config = ? WHERE id = ?`,
+            [JSON.stringify(config), companyId]
+        );
+        return {
+            enabled: config.enabled,
+            capitalPool: config.capitalPool,
+            maxBidPerLoan: config.maxBidPerLoan,
+            maxExposurePerBorrower: config.maxExposurePerBorrower,
+            minimumBorrowerLevel: config.minimumBorrowerLevel,
+            durationRange: { min: config.durationMin, max: config.durationMax },
+            priorityRules: { timeBasedBidding: config.timeBasedBidding },
+        };
+    }
+
+    @Get('/activity')
+    async getMarketplaceActivity(@Req() req: Request): Promise<any[]> {
+        const companyId = (req.user as any)?.companyId;
+        if (!companyId) throw new Error('Company ID not found in request');
+
+        const q = req.query as Record<string, string>;
+        const limit = Math.min(Number(q['limit'] ?? 50), 200);
+        const offset = Number(q['offset'] ?? 0);
+        const status = q['status'];
+        const statusFilter = status ? `AND us.code = ?` : '';
+        const params: any[] = [companyId];
+        if (status) params.push(status);
+        params.push(limit, offset);
+
+        const rows = await AppDataSource.query(
+            `SELECT
+                lo.id,
+                lo.loanId,
+                lo.lenderId,
+                lo.amount,
+                lo.confirmed_amount as confirmedAmount,
+                lo.createdAt,
+                l.statusId,
+                us.code as statusCode,
+                u.email as lenderEmail,
+                COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name,''), ' ', COALESCE(u.last_name,''))), ''), u.email) as lenderName
+             FROM loan_offers lo
+             INNER JOIN company_lenders cl ON cl.lenderId = lo.lenderId AND cl.companyId = ?
+             LEFT JOIN loans l ON l.id = lo.loanId
+             LEFT JOIN user_statuses us ON us.id = l.statusId
+             LEFT JOIN users u ON u.id = lo.lenderId
+             ${statusFilter}
+             ORDER BY lo.createdAt DESC
+             LIMIT ? OFFSET ?`,
+            params
+        );
+        return rows ?? [];
     }
 }

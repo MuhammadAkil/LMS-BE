@@ -34,21 +34,21 @@ export class CompanyLendersService {
                 `
         SELECT 
           cl.id,
-          cl.company_id as companyId,
-          cl.lender_id as lenderId,
+          cl.companyId,
+          cl.lenderId,
           u.email as lenderEmail,
-          COALESCE(NULLIF(TRIM(u.name), ''), CONCAT(COALESCE(u.first_name,''), ' ', COALESCE(u.last_name,'')), u.email) as lenderName,
-          cl.amount_limit as amountLimit,
+          COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name,''), ' ', COALESCE(u.last_name,''))), ''), u.email) as lenderName,
+          cl.amountLimit,
           cl.active,
-          cl.created_at as createdAt,
-          cl.updated_at as updatedAt,
-          ma.signed_at as agreementSignedAt,
+          cl.createdAt,
+          cl.updatedAt,
+          ma.signedAt as agreementSignedAt,
           ma.terminated_at as agreementTerminatedAt
         FROM company_lenders cl
-        INNER JOIN users u ON cl.lender_id = u.id
-        LEFT JOIN management_agreements ma ON ma.lender_id = cl.lender_id AND ma.company_id = cl.company_id
-        WHERE cl.company_id = ?
-        ORDER BY cl.updated_at DESC
+        INNER JOIN users u ON cl.lenderId = u.id
+        LEFT JOIN management_agreements ma ON ma.lenderId = cl.lenderId AND ma.companyId = cl.companyId
+        WHERE cl.companyId = ?
+        ORDER BY cl.updatedAt DESC
         `,
                 [companyId]
             );
@@ -124,7 +124,7 @@ export class CompanyLendersService {
 
             // Check if already linked to this company
             const existing = await queryRunner.query(
-                `SELECT id FROM company_lenders WHERE company_id = ? AND lender_id = ?`,
+                `SELECT id FROM company_lenders WHERE companyId = ? AND lenderId = ?`,
                 [companyId, request.lenderId]
             );
             if (existing && existing.length > 0) {
@@ -134,8 +134,8 @@ export class CompanyLendersService {
             // Lender cannot be managed by another company (active agreement elsewhere)
             const otherCompany = await queryRunner.query(
                 `SELECT ma.id FROM management_agreements ma
-                 WHERE ma.lender_id = ? AND ma.signed_at IS NOT NULL AND (ma.terminated_at IS NULL OR ma.terminated_at > NOW())
-                 AND ma.company_id != ?`,
+                 WHERE ma.lenderId = ? AND ma.signedAt IS NOT NULL AND (ma.terminated_at IS NULL OR ma.terminated_at > NOW())
+                 AND ma.companyId != ?`,
                 [request.lenderId, companyId]
             );
             if (otherCompany && otherCompany.length > 0) {
@@ -146,12 +146,12 @@ export class CompanyLendersService {
             const result = await queryRunner.query(
                 `
         INSERT INTO company_lenders (
-          company_id,
-          lender_id,
-          amount_limit,
+          companyId,
+          lenderId,
+          amountLimit,
           active,
-          created_at,
-          updated_at
+          createdAt,
+          updatedAt
         ) VALUES (?, ?, ?, ?, NOW(), NOW())
         `,
                 [
@@ -220,7 +220,7 @@ export class CompanyLendersService {
             const existing = await queryRunner.query(
                 `
         SELECT * FROM company_lenders
-        WHERE company_id = ? AND id = ?
+        WHERE companyId = ? AND id = ?
         `,
                 [companyId, lenderId]
             );
@@ -233,7 +233,7 @@ export class CompanyLendersService {
             const updateValues = [];
 
             if (request.amountLimit !== undefined) {
-                updateFields.push('amount_limit = ?');
+                updateFields.push('amountLimit = ?');
                 updateValues.push(request.amountLimit);
             }
 
@@ -248,14 +248,14 @@ export class CompanyLendersService {
 
             updateValues.push(companyId);
             updateValues.push(lenderId);
-            updateFields.push('updated_at = NOW()');
+            updateFields.push('updatedAt = NOW()');
 
             // Update record
             await queryRunner.query(
                 `
         UPDATE company_lenders
         SET ${updateFields.join(', ')}
-        WHERE company_id = ? AND id = ?
+        WHERE companyId = ? AND id = ?
         `,
                 updateValues
             );
@@ -302,8 +302,8 @@ export class CompanyLendersService {
             // Verify company_lenders relationship exists
             const existing = await queryRunner.query(
                 `
-        SELECT lender_id FROM company_lenders
-        WHERE company_id = ? AND id = ?
+        SELECT lenderId FROM company_lenders
+        WHERE companyId = ? AND id = ?
         `,
                 [companyId, lenderId]
             );
@@ -316,8 +316,8 @@ export class CompanyLendersService {
             await queryRunner.query(
                 `
         UPDATE company_lenders
-        SET active = ?, updated_at = NOW()
-        WHERE company_id = ? AND id = ?
+        SET active = ?, updatedAt = NOW()
+        WHERE companyId = ? AND id = ?
         `,
                 [active, companyId, lenderId]
             );
@@ -356,17 +356,17 @@ export class CompanyLendersService {
         const queryRunner = AppDataSource.createQueryRunner();
         try {
             const row = await queryRunner.query(
-                `SELECT lender_id FROM company_lenders WHERE company_id = ? AND id = ?`,
+                `SELECT lenderId FROM company_lenders WHERE companyId = ? AND id = ?`,
                 [companyId, linkId]
             );
             if (!row || row.length === 0) throw new Error('Company lender link not found');
-            const lenderId = row[0].lender_id;
+            const lenderId = row[0].lenderId;
             await queryRunner.query(
-                `UPDATE management_agreements SET terminated_at = NOW() WHERE company_id = ? AND lender_id = ?`,
+                `UPDATE management_agreements SET terminated_at = NOW() WHERE companyId = ? AND lenderId = ?`,
                 [companyId, lenderId]
             );
             await queryRunner.query(
-                `UPDATE company_lenders SET active = 0, updated_at = NOW() WHERE company_id = ? AND id = ?`,
+                `UPDATE company_lenders SET active = 0, updatedAt = NOW() WHERE companyId = ? AND id = ?`,
                 [companyId, linkId]
             );
             await this.auditService.logAction(userId, 'LENDER_AGREEMENT_TERMINATED', 'COMPANY_LENDER', linkId, { companyId, lenderId });

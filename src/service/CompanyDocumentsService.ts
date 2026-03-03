@@ -32,71 +32,64 @@ export class CompanyDocumentsService {
             const pageSize = Math.min(query.pageSize || 20, 100);
             const offset = (page - 1) * pageSize;
 
-            // Get all documents (union of contracts, exports, claims, reminders)
+            // Get all documents (union of contracts, claims, reminders via loan_offers join)
             const documents = await queryRunner.query(
                 `
         SELECT 
           CONCAT('contract_', c.id) as id,
           'CONTRACT' as type,
-          CONCAT('Management Agreement - ', c.created_at) as name,
+          CONCAT('Management Agreement - ', c.createdAt) as name,
           NULL as fileSize,
-          c.created_at as createdAt,
+          c.createdAt as createdAt,
           c.id as metadata
         FROM contracts c
-        WHERE c.company_id = ?
-        
-        UNION ALL
-        
-        SELECT 
-          CONCAT('export_', e.id) as id,
-          'EXPORT' as type,
-          CONCAT(e.type, ' Export - ', e.created_at) as name,
-          NULL as fileSize,
-          e.created_at as createdAt,
-          e.id as metadata
-        FROM exports e
-        WHERE e.company_id = ?
+        INNER JOIN loan_offers lo ON lo.loanId = c.loanId
+        INNER JOIN company_lenders cl ON cl.lenderId = lo.lenderId
+        WHERE cl.companyId = ?
         
         UNION ALL
         
         SELECT 
           CONCAT('claim_', c.id) as id,
           'CLAIM' as type,
-          CONCAT('Claim #', c.id, ' - ', c.created_at) as name,
+          CONCAT('Claim #', c.id, ' - ', c.createdAt) as name,
           NULL as fileSize,
-          c.created_at as createdAt,
+          c.createdAt as createdAt,
           c.id as metadata
         FROM claims c
-        WHERE c.company_id = ?
+        INNER JOIN loan_offers lo ON lo.loanId = c.loanId
+        INNER JOIN company_lenders cl ON cl.lenderId = lo.lenderId
+        WHERE cl.companyId = ?
         
         UNION ALL
         
         SELECT 
           CONCAT('reminder_', r.id) as id,
           'REMINDER' as type,
-          CONCAT('Reminder - ', r.created_at) as name,
+          CONCAT('Reminder - ', r.createdAt) as name,
           NULL as fileSize,
-          r.created_at as createdAt,
+          r.createdAt as createdAt,
           r.id as metadata
         FROM reminders r
-        WHERE r.company_id = ?
+        INNER JOIN loan_offers lo ON lo.loanId = r.loanId
+        INNER JOIN company_lenders cl ON cl.lenderId = lo.lenderId
+        WHERE cl.companyId = ?
         
         ORDER BY createdAt DESC
         LIMIT ? OFFSET ?
         `,
-                [companyId, companyId, companyId, companyId, pageSize, offset]
+                [companyId, companyId, companyId, pageSize, offset]
             );
 
             // Get total count
             const countResult = await queryRunner.query(
                 `
         SELECT 
-          (SELECT COUNT(*) FROM contracts WHERE company_id = ?) +
-          (SELECT COUNT(*) FROM exports WHERE company_id = ?) +
-          (SELECT COUNT(*) FROM claims WHERE company_id = ?) +
-          (SELECT COUNT(*) FROM reminders WHERE company_id = ?) as total
+          (SELECT COUNT(DISTINCT c.id) FROM contracts c INNER JOIN loan_offers lo ON lo.loanId = c.loanId INNER JOIN company_lenders cl ON cl.lenderId = lo.lenderId WHERE cl.companyId = ?) +
+          (SELECT COUNT(DISTINCT c.id) FROM claims c INNER JOIN loan_offers lo ON lo.loanId = c.loanId INNER JOIN company_lenders cl ON cl.lenderId = lo.lenderId WHERE cl.companyId = ?) +
+          (SELECT COUNT(DISTINCT r.id) FROM reminders r INNER JOIN loan_offers lo ON lo.loanId = r.loanId INNER JOIN company_lenders cl ON cl.lenderId = lo.lenderId WHERE cl.companyId = ?) as total
         `,
-                [companyId, companyId, companyId, companyId]
+                [companyId, companyId, companyId]
             );
 
             const total = parseInt(countResult[0]?.total || 0);
@@ -144,13 +137,12 @@ export class CompanyDocumentsService {
                 `
         SELECT 
           id,
-          file_name as fileName,
-          type,
+          file_path as fileName,
           created_at as createdAt
         FROM exports
-        WHERE company_id = ? AND id = ?
+        WHERE id = ?
         `,
-                [companyId, documentId]
+                [documentId]
             );
 
             if (exportDoc && exportDoc.length > 0) {
@@ -169,11 +161,11 @@ export class CompanyDocumentsService {
                 `
         SELECT 
           id,
-          created_at as createdAt
+          createdAt
         FROM contracts
-        WHERE company_id = ? AND id = ?
+        WHERE id = ?
         `,
-                [companyId, documentId]
+                [documentId]
             );
 
             if (contractDoc && contractDoc.length > 0) {
