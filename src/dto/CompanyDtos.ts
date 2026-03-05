@@ -462,3 +462,140 @@ export class ExportLimitExceededError extends CompanyErrorResponse {
     statusMessage = 'Export Limit Exceeded';
     detail = 'XML exports are limited to 500 loans per request.';
 }
+
+// ==================== REPORTS ====================
+
+export class CompanyReportsQuery {
+    @IsOptional()
+    @IsDateString()
+    dateFrom?: string; // ISO date, e.g. "2025-01-01"
+
+    @IsOptional()
+    @IsDateString()
+    dateTo?: string;   // ISO date, e.g. "2025-12-31"
+
+    @IsOptional()
+    @IsInt()
+    lenderId?: number; // Filter by specific linked lender
+
+    @IsOptional()
+    @IsString()
+    loanStatus?: string; // E.g. ACTIVE | DEFAULTED | CLOSED | FUNDED
+
+    @IsOptional()
+    @IsString()
+    borrowerLevel?: string; // A | B | C | D | E | F
+
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    page?: number;
+
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    @Max(200)
+    pageSize?: number;
+}
+
+export class CompanyPortfolioLoanDto {
+    id!: number;
+    loanAmount!: number;
+    outstandingBalance!: number;
+    status!: string;
+    borrowerLevel?: string;
+    lenderId!: number;
+    lenderEmail!: string;
+    lenderName!: string;
+    commissionAmount!: number;
+    loanCreatedAt!: Date;
+    closedAt?: Date;
+    overdueCount!: number;
+    paidCount!: number;
+    totalRepayments!: number;
+}
+
+export class CompanyPortfolioReportResponse {
+    loans!: CompanyPortfolioLoanDto[];
+    summary!: {
+        totalLoans: number;
+        totalLoanAmount: number;
+        totalOutstandingBalance: number;
+        totalCommissions: number;
+        defaultedLoans: number;
+        activeLoans: number;
+        closedLoans: number;
+    };
+    pagination!: { page: number; pageSize: number; total: number; pages: number };
+    generatedAt!: Date;
+}
+
+export class CompanyCommissionLenderDto {
+    lenderId!: number;
+    lenderEmail!: string;
+    lenderName!: string;
+    managedAmount!: number;
+    commissionsEarned!: number;
+    commissionRate!: number;
+    activeLoans!: number;
+    agreementSignedAt?: Date;
+    periodFrom!: Date;
+    periodTo!: Date;
+}
+
+export class CompanyCommissionReportResponse {
+    lenders!: CompanyCommissionLenderDto[];
+    summary!: {
+        totalManagedAmount: number;
+        totalCommissionsEarned: number;
+        commissionRate: number;
+        lenderCount: number;
+    };
+    generatedAt!: Date;
+}
+
+export class CompanyDefaultedLoanDto {
+    id!: number;
+    loanAmount!: number;
+    outstandingBalance!: number;
+    borrowerEmail!: string;
+    borrowerLevel?: string;
+    lenderId!: number;
+    lenderEmail!: string;
+    defaultedAt?: Date;
+    claimStatus?: string; // generated | submitted | resolved | none
+    overdueRepayments!: number;
+}
+
+export class CompanyDefaultedReportResponse {
+    loans!: CompanyDefaultedLoanDto[];
+    total!: number;
+    generatedAt!: Date;
+}
+
+export class CompanyReportExportRequest {
+    @IsOptional()
+    @IsDateString()
+    dateFrom?: string;
+
+    @IsOptional()
+    @IsDateString()
+    dateTo?: string;
+
+    @IsOptional()
+    @IsInt()
+    lenderId?: number;
+
+    @IsOptional()
+    @IsString()
+    loanStatus?: string;
+
+    @IsOptional()
+    @IsString()
+    borrowerLevel?: string;
+
+    @IsOptional()
+    @IsArray()
+    @IsInt({ each: true })
+    loanIds?: number[]; // If provided, export only these loans
+}
