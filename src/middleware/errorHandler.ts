@@ -11,6 +11,9 @@ export function errorHandler(
   res: Response,
   _next: NextFunction
 ): void {
+  if (res.headersSent) {
+    return;
+  }
   console.log('Error:', err);
 
   // Handle routing-controllers HttpError (includes AuthorizationRequiredError)
