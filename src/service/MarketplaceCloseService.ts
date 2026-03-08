@@ -12,9 +12,8 @@ import { AuditLog } from '../domain/AuditLog';
 import { calculateProRata, OfferForProRata } from '../util/proRataUtil';
 import { LmsNotificationService } from './LmsNotificationService';
 
-const LOAN_STATUS_OPEN = 1;
-const LOAN_STATUS_FUNDED_PENDING_PAYMENT = 2; // ACTIVE / funded, awaiting payment
-const APPLICATION_STATUS_CLOSED = 3;
+const LOAN_STATUS_ACTIVE = 1; // DB: loan_statuses id=1 code=ACTIVE
+const APPLICATION_STATUS_CLOSED = 3; // DB: loan_application_statuses id=3 code=CLOSED
 
 export class MarketplaceCloseService {
     private notificationService: LmsNotificationService;
@@ -34,7 +33,7 @@ export class MarketplaceCloseService {
     ): Promise<boolean> {
         if (fundedPercent < 100) return false;
         const loan = await queryRunner.manager.findOne(Loan, { where: { id: loanIdNum } });
-        if (!loan || loan.statusId !== LOAN_STATUS_OPEN) return false;
+        if (!loan || loan.statusId !== LOAN_STATUS_ACTIVE) return false;
         await this.closeLoanWithProRataInternal(loanIdNum, queryRunner, 'auto');
         return true;
     }
@@ -65,7 +64,7 @@ export class MarketplaceCloseService {
     ): Promise<void> {
         const loan = await queryRunner.manager.findOne(Loan, { where: { id: loanIdNum } });
         if (!loan) throw new Error('Loan not found');
-        if (loan.statusId !== LOAN_STATUS_OPEN) throw new Error('Loan is not open for closing');
+        if (loan.statusId !== LOAN_STATUS_ACTIVE) throw new Error('Loan is not in active state for closing');
 
         const application = await queryRunner.manager.findOne(LoanApplication, {
             where: { id: loan.applicationId },
@@ -99,10 +98,12 @@ export class MarketplaceCloseService {
         const finalFundedAmount = amountToDistribute;
         const finalFundedPercent = loanAmount > 0 ? (finalFundedAmount / loanAmount) * 100 : 0;
 
+        // Keep loan statusId=1 (ACTIVE) — status remains ACTIVE throughout repayment lifecycle.
+        // fundedAmount is updated to the confirmed pro-rata distribution.
         await queryRunner.manager.update(
             Loan,
             { id: loanIdNum },
-            { statusId: LOAN_STATUS_FUNDED_PENDING_PAYMENT, fundedAmount: finalFundedAmount } as any
+            { fundedAmount: finalFundedAmount } as any
         );
         await queryRunner.manager.update(
             LoanApplication,

@@ -473,6 +473,7 @@ export class BorrowerApplicationsService {
 
             return {
                 applicationId: appIdNum,
+                loanId: loan.id,
                 status: 'CLOSED',
                 closedAt: new Date().toISOString(),
                 fundedAmount,

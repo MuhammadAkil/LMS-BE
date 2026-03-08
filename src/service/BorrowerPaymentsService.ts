@@ -104,6 +104,8 @@ export class BorrowerPaymentsService {
 
     const sessionId = randomUUID();
     const appBaseUrl = (config as any).app?.baseUrl ?? 'http://localhost:3009';
+    // urlReturn goes to the user's browser — use frontend URL when on a separate domain.
+    const frontendBaseUrl = (config as any).app?.frontendUrl || appBaseUrl;
 
     // Create payment record
     const payment = new Payment();
@@ -136,7 +138,7 @@ export class BorrowerPaymentsService {
     }
 
     // Register with Przelewy24
-    const urlReturn = `${appBaseUrl}/payment/commission-success?sessionId=${sessionId}&step=PORTAL_COMMISSION`;
+    const urlReturn = `${frontendBaseUrl}/payment/commission-success?sessionId=${sessionId}&step=PORTAL_COMMISSION`;
     const urlStatus = `${appBaseUrl.replace(/\/$/, '')}/webhook/p24`;
 
     const registered = await this.p24.registerTransaction({
@@ -205,6 +207,7 @@ export class BorrowerPaymentsService {
 
     const sessionId = randomUUID();
     const appBaseUrl = (config as any).app?.baseUrl ?? 'http://localhost:3009';
+    const frontendBaseUrl = (config as any).app?.frontendUrl || appBaseUrl;
 
     const payment = new Payment();
     payment.userId = borrowerIdNum;
@@ -234,7 +237,7 @@ export class BorrowerPaymentsService {
       await this.paymentStepRepo.save(step);
     }
 
-    const urlReturn = `${appBaseUrl}/payment/commission-success?sessionId=${sessionId}&step=VOLUNTARY_COMMISSION`;
+    const urlReturn = `${frontendBaseUrl}/payment/commission-success?sessionId=${sessionId}&step=VOLUNTARY_COMMISSION`;
     const urlStatus = `${appBaseUrl.replace(/\/$/, '')}/webhook/p24`;
 
     const registered = await this.p24.registerTransaction({
@@ -269,8 +272,9 @@ export class BorrowerPaymentsService {
   /**
    * Handle P24 webhook for commission payments.
    * Called from the main webhook handler when paymentStep is PORTAL_COMMISSION or VOLUNTARY_COMMISSION.
+   * Idempotent: duplicate webhooks for already-paid sessions are silently ignored.
    */
-  async handleCommissionWebhook(sessionId: string, orderId: number, amount: number, sign: string): Promise<void> {
+  async handleCommissionWebhook(sessionId: string, orderId: number, amount: number, currency: string, sign: string): Promise<void> {
     const payment = await this.paymentRepo.findBySessionId(sessionId);
     if (!payment) throw new Error(`Payment not found for sessionId: ${sessionId}`);
 
@@ -285,10 +289,10 @@ export class BorrowerPaymentsService {
       throw new Error(`Amount mismatch: expected ${expectedAmount}, got ${amountGrosz}`);
     }
 
-    const isValid = this.p24.verifyWebhookSign(sessionId, orderId, amountGrosz, sign);
+    const isValid = this.p24.verifyWebhookSign(sessionId, orderId, amountGrosz, currency, sign);
     if (!isValid) throw new Error('Invalid webhook signature');
 
-    await this.p24.verifyTransaction({ sessionId, amount: amountGrosz, currency: 'PLN', orderId });
+    await this.p24.verifyTransaction({ sessionId, amount: amountGrosz, currency, orderId });
 
     // Mark payment as PAID
     await this.paymentRepo.update(payment.id as number, {

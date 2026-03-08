@@ -30,7 +30,7 @@ export class LoanRepository {
 
     async findActiveByBorrowerId(borrowerId: number, limit?: number, offset?: number): Promise<[Loan[], number]> {
         return await this.loanRepository.findAndCount({
-            where: { borrowerId, statusId: 2 }, // statusId 2 = ACTIVE
+            where: { borrowerId, statusId: 1 }, // statusId 1 = ACTIVE (DB: loan_statuses id=1 code=ACTIVE)
             order: { createdAt: 'DESC' },
             take: limit,
             skip: offset,
@@ -39,7 +39,7 @@ export class LoanRepository {
 
     async findHistoricalByBorrowerId(borrowerId: number, limit?: number, offset?: number): Promise<[Loan[], number]> {
         return await this.loanRepository.findAndCount({
-            where: { borrowerId, statusId: In([3, 4]) }, // 3=REPAID, 4=DEFAULTED
+            where: { borrowerId, statusId: In([2, 3]) }, // 2=REPAID, 3=DEFAULTED (DB: loan_statuses)
             order: { updatedAt: 'DESC' },
             take: limit,
             skip: offset,

@@ -37,6 +37,8 @@ export class LmsPaymentsService {
         const amountGrosz = body.amount ?? DEFAULT_COURSE_AMOUNT_GROSZ;
         const sessionId = randomUUID();
         const appBaseUrl = (config as any).app?.baseUrl ?? 'http://localhost:3009';
+        // urlReturn is where the user lands after payment — use frontend URL when configured separately.
+        const frontendBaseUrl = (config as any).app?.frontendUrl || appBaseUrl;
 
         const user = await this.userRepo.findById(userId);
         if (!user || !user.email) {
@@ -54,7 +56,7 @@ export class LmsPaymentsService {
 
         const saved = await this.paymentRepo.save(payment);
 
-        const urlReturn = `${appBaseUrl}/payment/success?sessionId=${sessionId}`;
+        const urlReturn = `${frontendBaseUrl}/payment/success?sessionId=${sessionId}`;
         const urlStatus = `${appBaseUrl.replace(/\/$/, '')}/webhook/p24`;
 
         const registered = await this.p24.registerTransaction({
@@ -81,13 +83,19 @@ export class LmsPaymentsService {
 
     /**
      * Handle P24 webhook: verify sign, call P24 verify, update payment, grant access.
+     * Idempotent: duplicate webhooks for already-paid sessions are silently ignored.
      */
     async handleWebhook(payload: P24WebhookPayload): Promise<void> {
-        const { sessionId, orderId, amount, sign } = payload;
+        const { sessionId, orderId, amount, currency, sign } = payload;
 
         const payment = await this.paymentRepo.findBySessionId(sessionId);
         if (!payment) {
             throw new Error(`Payment not found for sessionId: ${sessionId}`);
+        }
+
+        // Idempotency: P24 may deliver the same webhook more than once
+        if (payment.statusId === STATUS_PAID) {
+            return;
         }
 
         const amountGrosz = Number(amount);
@@ -96,7 +104,7 @@ export class LmsPaymentsService {
             throw new Error(`Amount mismatch: expected ${expectedAmount}, got ${amountGrosz}`);
         }
 
-        const isValid = this.p24.verifyWebhookSign(sessionId, orderId, amountGrosz, sign);
+        const isValid = this.p24.verifyWebhookSign(sessionId, orderId, amountGrosz, currency ?? 'PLN', sign);
         if (!isValid) {
             throw new Error('Invalid webhook signature');
         }
@@ -104,7 +112,7 @@ export class LmsPaymentsService {
         await this.p24.verifyTransaction({
             sessionId,
             amount: amountGrosz,
-            currency: 'PLN',
+            currency: currency ?? 'PLN',
             orderId,
         });
 

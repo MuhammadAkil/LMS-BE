@@ -19,11 +19,11 @@ const INTERNAL_API_PREFIX = "/api";
 
 // Rate limit: 10 login attempts per 15 min per IP (per spec)
 const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 10,
-  message: { success: false, error: { code: 'RATE_LIMIT', message: 'Too many login attempts. Try again in 15 minutes.' } },
-  standardHeaders: true,
-  legacyHeaders: false,
+    windowMs: 15 * 60 * 1000,
+    max: 10,
+    message: { success: false, error: { code: 'RATE_LIMIT', message: 'Too many login attempts. Try again in 15 minutes.' } },
+    standardHeaders: true,
+    legacyHeaders: false,
 });
 
 // Create Express app
@@ -48,7 +48,7 @@ expressApp.get('/health', (_req, res) => {
 expressApp.post('/webhook/p24', async (req, res) => {
     try {
         const body = req.body;
-        const { sessionId, orderId, amount, sign } = body;
+        const { sessionId, orderId, amount, currency, sign } = body;
 
         // Determine payment type by looking up the payment record
         const { PaymentRepository } = await import('./repository/PaymentRepository');
@@ -59,7 +59,7 @@ expressApp.post('/webhook/p24', async (req, res) => {
             // Route to commission payment handler
             const { BorrowerPaymentsService } = await import('./service/BorrowerPaymentsService');
             const service = new BorrowerPaymentsService();
-            await service.handleCommissionWebhook(sessionId, orderId, amount, sign);
+            await service.handleCommissionWebhook(sessionId, orderId, amount, currency ?? 'PLN', sign);
         } else {
             // Route to generic payment handler (course payments, etc.)
             const { LmsPaymentsService } = await import('./service/LmsPaymentsService');

@@ -107,6 +107,14 @@ const conf = convict({
             default: "http://localhost:3009",
             env: "APP_BASE_URL",
         },
+        // Frontend URL used as urlReturn (where the user is redirected after payment).
+        // Defaults to APP_BASE_URL when frontend and backend share the same origin.
+        // Override with FRONTEND_BASE_URL when they are on different domains (typical production setup).
+        frontendUrl: {
+            format: "*",
+            default: "",
+            env: "FRONTEND_BASE_URL",
+        },
     },
 });
 

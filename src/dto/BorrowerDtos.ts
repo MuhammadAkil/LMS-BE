@@ -258,6 +258,7 @@ export class CloseApplicationRequest {
 
 export class CloseApplicationResponse {
     applicationId!: number;
+    loanId!: number;
     status!: string; // CLOSED
     closedAt!: string;
     fundedAmount!: number;
