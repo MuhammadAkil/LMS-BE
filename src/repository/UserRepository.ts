@@ -92,4 +92,11 @@ export class UserRepository {
             relations: ['role', 'status'],
         });
     }
+
+    async findByCompanyId(companyId: number): Promise<User[]> {
+        return await this.userRepository.find({
+            where: { companyId, deletedAt: IsNull() },
+            relations: ['role', 'status'],
+        });
+    }
 }

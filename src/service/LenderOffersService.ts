@@ -9,6 +9,7 @@ import { LoanOfferRepository } from '../repository/LoanOfferRepository';
 import { AuditLogRepository } from '../repository/AuditLogRepository';
 import { AppDataSource } from '../config/database';
 import { LoanOffer } from '../domain/LoanOffer';
+import { LmsNotificationService } from './LmsNotificationService';
 
 const MIN_OFFER_PLN = 10;
 
@@ -21,12 +22,14 @@ export class LenderOffersService {
     private loanRepo: LoanRepository;
     private loanAppRepo: LoanApplicationRepository;
     private loanOfferRepo: LoanOfferRepository;
+    private notificationService: LmsNotificationService;
 
     constructor() {
         this.auditLogRepository = new AuditLogRepository();
         this.loanRepo = new LoanRepository();
         this.loanAppRepo = new LoanApplicationRepository();
         this.loanOfferRepo = new LoanOfferRepository();
+        this.notificationService = new LmsNotificationService();
     }
 
     async validateOffer(
@@ -138,6 +141,18 @@ export class LenderOffersService {
             await queryRunner.commitTransaction();
 
             if (didClose) await closeService.notifyPartiesForClose(loanIdNum, 'auto');
+
+            // Notify borrower about new funding progress (only if loan was not auto-closed,
+            // since notifyPartiesForClose already sends LOAN_FUNDED in that case)
+            if (!didClose) {
+                await this.notificationService.notify(
+                    loan.borrowerId,
+                    'NEW_OFFER_RECEIVED',
+                    'New Offer Received',
+                    `Your loan has received a new offer of ${request.amount.toFixed(2)} PLN. Funding progress: ${Math.round(fundedPercent * 100) / 100}%.`,
+                    { loanId: String(loanIdNum), offerId: String(saved.id), fundedPercent: String(Math.round(fundedPercent * 100) / 100) }
+                );
+            }
 
             return {
                 offerId: String(saved.id),

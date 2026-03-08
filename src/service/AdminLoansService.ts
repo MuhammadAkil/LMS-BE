@@ -2,6 +2,7 @@ import { AppDataSource } from '../config/database';
 import { Loan } from '../domain/Loan';
 import { User } from '../domain/User';
 import { AdminAuditService } from './AdminAuditService';
+import { LmsNotificationService } from './LmsNotificationService';
 
 export interface LoanListItemDto {
   id: number;
@@ -62,6 +63,7 @@ export class AdminLoansService {
   private readonly loanRepo = AppDataSource.getRepository(Loan);
   private readonly userRepo = AppDataSource.getRepository(User);
   private readonly auditService = new AdminAuditService();
+  private readonly notificationService = new LmsNotificationService();
 
   async getAllLoans(
     limit: number = 20,
@@ -293,6 +295,14 @@ export class AdminLoansService {
       { newStatus: 'BLOCKED', reason: `Blocked via loan ${loanId} monitoring` }
     );
 
+    await this.notificationService.notify(
+      loan.borrowerId,
+      'ACCOUNT_BLOCKED',
+      'Account Blocked',
+      'Your account has been suspended due to a loan monitoring alert. Please contact support.',
+      { loanId: String(loanId) }
+    );
+
     return { success: true, message: 'Borrower blocked successfully' };
   }
 
@@ -302,6 +312,13 @@ export class AdminLoansService {
     if (!loan) throw new Error(`Loan ${loanId} not found`);
     await this.loanRepo.update(loanId, { statusId: 2 });
     await this.auditService.logAction(adminId, 'LOAN_MANUALLY_CLOSED', 'LOAN', loanId, {});
+    await this.notificationService.notify(
+      loan.borrowerId,
+      'LOAN_CLOSED_BY_ADMIN',
+      'Loan Closed',
+      `Your loan #${loanId} has been closed by the platform administrator.`,
+      { loanId: String(loanId) }
+    );
     return { success: true, message: 'Loan closed successfully' };
   }
 
@@ -312,6 +329,13 @@ export class AdminLoansService {
     await this.loanRepo.update(loanId, { statusId: 3 });
     await this.userRepo.update(loan.borrowerId, { statusId: 3 });
     await this.auditService.logAction(adminId, 'LOAN_MARKED_DEFAULTED', 'LOAN', loanId, { borrowerId: loan.borrowerId });
+    await this.notificationService.notify(
+      loan.borrowerId,
+      'LOAN_DEFAULTED',
+      'Loan Marked as Defaulted',
+      `Your loan #${loanId} has been marked as defaulted and your account has been suspended. Please contact support immediately.`,
+      { loanId: String(loanId) }
+    );
     return { success: true, message: 'Loan marked as defaulted; borrower blocked' };
   }
 }

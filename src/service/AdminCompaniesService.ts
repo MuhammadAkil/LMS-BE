@@ -155,14 +155,15 @@ export class AdminCompaniesService {
       }
     );
 
-    const [adminUsers] = await this.userRepo.findByRole(1, 20, 0);
-    const adminIds = adminUsers.map((u) => u.id);
-    if (adminIds.length > 0) {
+    // Notify company users (not admins — they already performed the action)
+    const companyUsers = await this.userRepo.findByCompanyId(companyId);
+    const companyUserIds = companyUsers.map((u) => u.id);
+    if (companyUserIds.length > 0) {
       await this.notificationService.notifyMultiple(
-        adminIds,
+        companyUserIds,
         'COMPANY_APPROVED',
-        'Company approved',
-        `Company "${company.name}" has been approved.`,
+        'Company Approved',
+        `Your company "${company.name}" has been approved. You can now access all platform features.`,
         { companyId, companyName: company.name }
       );
     }
@@ -218,14 +219,15 @@ export class AdminCompaniesService {
       }
     );
 
-    const [adminUsers] = await this.userRepo.findByRole(1, 20, 0);
-    const adminIds = adminUsers.map((u) => u.id);
-    if (adminIds.length > 0) {
+    // Notify company users (not admins — they already performed the action)
+    const companyUsers = await this.userRepo.findByCompanyId(companyId);
+    const companyUserIds = companyUsers.map((u) => u.id);
+    if (companyUserIds.length > 0) {
       await this.notificationService.notifyMultiple(
-        adminIds,
+        companyUserIds,
         'COMPANY_REJECTED',
-        'Company rejected',
-        `Company "${company.name}" has been rejected. Reason: ${request.comment}`,
+        'Company Application Rejected',
+        `Your company "${company.name}" application has been rejected. Reason: ${request.comment}`,
         { companyId, companyName: company.name, reason: request.comment }
       );
     }
@@ -302,6 +304,19 @@ export class AdminCompaniesService {
         changes,
       }
     );
+
+    // Notify company users about the conditions change
+    const companyUsers = await this.userRepo.findByCompanyId(companyId);
+    const companyUserIds = companyUsers.map((u) => u.id);
+    if (companyUserIds.length > 0) {
+      await this.notificationService.notifyMultiple(
+        companyUserIds,
+        'COMPANY_CONDITIONS_UPDATED',
+        'Company Conditions Updated',
+        `The platform has updated the conditions for your company "${company.name}". Please review the changes in your dashboard.`,
+        { companyId, companyName: company.name }
+      );
+    }
 
     return {
       id: company.id,
@@ -383,6 +398,17 @@ export class AdminCompaniesService {
     company.statusId = 4; // SUSPENDED
     await this.companyRepo.save(company);
     await this.auditService.logAction(adminId, 'COMPANY_SUSPENDED', 'COMPANY', companyId, { companyName: company.name });
+    const companyUsers = await this.userRepo.findByCompanyId(companyId);
+    const companyUserIds = companyUsers.map((u) => u.id);
+    if (companyUserIds.length > 0) {
+      await this.notificationService.notifyMultiple(
+        companyUserIds,
+        'COMPANY_SUSPENDED',
+        'Company Suspended',
+        `Your company "${company.name}" has been suspended. Please contact platform support for details.`,
+        { companyId, companyName: company.name }
+      );
+    }
     return this.getCompanyById(companyId);
   }
 
