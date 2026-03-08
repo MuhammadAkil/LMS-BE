@@ -451,6 +451,43 @@ export class UpdateCompanyConditionsRequest {
   metadata?: Record<string, any>;
 }
 
+export class CreateCompanyRequest {
+  @IsNotEmpty({ message: 'Company name is required' })
+  @IsString()
+  name!: string;
+
+  @IsNotEmpty({ message: 'Email is required' })
+  @IsEmail({}, { message: 'Valid email address is required' })
+  email!: string;
+
+  @IsOptional()
+  @IsString()
+  bankAccount?: string;
+
+  @IsOptional()
+  @IsString()
+  firstName?: string;
+
+  @IsOptional()
+  @IsString()
+  lastName?: string;
+
+  @IsOptional()
+  @IsString()
+  phone?: string;
+}
+
+export class CreateCompanyResponse {
+  companyId!: number;
+  userId!: number;
+  name!: string;
+  email!: string;
+  temporaryPassword!: string;
+  statusId!: number;
+  statusName!: string;
+  createdAt!: Date;
+}
+
 // ==================== EXPORT DTOs ====================
 
 export class ExportListItemDto {

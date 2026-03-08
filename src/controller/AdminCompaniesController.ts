@@ -8,6 +8,8 @@ import {
   ApproveCompanyRequest,
   RejectCompanyRequest,
   UpdateCompanyConditionsRequest,
+  CreateCompanyRequest,
+  CreateCompanyResponse,
 } from '../dto/AdminDtos';
 
 /**
@@ -175,12 +177,20 @@ export class AdminCompaniesController {
     return this.companiesService.updateCompanyConditions(companyId, request, adminId);
   }
 
+  /**
+   * POST /admin/companies
+   * Creates a new company + linked company user account
+   * Requires SuperAdminGuard
+   *
+   * Body: CreateCompanyRequest
+   * Response: CreateCompanyResponse (includes temporaryPassword — shown once)
+   */
   @Post('/')
   @UseBefore(SuperAdminGuard)
-  async createCompany(@Body() body: { name: string; bankAccount?: string; conditions?: Record<string, unknown> }, @Req() req: Request): Promise<CompanyDetailDto> {
+  async createCompany(@Body() request: CreateCompanyRequest, @Req() req: Request): Promise<CreateCompanyResponse> {
     const adminId = (req.user as any)?.id || (req.user as any)?.userId;
     if (!adminId) throw new Error('Admin user ID not found');
-    return this.companiesService.createCompany(body, adminId);
+    return this.companiesService.createCompany(request, adminId);
   }
 
   @Put('/:id/suspend')

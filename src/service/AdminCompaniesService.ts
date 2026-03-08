@@ -1,9 +1,11 @@
+import * as bcrypt from 'bcrypt';
+import * as crypto from 'crypto';
 import { AdminAuditService } from './AdminAuditService';
 import { CompanyRepository } from '../repository/CompanyRepository';
 import { UserRepository } from '../repository/UserRepository';
 import { LmsNotificationService } from './LmsNotificationService';
 import { CompanyDashboardService } from './CompanyDashboardService';
-import { CompanyListItemDto, CompanyDetailDto, ApproveCompanyRequest, RejectCompanyRequest, UpdateCompanyConditionsRequest } from '../dto/AdminDtos';
+import { CompanyListItemDto, CompanyDetailDto, ApproveCompanyRequest, RejectCompanyRequest, UpdateCompanyConditionsRequest, CreateCompanyRequest, CreateCompanyResponse } from '../dto/AdminDtos';
 
 /**
  * Admin Companies Service
@@ -368,27 +370,66 @@ export class AdminCompaniesService {
     return count;
   }
 
-  /** Create company (status PENDING). */
+  /** Create company + linked company user account (Option A: admin-initiated onboarding). */
   async createCompany(
-    body: { name: string; bankAccount?: string; conditions?: Record<string, unknown> },
+    request: CreateCompanyRequest,
     adminId: number
-  ): Promise<CompanyDetailDto> {
+  ): Promise<CreateCompanyResponse> {
     const { Company } = await import('../domain/Company');
-    if (await this.companyRepo.existsByName(body.name)) {
-      throw new Error('Company with this name already exists');
+    const { User } = await import('../domain/User');
+
+    const normalizedEmail = request.email.toLowerCase().trim();
+
+    if (await this.companyRepo.existsByName(request.name)) {
+      throw new Error('A company with this name already exists');
     }
+    if (await this.userRepo.existsByEmail(normalizedEmail)) {
+      throw new Error('A user with this email already exists');
+    }
+
+    // Generate a secure temporary password (12 hex chars + forced complexity suffix)
+    const temporaryPassword = crypto.randomBytes(6).toString('hex').toUpperCase() + '1a!';
+    const passwordHash = await bcrypt.hash(temporaryPassword, 12);
+
+    // Create company record (PENDING status)
     const company = new Company();
-    company.name = body.name;
-    company.bankAccount = body.bankAccount ?? undefined;
+    company.name = request.name;
+    company.bankAccount = request.bankAccount;
     company.statusId = 1; // PENDING
     company.commissionPct = 0;
     company.minManagedAmount = 0;
-    if (body.conditions && Object.keys(body.conditions).length > 0) {
-      company.conditionsJson = body.conditions;
-    }
-    const saved = await this.companyRepo.save(company);
-    await this.auditService.logAction(adminId, 'COMPANY_CREATED', 'COMPANY', saved.id, { companyName: saved.name });
-    return this.getCompanyById(saved.id);
+    const savedCompany = await this.companyRepo.save(company);
+
+    // Create the company user account
+    const user = new User();
+    user.email = normalizedEmail;
+    user.passwordHash = passwordHash;
+    user.roleId = 4; // COMPANY
+    user.statusId = 2; // ACTIVE
+    user.companyId = savedCompany.id;
+    user.firstName = request.firstName;
+    user.lastName = request.lastName;
+    user.phone = request.phone;
+    const savedUser = await this.userRepo.save(user);
+
+    await this.auditService.logAction(
+      adminId,
+      'COMPANY_CREATED',
+      'COMPANY',
+      savedCompany.id,
+      { companyName: savedCompany.name, userEmail: normalizedEmail }
+    );
+
+    return {
+      companyId: savedCompany.id,
+      userId: savedUser.id,
+      name: savedCompany.name,
+      email: savedUser.email,
+      temporaryPassword,
+      statusId: savedCompany.statusId,
+      statusName: this.getStatusName(savedCompany.statusId),
+      createdAt: savedCompany.createdAt,
+    };
   }
 
   /** Suspend company (statusId 4). */
