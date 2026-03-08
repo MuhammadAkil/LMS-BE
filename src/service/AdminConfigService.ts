@@ -1,6 +1,8 @@
 import { PlatformConfigRepository } from '../repository/PlatformConfigRepository';
+import { LevelRulesRepository } from '../repository/LevelRulesRepository';
 import { AdminAuditService } from './AdminAuditService';
 import { PlatformConfig } from '../domain/PlatformConfig';
+import { LevelRules } from '../domain/LevelRules';
 import { PlatformConfigDto, UpdateLoanRulesRequest, UpdateLevelRulesRequest, UpdateFeesRequest, UpdateRemindersRequest, UpdateRetentionRequest } from '../dto/AdminDtos';
 
 /**
@@ -8,12 +10,17 @@ import { PlatformConfigDto, UpdateLoanRulesRequest, UpdateLevelRulesRequest, Upd
  * Manages platform-wide settings
  * High-risk endpoints require super-admin
  */
+// Maps letter-label levels (F=0, E=1, D=2, C=3, B=4, A=5) to numeric level IDs in level_rules table
+const LABEL_TO_LEVEL: Record<string, number> = { F: 0, E: 1, D: 2, C: 3, B: 4, A: 5 };
+
 export class AdminConfigService {
   private configRepo: PlatformConfigRepository;
+  private levelRulesRepo: LevelRulesRepository;
   private auditService: AdminAuditService;
 
   constructor() {
     this.configRepo = new PlatformConfigRepository();
+    this.levelRulesRepo = new LevelRulesRepository();
     this.auditService = new AdminAuditService();
   }
 
@@ -58,20 +65,35 @@ export class AdminConfigService {
    * Update loan rules
    */
   async updateLoanRules(request: UpdateLoanRulesRequest, adminId: number) {
+    // Preserve existing levelConfigs when the request does not include them,
+    // so that a basic loan-rules save never erases the per-level configuration.
+    let levelConfigs = request.levelConfigs;
+    if (!levelConfigs) {
+      const existing = await this.configRepo.findByKey('LOAN_RULES');
+      if (existing) {
+        try {
+          const parsed = JSON.parse(existing.value);
+          levelConfigs = parsed.levelConfigs;
+        } catch {
+          // ignore parse error – levelConfigs stays undefined
+        }
+      }
+    }
+
     const rules = {
       // FE field names (primary)
       minLoanAmount: request.minLoanAmount ?? request.minAmount,
       maxLoanAmount: request.maxLoanAmount ?? request.maxAmount,
-      minLoanTerm:   request.minLoanTerm ?? request.minTenor,
-      maxLoanTerm:   request.maxLoanTerm ?? request.maxTenor,
+      minLoanTerm: request.minLoanTerm ?? request.minTenor,
+      maxLoanTerm: request.maxLoanTerm ?? request.maxTenor,
       interestRateMultiplier: request.interestRateMultiplier,
       minLenderOffer: request.minLenderOffer,
-      levelConfigs:   request.levelConfigs,
+      levelConfigs,
       // Legacy field names (kept for backwards compat)
       minAmount: request.minAmount ?? request.minLoanAmount,
       maxAmount: request.maxAmount ?? request.maxLoanAmount,
-      minTenor:  request.minTenor ?? request.minLoanTerm,
-      maxTenor:  request.maxTenor ?? request.maxLoanTerm,
+      minTenor: request.minTenor ?? request.minLoanTerm,
+      maxTenor: request.maxTenor ?? request.maxLoanTerm,
       minInterestRate: request.minInterestRate,
       maxInterestRate: request.maxInterestRate,
     };
@@ -81,6 +103,28 @@ export class AdminConfigService {
       JSON.stringify(rules),
       'Loan application rules and limits'
     );
+
+    // Sync levelConfigs to the level_rules table so that dependent services
+    // (BorrowerApplicationsService, BorrowerLoanLimitsController) pick up the changes.
+    if (Array.isArray(levelConfigs) && levelConfigs.length > 0) {
+      const minLoanAmount = rules.minLoanAmount ?? 0;
+      const minLoanTerm = rules.minLoanTerm ?? 1;
+      const maxLoanTerm = rules.maxLoanTerm ?? 60;
+      for (const cfg of levelConfigs) {
+        const levelNum = LABEL_TO_LEVEL[cfg.label];
+        if (levelNum === undefined) continue;
+        const levelRow = (await this.levelRulesRepo.findByLevel(levelNum)) || new LevelRules();
+        levelRow.level = levelNum;
+        levelRow.maxLoanAmount = cfg.maxLoan ?? cfg.maxAmount ?? levelRow.maxLoanAmount;
+        levelRow.maxActiveLoans = cfg.maxActive ?? cfg.maxLoans ?? levelRow.maxActiveLoans;
+        levelRow.minAmount = minLoanAmount;
+        levelRow.maxApplications = cfg.maxApplications ?? cfg.maxBids ?? levelRow.maxApplications;
+        levelRow.commissionPercent = cfg.commission ?? levelRow.commissionPercent;
+        levelRow.minDuration = minLoanTerm;
+        levelRow.maxDuration = maxLoanTerm;
+        await this.levelRulesRepo.save(levelRow);
+      }
+    }
 
     // Audit log
     await this.auditService.logAction(
@@ -101,8 +145,8 @@ export class AdminConfigService {
     const rules = {
       // FE field names (primary)
       levelMinAmount: request.levelMinAmount,
-      levelMaxBids:   request.levelMaxBids,
-      levelMaxLoans:  request.levelMaxLoans,
+      levelMaxBids: request.levelMaxBids,
+      levelMaxLoans: request.levelMaxLoans,
       // Legacy field names (kept for backwards compat)
       level0Amount: request.level0Amount,
       level1Amount: request.level1Amount,
@@ -115,6 +159,21 @@ export class AdminConfigService {
       JSON.stringify(rules),
       'User verification level upgrade thresholds'
     );
+
+    // Sync to the level_rules table so that dependent services pick up the changes.
+    const maxLevels = Math.max(
+      rules.levelMinAmount?.length ?? 0,
+      rules.levelMaxLoans?.length ?? 0,
+      rules.levelMaxBids?.length ?? 0,
+    );
+    for (let i = 0; i < maxLevels; i++) {
+      const levelRow = (await this.levelRulesRepo.findByLevel(i)) || new LevelRules();
+      levelRow.level = i;
+      if (rules.levelMinAmount?.[i] !== undefined) levelRow.minAmount = rules.levelMinAmount[i];
+      if (rules.levelMaxLoans?.[i] !== undefined) levelRow.maxActiveLoans = rules.levelMaxLoans[i];
+      if (rules.levelMaxBids?.[i] !== undefined) levelRow.maxApplications = rules.levelMaxBids[i];
+      await this.levelRulesRepo.save(levelRow);
+    }
 
     await this.auditService.logAction(
       adminId,
@@ -133,17 +192,17 @@ export class AdminConfigService {
   async updateFees(request: UpdateFeesRequest, adminId: number) {
     const fees = {
       // FE field names (primary)
-      platformFeePercentage:      request.platformFeePercentage ?? request.platformFee,
-      lenderFeePercentage:        request.lenderFeePercentage,
-      borrowerFeePercentage:      request.borrowerFeePercentage,
+      platformFeePercentage: request.platformFeePercentage ?? request.platformFee,
+      lenderFeePercentage: request.lenderFeePercentage,
+      borrowerFeePercentage: request.borrowerFeePercentage,
       companyCommissionPercentage: request.companyCommissionPercentage ?? request.commissionPercentage,
-      platformFee:                request.platformFee ?? request.platformFeePercentage,
-      latePaymentFee:             request.latePaymentFee,
-      commissionPercentage:       request.commissionPercentage ?? request.companyCommissionPercentage,
+      platformFee: request.platformFee ?? request.platformFeePercentage,
+      latePaymentFee: request.latePaymentFee,
+      commissionPercentage: request.commissionPercentage ?? request.companyCommissionPercentage,
       // Legacy field names
-      processingFee:              request.processingFee,
-      latePenaltyRate:            request.latePenaltyRate,
-      prePaymentPenaltyRate:      request.prePaymentPenaltyRate,
+      processingFee: request.processingFee,
+      latePenaltyRate: request.latePenaltyRate,
+      prePaymentPenaltyRate: request.prePaymentPenaltyRate,
     };
 
     const updated = await this.configRepo.updateByKey(
@@ -169,16 +228,16 @@ export class AdminConfigService {
   async updateReminders(request: UpdateRemindersRequest, adminId: number) {
     const reminders = {
       // FE field names (primary)
-      daysBeforeDue:              request.daysBeforeDue ?? request.dueDateReminderDays,
-      daysAfterDue:               request.daysAfterDue ?? request.latepaymentReminderDays,
-      finalNoticeDays:            request.finalNoticeDays,
-      paymentReminderDays:        request.paymentReminderDays,
-      verificationReminderDays:   request.verificationReminderDays,
+      daysBeforeDue: request.daysBeforeDue ?? request.dueDateReminderDays,
+      daysAfterDue: request.daysAfterDue ?? request.latepaymentReminderDays,
+      finalNoticeDays: request.finalNoticeDays,
+      paymentReminderDays: request.paymentReminderDays,
+      verificationReminderDays: request.verificationReminderDays,
       docVerificationReminderDays: request.docVerificationReminderDays,
       // Legacy field names
-      dueDateReminderDays:        request.dueDateReminderDays ?? request.daysBeforeDue,
-      latepaymentReminderDays:    request.latepaymentReminderDays ?? request.daysAfterDue,
-      reminderFrequency:          request.reminderFrequency,
+      dueDateReminderDays: request.dueDateReminderDays ?? request.daysBeforeDue,
+      latepaymentReminderDays: request.latepaymentReminderDays ?? request.daysAfterDue,
+      reminderFrequency: request.reminderFrequency,
     };
 
     const updated = await this.configRepo.updateByKey(
@@ -205,17 +264,17 @@ export class AdminConfigService {
   async updateRetention(request: UpdateRetentionRequest, adminId: number) {
     const retention = {
       // FE field names (primary)
-      userDataRetentionDays:       request.userDataRetentionDays ?? request.dataRetentionDays,
-      auditLogRetentionDays:       request.auditLogRetentionDays,
-      paymentRecordRetentionDays:  request.paymentRecordRetentionDays,
-      gdprComplianceLevel:         request.gdprComplianceLevel,
-      userDataYears:               request.userDataYears,
-      loanRecordsYears:            request.loanRecordsYears,
-      auditLogsYears:              request.auditLogsYears,
+      userDataRetentionDays: request.userDataRetentionDays ?? request.dataRetentionDays,
+      auditLogRetentionDays: request.auditLogRetentionDays,
+      paymentRecordRetentionDays: request.paymentRecordRetentionDays,
+      gdprComplianceLevel: request.gdprComplianceLevel,
+      userDataYears: request.userDataYears,
+      loanRecordsYears: request.loanRecordsYears,
+      auditLogsYears: request.auditLogsYears,
       // Legacy field names
-      dataRetentionDays:           request.dataRetentionDays ?? request.userDataRetentionDays,
-      auditLogRetentionYears:      request.auditLogRetentionYears,
-      archiveExportedData:         request.archiveExportedData,
+      dataRetentionDays: request.dataRetentionDays ?? request.userDataRetentionDays,
+      auditLogRetentionYears: request.auditLogRetentionYears,
+      archiveExportedData: request.archiveExportedData,
     };
 
     const updated = await this.configRepo.updateByKey(

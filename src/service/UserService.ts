@@ -270,8 +270,8 @@ export class UserService {
      */
     async logout(userIdFromBody: number, _authenticatedUserId?: number): Promise<ModuleResponse> {
         try {
-            const updated = await this.userSessionRepository.expireLatestSessionByUserId(userIdFromBody);
-            if (updated) {
+            const deleted = await this.userSessionRepository.deleteByUserId(userIdFromBody);
+            if (deleted) {
                 console.log(`User logged out successfully: userId=${userIdFromBody}`);
             }
             return ModuleResponse.generateSuccessResponse({

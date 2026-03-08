@@ -168,6 +168,17 @@ export class GlobalAuthMiddleware implements ExpressMiddlewareInterface {
                     return;
                 }
 
+                // Check if the session has expired
+                if (activeSession.expiresAt && new Date() > activeSession.expiresAt) {
+                    await userSessionRepo.delete(activeSession.id);
+                    res.status(401).json({
+                        statusCode: '401',
+                        statusMessage: 'Unauthorized',
+                        statusMessageDetail: 'Session has expired. Please login again.',
+                    });
+                    return;
+                }
+
                 // Attach user info to request — set both id and userId so all guards work
                 const userDetails: CustomUserDetails = {
                     id: user.id,
@@ -218,12 +229,23 @@ export class GlobalAuthMiddleware implements ExpressMiddlewareInterface {
                 }
             }
         } catch (error: any) {
-            console.log('Authentication error:', error);
-            res.status(401).json({
-                statusCode: '401',
-                statusMessage: 'Unauthorized',
-                statusMessageDetail: error.message || 'Authentication failed',
-            });
+            // JWT errors are genuine auth failures → 401
+            const jwtErrorNames = ['JsonWebTokenError', 'TokenExpiredError', 'NotBeforeError'];
+            if (jwtErrorNames.includes(error?.name)) {
+                res.status(401).json({
+                    statusCode: '401',
+                    statusMessage: 'Unauthorized',
+                    statusMessageDetail: error.message || 'Invalid or expired token',
+                });
+            } else {
+                // DB/infrastructure errors must NOT appear as 401 (avoid false logout)
+                console.error('Authentication middleware infrastructure error:', error);
+                res.status(500).json({
+                    statusCode: '500',
+                    statusMessage: 'Internal Server Error',
+                    statusMessageDetail: 'An unexpected error occurred. Please try again.',
+                });
+            }
         }
     }
 }
