@@ -11,6 +11,9 @@ import {
     CompanyReportExportRequest,
     BulkActionResponse,
 } from '../dto/CompanyDtos';
+import { ExportRepository } from '../repository/ExportRepository';
+import { writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { join } from 'node:path';
 
 /**
  * Company Reports Service
@@ -25,9 +28,14 @@ import {
  */
 export class CompanyReportsService {
     private readonly auditService: CompanyAuditService;
+    private readonly exportRepo: ExportRepository;
+    private readonly exportsDir: string;
 
     constructor() {
         this.auditService = new CompanyAuditService();
+        this.exportRepo = new ExportRepository();
+        this.exportsDir = join(process.cwd(), 'exports');
+        if (!existsSync(this.exportsDir)) mkdirSync(this.exportsDir, { recursive: true });
     }
 
     // ─────────────────────────────────────────────────
@@ -153,28 +161,6 @@ export class CompanyReportsService {
                 params.push(query.lenderId);
             }
 
-            const rows = await qr.query(
-                `SELECT
-                    cl.lenderId,
-                    u.email                  AS lenderEmail,
-                    COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name,''),' ',COALESCE(u.last_name,''))),  ''), u.email) AS lenderName,
-                    COALESCE(ma.amount, cl.amountLimit, 0)                           AS managedAmount,
-                    ma.signedAt                                                      AS agreementSignedAt,
-                    COUNT(DISTINCT l.id)                                             AS activeLoans,
-                    COALESCE(SUM(l.totalAmount), 0)                                  AS totalLoanAmount
-                 FROM company_lenders cl
-                 INNER JOIN users u ON u.id = cl.lenderId
-                 LEFT  JOIN management_agreements ma ON ma.lenderId = cl.lenderId AND ma.companyId = cl.companyId
-                                                         AND ma.signedAt IS NOT NULL
-                 LEFT  JOIN loan_offers lo ON lo.lenderId = cl.lenderId
-                 LEFT  JOIN loans l ON l.id = lo.loanId
-                              AND l.createdAt BETWEEN ? AND DATE_ADD(?, INTERVAL 1 DAY)
-                 WHERE cl.companyId = ? ${lenderFilter}
-                 GROUP BY cl.lenderId, u.email, u.first_name, u.last_name, ma.amount, cl.amountLimit, ma.signedAt`,
-                [dateFrom, dateTo, companyId, ...params.slice(3)]
-            );
-
-            // Rebuild with explicit params order
             const finalRows = await qr.query(
                 `SELECT
                     cl.lenderId,
@@ -321,18 +307,18 @@ export class CompanyReportsService {
                 .join('\n');
             const csv = header + rows;
 
-            const exportResult = await qr.query(
-                `INSERT INTO exports (export_type_id, created_by, record_count, file_content, created_at)
-                 VALUES (1, ?, ?, ?, NOW())`,
-                [userId, loans.length, csv]
-            ).catch(async () =>
-                qr.query(
-                    `INSERT INTO exports (export_type_id, created_by, record_count, created_at)
-                     VALUES (1, ?, ?, NOW())`,
-                    [userId, loans.length]
-                )
-            );
-            const exportId = exportResult?.insertId ?? 0;
+            const fileName = `export_${Date.now()}_company${companyId}_portfolio.csv`;
+            const filePath = join(this.exportsDir, fileName);
+            writeFileSync(filePath, csv, 'utf-8');
+
+            const saved = await this.exportRepo.save({
+                typeId: 2, // CSV_EXPORT
+                createdBy: userId,
+                filePath,
+                recordCount: loans.length,
+                metadata: JSON.stringify({ companyId, filters: request, fileName }),
+            } as any);
+            const exportId = Number(saved.id);
 
             await this.auditService.logAction(userId, 'REPORT_CSV_EXPORTED', 'COMPANY', companyId, {
                 loanCount: loans.length,
@@ -386,18 +372,18 @@ export class CompanyReportsService {
                 .join('\n');
             const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<PortfolioReport generatedAt="${new Date().toISOString()}" companyId="${companyId}">\n${xmlItems}\n</PortfolioReport>`;
 
-            const exportResult = await qr.query(
-                `INSERT INTO exports (export_type_id, created_by, record_count, file_content, created_at)
-                 VALUES (2, ?, ?, ?, NOW())`,
-                [userId, loans.length, xml]
-            ).catch(async () =>
-                qr.query(
-                    `INSERT INTO exports (export_type_id, created_by, record_count, created_at)
-                     VALUES (2, ?, ?, NOW())`,
-                    [userId, loans.length]
-                )
-            );
-            const exportId = exportResult?.insertId ?? 0;
+            const fileName = `export_${Date.now()}_company${companyId}_portfolio.xml`;
+            const filePath = join(this.exportsDir, fileName);
+            writeFileSync(filePath, xml, 'utf-8');
+
+            const saved = await this.exportRepo.save({
+                typeId: 1, // XML_EXPORT
+                createdBy: userId,
+                filePath,
+                recordCount: loans.length,
+                metadata: JSON.stringify({ companyId, filters: request, fileName }),
+            } as any);
+            const exportId = Number(saved.id);
 
             await this.auditService.logAction(userId, 'REPORT_XML_EXPORTED', 'COMPANY', companyId, {
                 loanCount: loans.length,

@@ -46,8 +46,8 @@ export class AdminExportsService {
         LEFT JOIN users u ON l.borrowerId = u.id
         WHERE 1=1
         ${request.loanStatus && Array.isArray(request.loanStatus) ? `AND l.statusId IN (${request.loanStatus.join(',')})` : ''}
-        ${request.dateFrom ? `AND l.createdAt >= '${request.dateFrom.toISOString()}'` : ''}
-        ${request.dateTo ? `AND l.createdAt <= '${request.dateTo.toISOString()}'` : ''}
+        ${request.dateFrom ? `AND l.createdAt >= '${new Date(request.dateFrom as any).toISOString()}'` : ''}
+        ${request.dateTo ? `AND l.createdAt <= '${new Date(request.dateTo as any).toISOString()}'` : ''}
         ORDER BY l.createdAt DESC
         LIMIT ${limit}
       `);
@@ -115,13 +115,13 @@ export class AdminExportsService {
       } else {
         // Default to LOANS
         const dateFrom = (request as any).filters?.dateFrom || (request as any).dateFrom;
-        const dateTo   = (request as any).filters?.dateTo   || (request as any).dateTo;
+        const dateTo = (request as any).filters?.dateTo || (request as any).dateTo;
         loans = await queryRunner.query(`SELECT l.*, u.email as borrower_email
           FROM loans l
           LEFT JOIN users u ON l.borrowerId = u.id
           WHERE 1=1
           ${dateFrom ? `AND l.createdAt >= '${new Date(dateFrom).toISOString()}'` : ''}
-          ${dateTo   ? `AND l.createdAt <= '${new Date(dateTo).toISOString()}'`   : ''}
+          ${dateTo ? `AND l.createdAt <= '${new Date(dateTo).toISOString()}'` : ''}
           ORDER BY l.createdAt DESC
           LIMIT ${Math.min((request as any).limit || 500, 500)}`);
       }
@@ -184,16 +184,15 @@ export class AdminExportsService {
       // Query specific loans by IDs from request
       const loanIds = request.loanIds.join(',');
       const defaultedLoans = await queryRunner.query(`
-        SELECT l.*, u.email, u.phone, c.name as company_name,
-               SUM(p.amount) as total_paid,
-               l.amount - COALESCE(SUM(p.amount), 0) as remaining_amount
+        SELECT l.*, u.email, u.phone,
+               COALESCE(SUM(p.amount), 0) as total_paid,
+               l.totalAmount - COALESCE(SUM(p.amount), 0) as remaining_amount
         FROM loans l
-        LEFT JOIN users u ON l.user_id = u.id
-        LEFT JOIN companies c ON l.company_id = c.id
-        LEFT JOIN payments p ON l.id = p.loan_id AND p.status_id = 1
+        LEFT JOIN users u ON l.borrowerId = u.id
+        LEFT JOIN payments p ON p.loanId = l.id AND p.statusId = 1
         WHERE l.id IN (${loanIds})
         GROUP BY l.id
-        ORDER BY l.due_date ASC
+        ORDER BY l.dueDate ASC
       `);
 
       // Generate claims CSV
@@ -314,19 +313,19 @@ export class AdminExportsService {
   // ==================== Helper Methods ====================
 
   private generateXMLContent(loans: any[]): string {
+    const toIso = (v: any): string => v ? new Date(v).toISOString() : 'N/A';
     let xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
     xml += '<loans>\n';
 
     for (const loan of loans) {
       xml += '  <loan>\n';
       xml += `    <id>${loan.id}</id>\n`;
-      xml += `    <userId>${loan.user_id}</userId>\n`;
-      xml += `    <userEmail>${loan.email || 'N/A'}</userEmail>\n`;
-      xml += `    <amount>${loan.amount}</amount>\n`;
-      xml += `    <status>${this.getLoanStatus(loan.status_id)}</status>\n`;
-      xml += `    <createdAt>${loan.created_at.toISOString()}</createdAt>\n`;
-      xml += `    <dueDate>${loan.due_date?.toISOString() || 'N/A'}</dueDate>\n`;
-      xml += `    <companyName>${loan.company_name || 'N/A'}</companyName>\n`;
+      xml += `    <userId>${loan.borrowerId ?? loan.borrower_id}</userId>\n`;
+      xml += `    <userEmail>${loan.borrower_email || loan.email || 'N/A'}</userEmail>\n`;
+      xml += `    <amount>${loan.totalAmount ?? loan.total_amount}</amount>\n`;
+      xml += `    <status>${this.getLoanStatus(loan.statusId ?? loan.status_id)}</status>\n`;
+      xml += `    <createdAt>${toIso(loan.createdAt ?? loan.created_at)}</createdAt>\n`;
+      xml += `    <dueDate>${toIso(loan.dueDate ?? loan.due_date)}</dueDate>\n`;
       xml += '  </loan>\n';
     }
 
@@ -335,34 +334,34 @@ export class AdminExportsService {
   }
 
   private generateCSVContent(loans: any[]): string {
-    let csv = 'ID,UserID,Email,Amount,Status,CreatedAt,DueDate,CompanyName\n';
+    const toIso = (v: any): string => v ? new Date(v).toISOString() : 'N/A';
+    let csv = 'ID,UserID,Email,Amount,Status,CreatedAt,DueDate\n';
 
     for (const loan of loans) {
       csv += `${loan.id},`;
-      csv += `${loan.user_id},`;
-      csv += `"${loan.email || 'N/A'}",`;
-      csv += `${loan.amount},`;
-      csv += `${this.getLoanStatus(loan.status_id)},`;
-      csv += `"${loan.created_at.toISOString()}",`;
-      csv += `"${loan.due_date?.toISOString() || 'N/A'}",`;
-      csv += `"${loan.company_name || 'N/A'}"\n`;
+      csv += `${loan.borrowerId ?? loan.borrower_id},`;
+      csv += `"${loan.borrower_email || loan.email || 'N/A'}",`;
+      csv += `${loan.totalAmount ?? loan.total_amount},`;
+      csv += `${this.getLoanStatus(loan.statusId ?? loan.status_id)},`;
+      csv += `"${toIso(loan.createdAt ?? loan.created_at)}",`;
+      csv += `"${toIso(loan.dueDate ?? loan.due_date)}"\n`;
     }
 
     return csv;
   }
 
   private generateClaimsContent(claims: any[]): string {
-    let csv = 'LoanID,UserID,Email,Phone,Amount,RemainingAmount,CompanyName,DueDate\n';
+    const toIso = (v: any): string => v ? new Date(v).toISOString() : 'N/A';
+    let csv = 'LoanID,UserID,Email,Phone,TotalAmount,RemainingAmount,DueDate\n';
 
     for (const claim of claims) {
       csv += `${claim.id},`;
-      csv += `${claim.user_id},`;
+      csv += `${claim.borrowerId ?? claim.borrower_id},`;
       csv += `"${claim.email || 'N/A'}",`;
       csv += `"${claim.phone || 'N/A'}",`;
-      csv += `${claim.amount},`;
+      csv += `${claim.totalAmount ?? claim.total_amount},`;
       csv += `${claim.remaining_amount},`;
-      csv += `"${claim.company_name || 'N/A'}",`;
-      csv += `"${claim.due_date?.toISOString() || 'N/A'}"\n`;
+      csv += `"${toIso(claim.dueDate ?? claim.due_date)}"\n`;
     }
 
     return csv;

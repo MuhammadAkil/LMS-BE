@@ -137,7 +137,7 @@ export class CompanyDocumentsService {
                 `
         SELECT 
           id,
-          file_path as fileName,
+          file_path as filePath,
           created_at as createdAt
         FROM exports
         WHERE id = ?
@@ -147,11 +147,20 @@ export class CompanyDocumentsService {
 
             if (exportDoc && exportDoc.length > 0) {
                 const doc = exportDoc[0];
+                const fp: string = doc.filePath || '';
+                const isXml = fp.endsWith('.xml');
+                let data: Buffer;
+                try {
+                    const { readFileSync, existsSync: fsExists } = await import('node:fs');
+                    data = fsExists(fp) ? readFileSync(fp) : Buffer.from('');
+                } catch {
+                    data = Buffer.from('');
+                }
                 return {
                     id: doc.id,
-                    fileName: doc.fileName,
-                    contentType: doc.type === 'XML' ? 'application/xml' : 'text/csv',
-                    data: Buffer.from('DOCUMENT_CONTENT_PLACEHOLDER'),
+                    fileName: fp ? require('node:path').basename(fp) : `export_${documentId}`,
+                    contentType: isXml ? 'application/xml' : 'text/csv',
+                    data,
                     createdAt: doc.createdAt,
                 };
             }

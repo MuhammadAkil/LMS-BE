@@ -9,6 +9,10 @@ import {
     GenerateClaimResponse,
 } from '../dto/LenderDtos';
 import { AuditLogRepository } from '../repository/AuditLogRepository';
+import { ExportRepository } from '../repository/ExportRepository';
+import { AppDataSource } from '../config/database';
+import { writeFileSync, existsSync, mkdirSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 
 /**
  * L-05: LENDER REMINDERS SERVICE
@@ -74,9 +78,17 @@ export class LenderRemindersService {
  */
 export class LenderExportsService {
     private auditLogRepository: AuditLogRepository;
+    private exportRepo: ExportRepository;
+    private readonly exportsDir: string;
+    private readonly claimsDir: string;
 
     constructor() {
         this.auditLogRepository = new AuditLogRepository();
+        this.exportRepo = new ExportRepository();
+        this.exportsDir = join(process.cwd(), 'exports');
+        this.claimsDir = join(process.cwd(), 'claims');
+        if (!existsSync(this.exportsDir)) mkdirSync(this.exportsDir, { recursive: true });
+        if (!existsSync(this.claimsDir)) mkdirSync(this.claimsDir, { recursive: true });
     }
 
     /**
@@ -103,34 +115,60 @@ export class LenderExportsService {
         lenderId: string,
         request: ExportCsvRequest
     ): Promise<{ filePath: string; fileSize: number }> {
+        const qr = AppDataSource.createQueryRunner();
         try {
-            const dateFrom = request.dateFrom || null;
-            const dateTo = request.dateTo || null;
+            const lenderIdNum = parseInt(lenderId, 10);
+            const params: any[] = [lenderIdNum];
+            let dateClauses = '';
+            if (request.dateFrom) { dateClauses += ' AND lo.createdAt >= ?'; params.push(request.dateFrom); }
+            if (request.dateTo) { dateClauses += ' AND lo.createdAt <= ?'; params.push(request.dateTo); }
+            if (request.statusFilter && request.statusFilter.length > 0) {
+                dateClauses += ` AND ls.code IN (${request.statusFilter.map(() => '?').join(',')})`;
+                params.push(...request.statusFilter);
+            }
 
-            // TODO: Build CSV content from query results
-            // TODO: Generate CSV file and store in exports directory
-            // TODO: INSERT into exports table with export_type_id for CSV
+            const rows = await qr.query(
+                `SELECT lo.id AS investment_id, l.id AS loan_id, u.email AS borrower_email,
+                        lo.amount AS offer_amount, ls.code AS status_code,
+                        lo.createdAt AS funded_date, l.totalAmount AS total_amount, l.dueDate AS due_date
+                 FROM loan_offers lo
+                 JOIN loans l ON l.id = lo.loanId
+                 JOIN users u ON u.id = l.borrowerId
+                 LEFT JOIN loan_statuses ls ON ls.id = l.statusId
+                 WHERE lo.lenderId = ?${dateClauses}
+                 ORDER BY lo.createdAt DESC
+                 LIMIT 500`,
+                params
+            );
 
-            const exportId = 'EXP_' + Date.now();
-            const filePath = `/exports/${exportId}_investments.csv`;
+            const toDate = (v: any) => v ? new Date(v).toISOString().split('T')[0] : 'N/A';
+            let csv = 'InvestmentId,LoanId,BorrowerEmail,OfferAmount,Status,FundedDate,TotalAmount,DueDate\n';
+            for (const r of rows) {
+                csv += `${r.investment_id},${r.loan_id},"${r.borrower_email || ''}",${r.offer_amount || 0},`
+                    + `${r.status_code || 'UNKNOWN'},"${toDate(r.funded_date)}",${r.total_amount || 0},"${toDate(r.due_date)}"\n`;
+            }
 
-            // Audit log
-            const userId = parseInt(lenderId, 10);
-            await this.auditLogRepository.create({
-                actorId: userId,
-                action: 'EXPORT_CSV',
-                entity: 'EXPORT',
-                entityId: 0,
-                createdAt: new Date(),
+            const fileName = `export_${Date.now()}_investments.csv`;
+            const filePath = join(this.exportsDir, fileName);
+            writeFileSync(filePath, csv, 'utf-8');
+            const fileSize = statSync(filePath).size;
+
+            const saved = await this.exportRepo.save({
+                typeId: 2, // CSV_EXPORT
+                createdBy: lenderIdNum,
+                filePath,
+                recordCount: rows.length,
+                metadata: JSON.stringify({ dateFrom: request.dateFrom, dateTo: request.dateTo, fileName }),
             } as any);
 
-            return {
-                filePath,
-                fileSize: 1024, // Placeholder
-            };
-        } catch (error: any) {
-            console.error('Error exporting CSV:', error);
-            throw new Error('Failed to export CSV');
+            await this.auditLogRepository.create({
+                actorId: lenderIdNum, action: 'EXPORT_CSV', entity: 'EXPORT',
+                entityId: Number(saved.id), createdAt: new Date(),
+            } as any);
+
+            return { filePath: `/lender/exports/download/${saved.id}`, fileSize };
+        } finally {
+            await qr.release();
         }
     }
 
@@ -144,35 +182,62 @@ export class LenderExportsService {
         lenderId: string,
         request: ExportXmlRequest
     ): Promise<{ filePath: string; fileSize: number; itemCount: number }> {
+        const qr = AppDataSource.createQueryRunner();
         try {
-            const limit = Math.min(request.limit || 500, 500); // Max 500 for XML spec
+            const lenderIdNum = parseInt(lenderId, 10);
+            const limit = Math.min(request.limit || 500, 500);
+            const params: any[] = [lenderIdNum];
+            let dateClauses = '';
+            if (request.dateFrom) { dateClauses += ' AND lo.createdAt >= ?'; params.push(request.dateFrom); }
+            if (request.dateTo) { dateClauses += ' AND lo.createdAt <= ?'; params.push(request.dateTo); }
+            if (request.statusFilter && request.statusFilter.length > 0) {
+                dateClauses += ` AND ls.code IN (${request.statusFilter.map(() => '?').join(',')})`;
+                params.push(...request.statusFilter);
+            }
+            params.push(limit);
 
-            // TODO: Build XML from query results (limit 500)
-            // TODO: Generate XML file and store
-            // TODO: INSERT into exports table
+            const rows = await qr.query(
+                `SELECT lo.id AS investment_id, l.id AS loan_id, u.email AS borrower_email,
+                        lo.amount AS offer_amount, ls.code AS status_code,
+                        lo.createdAt AS funded_date, l.totalAmount AS total_amount, l.dueDate AS due_date
+                 FROM loan_offers lo
+                 JOIN loans l ON l.id = lo.loanId
+                 JOIN users u ON u.id = l.borrowerId
+                 LEFT JOIN loan_statuses ls ON ls.id = l.statusId
+                 WHERE lo.lenderId = ?${dateClauses}
+                 ORDER BY lo.createdAt DESC
+                 LIMIT ?`,
+                params
+            );
 
-            const exportId = 'EXP_' + Date.now();
-            const filePath = `/exports/${exportId}_investments.xml`;
-            const itemCount = limit;
+            const esc = (s: any) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+            const toIso = (v: any) => v ? new Date(v).toISOString() : 'N/A';
+            const items = rows.map((r: any) =>
+                `  <Investment>\n    <InvestmentId>${r.investment_id}</InvestmentId>\n    <LoanId>${r.loan_id}</LoanId>\n    <BorrowerEmail>${esc(r.borrower_email)}</BorrowerEmail>\n    <OfferAmount>${r.offer_amount ?? 0}</OfferAmount>\n    <Status>${esc(r.status_code ?? 'UNKNOWN')}</Status>\n    <FundedDate>${toIso(r.funded_date)}</FundedDate>\n    <TotalAmount>${r.total_amount ?? 0}</TotalAmount>\n    <DueDate>${toIso(r.due_date)}</DueDate>\n  </Investment>`
+            ).join('\n');
+            const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<InvestmentsExport lenderId="${lenderIdNum}" generatedAt="${new Date().toISOString()}">\n${items}\n</InvestmentsExport>`;
 
-            // Audit log
-            const userId = parseInt(lenderId, 10);
-            await this.auditLogRepository.create({
-                actorId: userId,
-                action: 'EXPORT_XML',
-                entity: 'EXPORT',
-                entityId: 0,
-                createdAt: new Date(),
+            const fileName = `export_${Date.now()}_investments.xml`;
+            const filePath = join(this.exportsDir, fileName);
+            writeFileSync(filePath, xml, 'utf-8');
+            const fileSize = statSync(filePath).size;
+
+            const saved = await this.exportRepo.save({
+                typeId: 1, // XML_EXPORT
+                createdBy: lenderIdNum,
+                filePath,
+                recordCount: rows.length,
+                metadata: JSON.stringify({ dateFrom: request.dateFrom, dateTo: request.dateTo, fileName }),
             } as any);
 
-            return {
-                filePath,
-                fileSize: 2048, // Placeholder
-                itemCount,
-            };
-        } catch (error: any) {
-            console.error('Error exporting XML:', error);
-            throw new Error('Failed to export XML');
+            await this.auditLogRepository.create({
+                actorId: lenderIdNum, action: 'EXPORT_XML', entity: 'EXPORT',
+                entityId: Number(saved.id), createdAt: new Date(),
+            } as any);
+
+            return { filePath: `/lender/exports/download/${saved.id}`, fileSize, itemCount: rows.length };
+        } finally {
+            await qr.release();
         }
     }
 
@@ -199,36 +264,45 @@ export class LenderExportsService {
         page: number = 1,
         pageSize: number = 10
     ): Promise<ExportHistoryResponse> {
-        try {
-            const offset = (page - 1) * pageSize;
+        const lenderIdNum = parseInt(lenderId, 10);
+        const offset = (page - 1) * pageSize;
 
-            // TODO: Query exports for lender
+        const [records, totalItems] = await this.exportRepo.findByCreatedBy(lenderIdNum, pageSize, offset);
 
-            const exports: ExportDto[] = [];
-            const totalItems = 0;
+        const typeCodeMap: Record<number, string> = { 1: 'XML_EXPORT', 2: 'CSV_EXPORT', 3: 'CLAIMS_EXPORT' };
 
-            const userId = parseInt(lenderId, 10);
-            await this.auditLogRepository.create({
-                actorId: userId,
-                action: 'VIEW_EXPORT_HISTORY',
-                entity: 'EXPORT',
-                entityId: 0,
-                createdAt: new Date(),
-            } as any);
-
+        const exports: ExportDto[] = records.map(e => {
+            let fileSize = 0;
+            try {
+                if (e.filePath && existsSync(e.filePath)) {
+                    fileSize = statSync(e.filePath).size;
+                }
+            } catch { }
             return {
-                exports,
-                pagination: {
-                    page,
-                    pageSize,
-                    totalItems,
-                    totalPages: Math.ceil(totalItems / pageSize),
-                },
+                id: String(e.id),
+                exportTypeCode: typeCodeMap[e.typeId] ?? 'UNKNOWN',
+                createdBy: String(e.createdBy),
+                filePath: `/lender/exports/download/${e.id}`,
+                createdAt: e.createdAt.toISOString(),
+                itemCount: e.recordCount ?? 0,
+                fileSize,
             };
-        } catch (error: any) {
-            console.error('Error fetching export history:', error);
-            throw new Error('Failed to fetch export history');
-        }
+        });
+
+        await this.auditLogRepository.create({
+            actorId: lenderIdNum, action: 'VIEW_EXPORT_HISTORY', entity: 'EXPORT',
+            entityId: 0, createdAt: new Date(),
+        } as any);
+
+        return {
+            exports,
+            pagination: {
+                page,
+                pageSize,
+                totalItems,
+                totalPages: Math.ceil(totalItems / pageSize),
+            },
+        };
     }
 
     /**
@@ -243,35 +317,70 @@ export class LenderExportsService {
         lenderId: string,
         request: GenerateClaimRequest
     ): Promise<GenerateClaimResponse> {
+        const qr = AppDataSource.createQueryRunner();
         try {
-            // TODO: Verify lender owns investment in this loan
-            // TODO: Build claim XML with loan and repayment details
-            // TODO: Store XML file
-            // TODO: INSERT into claims table (immutable)
+            const lenderIdNum = parseInt(lenderId, 10);
+            const loanIdNum = parseInt(request.loanId, 10);
 
-            const claimId = 'CLM_' + Date.now();
-            const xmlPath = `/claims/${claimId}_claim.xml`;
+            // Verify the lender has an investment in this loan
+            const verification = await qr.query(
+                `SELECT lo.id FROM loan_offers lo WHERE lo.loanId = ? AND lo.lenderId = ? LIMIT 1`,
+                [loanIdNum, lenderIdNum]
+            );
+            if (!verification || verification.length === 0) {
+                throw new Error('No investment found for this loan');
+            }
 
-            // Audit log
-            const userId = parseInt(lenderId, 10);
+            // Fetch loan and borrower details
+            const rows = await qr.query(
+                `SELECT l.id, l.totalAmount, l.dueDate, u.email, u.phone
+                 FROM loans l
+                 JOIN users u ON u.id = l.borrowerId
+                 WHERE l.id = ? LIMIT 1`,
+                [loanIdNum]
+            );
+            if (!rows || rows.length === 0) {
+                throw new Error('Loan not found');
+            }
+            const loan = rows[0];
+
+            const esc = (s: any) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+            const toIso = (v: any) => v ? new Date(v).toISOString() : 'N/A';
+            const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<InsuranceClaim generatedAt="${new Date().toISOString()}" lenderId="${lenderIdNum}">
+  <LoanId>${loan.id}</LoanId>
+  <BorrowerEmail>${esc(loan.email)}</BorrowerEmail>
+  <BorrowerPhone>${esc(loan.phone ?? '')}</BorrowerPhone>
+  <TotalAmount>${loan.totalAmount ?? 0}</TotalAmount>
+  <DueDate>${toIso(loan.dueDate)}</DueDate>
+  <Reason>${esc(request.reason)}</Reason>
+</InsuranceClaim>`;
+
+            const fileName = `claim_${Date.now()}_loan${loanIdNum}.xml`;
+            const xmlPath = join(this.claimsDir, fileName);
+            writeFileSync(xmlPath, xml, 'utf-8');
+
+            // Insert into claims table
+            const claimResult = await qr.query(
+                `INSERT INTO claims (loanId, xmlPath, generatedAt, createdAt) VALUES (?, ?, NOW(), NOW())`,
+                [loanIdNum, xmlPath]
+            );
+            const claimId = String(claimResult?.insertId ?? Date.now());
+
             await this.auditLogRepository.create({
-                actorId: userId,
-                action: 'CLAIM_GENERATED',
-                entity: 'CLAIM',
-                entityId: 0,
-                createdAt: new Date(),
+                actorId: lenderIdNum, action: 'CLAIM_GENERATED', entity: 'CLAIM',
+                entityId: Number(claimId) || 0, createdAt: new Date(),
             } as any);
 
             return {
                 claimId,
                 loanId: request.loanId,
-                xmlPath,
+                xmlPath: `/lender/claims/${claimId}/download`,
                 generatedAt: new Date().toISOString(),
                 message: 'Claim generated successfully',
             };
-        } catch (error: any) {
-            console.error('Error generating claim:', error);
-            throw new Error('Failed to generate claim');
+        } finally {
+            await qr.release();
         }
     }
 }
