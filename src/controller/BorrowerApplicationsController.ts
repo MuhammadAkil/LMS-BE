@@ -64,9 +64,19 @@ export class BorrowerApplicationsController {
             } as BorrowerApiResponse<ApplicationDetailDto>);
         } catch (error: any) {
             console.error('Error in createApplication:', error);
-            res.status(500).json({
-                statusCode: '500',
-                statusMessage: 'Internal server error',
+            // Distinguish known validation/business-rule errors (4xx) from unexpected failures (5xx)
+            const isClientError =
+                error.message?.includes('required') ||
+                error.message?.includes('Invalid') ||
+                error.message?.includes('not found') ||
+                error.message?.includes('limit') ||
+                error.message?.includes('already') ||
+                error.message?.includes('ACTIVE') ||
+                error.message?.includes('verified') ||
+                error.statusCode === 400;
+            res.status(isClientError ? 400 : 500).json({
+                statusCode: isClientError ? '400' : '500',
+                statusMessage: isClientError ? error.message : 'Internal server error',
                 errors: [error.message],
                 timestamp: new Date().toISOString(),
             });

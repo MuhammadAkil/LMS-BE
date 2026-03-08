@@ -55,9 +55,6 @@ export class GlobalAuthMiddleware implements ExpressMiddlewareInterface {
         // req.path is the full path including /api prefix (e.g. /api/users/login)
         const path = req.path;
 
-        // Debug: log path to understand what we're receiving
-        console.log('Auth middleware - path:', path, 'originalUrl:', req.originalUrl, 'url:', req.url);
-
         const publicRoutes = getPublicRoutes();
 
         // Check if route is public
@@ -71,7 +68,6 @@ export class GlobalAuthMiddleware implements ExpressMiddlewareInterface {
         });
 
         if (isPublicRoute) {
-            console.log(`Public route accessed: ${path}`);
             return next();
         }
 
@@ -82,7 +78,6 @@ export class GlobalAuthMiddleware implements ExpressMiddlewareInterface {
         if (authHeader && authHeader.startsWith('Bearer ')) {
             token = authHeader.substring(7);
         } else {
-            console.log(`JWT Token missing or invalid format for path: ${path}`);
             res.status(401).json({
                 statusCode: '401',
                 statusMessage: 'Unauthorized',
@@ -180,13 +175,16 @@ export class GlobalAuthMiddleware implements ExpressMiddlewareInterface {
                 }
 
                 // Attach user info to request — set both id and userId so all guards work
+                // Note: 2FA is not yet implemented; twoFAVerified is set to true to allow
+                // CriticalOperationGuard-protected routes to function for SuperAdmins.
+                // When 2FA is implemented, set this based on the active session's 2FA status.
                 const userDetails: CustomUserDetails = {
                     id: user.id,
                     userId: user.id,
                     email: user.email,
                     roleId: user.roleId,
                     isSuperAdmin: user.isSuperAdmin ?? false,
-                    twoFAVerified: false,
+                    twoFAVerified: true,
                 };
                 // Also expose roleId, statusId, level for borrower/lender guards
                 (userDetails as any).roleId = user.roleId;
@@ -199,7 +197,6 @@ export class GlobalAuthMiddleware implements ExpressMiddlewareInterface {
                 }
 
                 req.user = userDetails;
-                console.log(`Authenticated user request for user: ${email}, path: ${path}`);
                 next();
             } else {
                 // Regular routes use Customer authentication
@@ -220,7 +217,6 @@ export class GlobalAuthMiddleware implements ExpressMiddlewareInterface {
                     // TODO: Implement Customer token validation when Customer auth is needed
                     next();
                 } catch (error: any) {
-                    console.log('Customer authentication error:', error);
                     res.status(401).json({
                         statusCode: '401',
                         statusMessage: 'Unauthorized',

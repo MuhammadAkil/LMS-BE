@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { Controller, Post, Get, Param, Req, Res } from 'routing-controllers';
+import { Controller, Post, Get, Put, Param, Req, Res } from 'routing-controllers';
 import { BorrowerPaymentsService } from '../service/BorrowerPaymentsService';
 import {
     InitiateCommissionPaymentRequest,
@@ -99,7 +99,7 @@ export class BorrowerPaymentsController {
      * Set the voluntary commission amount for a loan application.
      * Body: { amount: number }
      */
-    @Post('/voluntary/:applicationId/amount')
+    @Put('/voluntary/:applicationId/amount')
     async setVoluntaryCommissionAmount(@Req() req: Request, @Res() res: Response): Promise<void> {
         try {
             const user = (req as any).user;

@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
-import { Controller, Get, Post, Put, Delete, Req, Res } from 'routing-controllers';
+import { Controller, Get, Post, Put, Delete, Req, Res, UseBefore } from 'routing-controllers';
 import { LoanDurationConfigService } from '../service/LoanDurationConfigService';
+import { AdminGuard, SuperAdminGuard } from '../middleware/AdminGuards';
 
 /**
  * Admin Loan Duration Config Controller
@@ -12,6 +13,7 @@ import { LoanDurationConfigService } from '../service/LoanDurationConfigService'
  * DELETE /api/admin/loan-durations/:id
  */
 @Controller('/admin/loan-durations')
+@UseBefore(AdminGuard)
 export class AdminLoanDurationController {
   private service: LoanDurationConfigService;
 
@@ -40,6 +42,7 @@ export class AdminLoanDurationController {
   }
 
   @Post('/')
+  @UseBefore(SuperAdminGuard)
   async create(@Req() req: Request, @Res() res: Response): Promise<void> {
     try {
       const admin = (req as any).user;
@@ -51,6 +54,7 @@ export class AdminLoanDurationController {
   }
 
   @Put('/:id')
+  @UseBefore(SuperAdminGuard)
   async update(@Req() req: Request, @Res() res: Response): Promise<void> {
     try {
       const admin = (req as any).user;
@@ -63,6 +67,7 @@ export class AdminLoanDurationController {
   }
 
   @Put('/:id/toggle')
+  @UseBefore(SuperAdminGuard)
   async toggle(@Req() req: Request, @Res() res: Response): Promise<void> {
     try {
       const admin = (req as any).user;
@@ -80,6 +85,7 @@ export class AdminLoanDurationController {
   }
 
   @Delete('/:id')
+  @UseBefore(SuperAdminGuard)
   async delete(@Req() req: Request, @Res() res: Response): Promise<void> {
     try {
       const admin = (req as any).user;

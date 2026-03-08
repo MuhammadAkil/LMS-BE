@@ -26,18 +26,39 @@ const loginLimiter = rateLimit({
     legacyHeaders: false,
 });
 
+// Rate limit: 5 signup attempts per hour per IP
+const signupLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000,
+    max: 5,
+    message: { success: false, error: { code: 'RATE_LIMIT', message: 'Too many signup attempts. Try again in 1 hour.' } },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
 // Create Express app
 const expressApp = express();
 
+// Build allowed origins: include localhost dev ports and FRONTEND_URL if configured
+const allowedOrigins: (string | RegExp)[] = [
+    /^https?:\/\/localhost(:\d+)?$/,
+];
+if (process.env.FRONTEND_URL) {
+    allowedOrigins.push(process.env.FRONTEND_URL);
+}
+
 // Middleware
 expressApp.use(helmet());
-expressApp.use(cors());
+expressApp.use(cors({
+    origin: allowedOrigins,
+    credentials: true,
+}));
 expressApp.use(express.json());
 expressApp.use(express.urlencoded({ extended: true }));
 
-// Apply rate limit to login routes only
+// Apply rate limits to auth routes
 expressApp.use('/api/users/login', loginLimiter);
 expressApp.use('/api/auth/admin/login', loginLimiter);
+expressApp.use('/api/users/signup', signupLimiter);
 
 // Health check (before routing-controllers)
 expressApp.get('/health', (_req, res) => {
