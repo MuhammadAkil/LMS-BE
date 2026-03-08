@@ -1,7 +1,8 @@
 import { Request, Response } from 'express';
-import { Controller, Get, Post, Put, Req, Res } from 'routing-controllers';
+import { Controller, Get, Post, Put, Req, Res, UseBefore } from 'routing-controllers';
 import { CommissionConfigService } from '../service/CommissionConfigService';
 import { ApprovalWorkflowService } from '../service/ApprovalWorkflowService';
+import { AdminGuard } from '../middleware/AdminGuards';
 
 /**
  * Admin Commission Config Controller
@@ -20,6 +21,7 @@ import { ApprovalWorkflowService } from '../service/ApprovalWorkflowService';
  * PUT  /api/admin/management-commissions/:id/reject
  */
 @Controller('/admin/commission-configs')
+@UseBefore(AdminGuard)
 export class AdminCommissionConfigController {
   private service: CommissionConfigService;
   private approvalService: ApprovalWorkflowService;
@@ -125,6 +127,7 @@ export class AdminCommissionConfigController {
 }
 
 @Controller('/admin/management-commissions')
+@UseBefore(AdminGuard)
 export class AdminManagementCommissionController {
   private service: CommissionConfigService;
 
