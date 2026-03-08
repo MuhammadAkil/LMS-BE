@@ -85,8 +85,14 @@ export class BorrowerApplicationsService {
                 throw new Error('User not found');
             }
 
+            // Verification gate: level 0 (unverified) borrowers cannot create applications
+            const userLevel = (user as any).level ?? 0;
+            if (userLevel < 1) {
+                throw new Error('Email verification required before creating a loan application');
+            }
+
             // Fetch level rules for the user's verification level (fall back to level 0 if not found)
-            let levelRules = await this.levelRulesRepo.findByLevel(user.level);
+            let levelRules = await this.levelRulesRepo.findByLevel(userLevel);
             if (!levelRules) {
                 levelRules = await this.levelRulesRepo.findByLevel(0);
             }

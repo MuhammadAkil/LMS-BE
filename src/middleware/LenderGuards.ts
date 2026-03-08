@@ -84,7 +84,8 @@ export async function LenderStatusGuard(allowReadOnly: boolean = false) {
         }
 
         try {
-            const fullUser = await userRepository.findById(user.id);
+            // Reuse full user already fetched by LenderRoleGuard (has statusId); avoid a second DB hit
+            const fullUser = user.statusId != null ? user : await userRepository.findById(user.id);
 
             if (!fullUser) {
                 res.status(401).json({
@@ -94,7 +95,6 @@ export async function LenderStatusGuard(allowReadOnly: boolean = false) {
                 return;
             }
 
-            const userStatus = fullUser.statusId; // This should be mapped to status code from database
             const isBlockedOrFrozen =
                 fullUser.statusId === 3 || fullUser.statusId === 4; // BLOCKED=3, FROZEN=4 (adjust based on your DB)
             const isActive = fullUser.statusId === 2; // ACTIVE=2 (adjust based on your DB)
@@ -175,7 +175,8 @@ export async function LenderVerificationGuard(requiredLevel: number = 0) {
         }
 
         try {
-            const fullUser = await userRepository.findById(user.id);
+            // Reuse full user already fetched by a previous guard if available
+            const fullUser = user.statusId != null ? user : await userRepository.findById(user.id);
 
             if (!fullUser) {
                 res.status(401).json({
@@ -191,7 +192,7 @@ export async function LenderVerificationGuard(requiredLevel: number = 0) {
                     statusCode: '403',
                     statusMessage: 'Forbidden: Insufficient verification level',
                     detail: `This action requires verification level ${requiredLevel}. Current level: ${fullUser.level || 0}`,
-                    redirectTo: '/lender/verifications', // Redirect to Verification Center
+                    redirectTo: '/lender/verification', // Redirect to Verification Center
                 });
                 return;
             }
@@ -229,7 +230,8 @@ export async function LenderBankAccountGuard(
     }
 
     try {
-        const fullUser = await userRepository.findById(user.id);
+        // Reuse full user already fetched by a previous guard if available
+        const fullUser = user.statusId != null ? user : await userRepository.findById(user.id);
 
         if (!fullUser) {
             res.status(401).json({

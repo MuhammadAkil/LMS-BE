@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
-import { Controller, Get, Post, Put, Req, Res } from 'routing-controllers';
+import { Controller, Get, Post, Put, Req, Res, UseBefore } from 'routing-controllers';
 import { CommissionConfigService } from '../service/CommissionConfigService';
+import { CompanyGuard, CompanyStatusGuard } from '../middleware/CompanyGuards';
 
 /**
  * Company Management Commission Controller
@@ -9,6 +10,7 @@ import { CommissionConfigService } from '../service/CommissionConfigService';
  * PUT  /api/company/commissions/:id/submit
  */
 @Controller('/company/commissions')
+@UseBefore(CompanyGuard, CompanyStatusGuard)
 export class CompanyCommissionController {
   private service: CommissionConfigService;
 
@@ -62,7 +64,17 @@ export class CompanyCommissionController {
   async submit(@Req() req: Request, @Res() res: Response): Promise<void> {
     try {
       const user = (req as any).user;
+      const companyId = user.companyId;
       const id = parseInt(req.params.id, 10);
+
+      // Ownership check: ensure this commission belongs to the requesting company
+      const ownedCommissions = await this.service.getManagementCommissionsByCompany(companyId);
+      const owns = ownedCommissions.some(c => c.id === id);
+      if (!owns) {
+        res.status(403).json({ statusCode: '403', statusMessage: 'Forbidden: Commission does not belong to your company', timestamp: new Date().toISOString() });
+        return;
+      }
+
       const data = await this.service.submitManagementCommissionForApproval(id, user.id);
       res.json({
         statusCode: '200',

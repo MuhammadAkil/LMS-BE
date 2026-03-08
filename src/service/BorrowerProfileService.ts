@@ -99,7 +99,10 @@ export class BorrowerProfileService {
             const borrowerIdNum = parseInt(borrowerId, 10);
 
             // Validate request - only editable fields
-            if (!request.firstName && !request.lastName && !request.phone) {
+            const hasUpdatableField = request.firstName !== undefined ||
+                request.lastName !== undefined ||
+                request.phone !== undefined;
+            if (!hasUpdatableField) {
                 throw new Error('No fields to update');
             }
 

@@ -1,4 +1,6 @@
 import { randomUUID } from 'crypto';
+import { writeFileSync } from 'fs';
+import { join } from 'path';
 import { AuditLogRepository } from '../repository/AuditLogRepository';
 import { LoanApplicationRepository } from '../repository/LoanApplicationRepository';
 import { LoanRepository } from '../repository/LoanRepository';
@@ -440,9 +442,15 @@ export class BorrowerPaymentsService {
 
       const pdfBuffer = await this.pdfService.generateLoanAgreementBuffer(agreementData);
 
+      // Write PDF to disk so the download endpoint can serve it
+      const pdfFileName = `loan_agreement_${loan.id}.pdf`;
+      const pdfDiskPath = join(process.cwd(), 'generated_pdfs', pdfFileName);
+      writeFileSync(pdfDiskPath, pdfBuffer);
+      const pdfRelativePath = `generated_pdfs/${pdfFileName}`;
+
       await queryRunner.query(
         `INSERT INTO contracts (loan_id, pdf_path, generated_at) VALUES (?, ?, NOW())`,
-        [loan.id, `generated_pdfs/loan_agreement_${loan.id}.pdf`]
+        [loan.id, pdfRelativePath]
       );
 
       await queryRunner.query(

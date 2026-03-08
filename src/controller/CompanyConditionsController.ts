@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Put, UseBefore, Req, Body } from 'routing-controllers';
 import { Request } from 'express';
 import { CompanyConditionsService } from '../service/CompanyConditionsService';
-import { CompanyGuard, CompanyReadonlyGuard } from '../middleware/CompanyGuards';
+import { CompanyGuard, CompanyReadonlyGuard, CompanyStatusGuard } from '../middleware/CompanyGuards';
 import {
     CompanyConditionsResponse,
     SubmitConditionsRequest,
@@ -42,6 +42,7 @@ export class CompanyConditionsController {
     }
 
     @Put('')
+    @UseBefore(CompanyStatusGuard)
     async updateAutoOfferSettings(
         @Req() req: Request,
         @Body() body: UpdateAutoOfferSettingsRequest

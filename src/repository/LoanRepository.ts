@@ -62,6 +62,35 @@ export class LoanRepository {
         });
     }
 
+    async findOpenPaginatedWithFilters(
+        page: number,
+        pageSize: number,
+        filters: { minAmount?: number; maxAmount?: number; minDuration?: number; maxDuration?: number }
+    ): Promise<[Loan[], number]> {
+        const qb = this.loanRepository.createQueryBuilder('loan')
+            .innerJoin('loan_applications', 'la', 'la.id = loan.applicationId')
+            .where('loan.statusId = :statusId', { statusId: 1 });
+
+        if (filters.minAmount != null) {
+            qb.andWhere('loan.totalAmount >= :minAmount', { minAmount: filters.minAmount });
+        }
+        if (filters.maxAmount != null) {
+            qb.andWhere('loan.totalAmount <= :maxAmount', { maxAmount: filters.maxAmount });
+        }
+        if (filters.minDuration != null) {
+            qb.andWhere('la.durationMonths >= :minDuration', { minDuration: filters.minDuration });
+        }
+        if (filters.maxDuration != null) {
+            qb.andWhere('la.durationMonths <= :maxDuration', { maxDuration: filters.maxDuration });
+        }
+
+        return qb
+            .orderBy('loan.createdAt', 'DESC')
+            .skip((page - 1) * pageSize)
+            .take(pageSize)
+            .getManyAndCount();
+    }
+
     async findAll(limit: number = 10, offset: number = 0): Promise<[Loan[], number]> {
         return await this.loanRepository.findAndCount({
             take: limit,
