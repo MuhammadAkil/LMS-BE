@@ -55,7 +55,11 @@ export class UserService {
         const user = new User();
         user.email = signupRequest.email;
         user.passwordHash = await bcrypt.hash(signupRequest.password, this.BCRYPT_SALT_ROUNDS);
-        user.roleId = this.DEFAULT_ROLE_ID; // Default: BORROWER role
+        // Only allow BORROWER (2) or LENDER (3) via self-registration. Anything else defaults to BORROWER.
+        const allowedRoles = [2, 3];
+        user.roleId = (signupRequest.roleId && allowedRoles.includes(signupRequest.roleId))
+            ? signupRequest.roleId
+            : this.DEFAULT_ROLE_ID;
         user.statusId = this.ACTIVE_STATUS_ID; // Default: ACTIVE status
         user.level = 0;
         user.phone = signupRequest.phone || null;
