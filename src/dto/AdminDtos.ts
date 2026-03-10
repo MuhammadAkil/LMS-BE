@@ -130,6 +130,19 @@ export class VerificationDetailDto {
   reviewedBy?: number;
   reviewerEmail?: string;
   reviewComment?: string;
+  rejectionReason?: string;
+  documents?: Array<{
+    id: number;
+    fileName?: string;
+    filePath?: string;
+    mimeType?: string;
+    category?: string;
+    subtype?: string;
+    side?: string;
+    issuedAt?: Date;
+    expiresAt?: Date;
+    uploadedAt?: Date;
+  }>;
   metadata?: Record<string, any>;
 }
 

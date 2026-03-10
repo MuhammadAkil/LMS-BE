@@ -18,6 +18,7 @@ import {
  * - GET   /admin/verifications           -> List verifications (AdminGuard)
  * - GET   /admin/verifications/pending   -> List pending verifications (AdminGuard)
  * - GET   /admin/verifications/:id       -> Get verification details (AdminGuard)
+ * - POST  /admin/verifications/:id/start-review -> Move to UNDER_REVIEW (CriticalOperationGuard)
  * - POST  /admin/verifications/:id/approve -> Approve verification (CriticalOperationGuard)
  * - POST  /admin/verifications/:id/reject  -> Reject verification (CriticalOperationGuard)
  */
@@ -108,6 +109,19 @@ export class AdminVerificationsController {
       throw new Error('Admin user ID not found in request');
     }
     return this.verificationsService.approveVerification(verificationId, request, adminId);
+  }
+
+  @Post('/:id/start-review')
+  @UseBefore(CriticalOperationGuard)
+  async startReview(
+    @Param('id') verificationId: number,
+    @Req() req: Request
+  ): Promise<VerificationDetailDto> {
+    const adminId = (req.user as any)?.id || (req.user as any)?.userId;
+    if (!adminId) {
+      throw new Error('Admin user ID not found in request');
+    }
+    return this.verificationsService.moveToUnderReview(verificationId, adminId);
   }
 
   /**

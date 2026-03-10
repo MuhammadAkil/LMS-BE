@@ -1,10 +1,11 @@
-﻿import { AppDataSource } from '../config/database';
+import { AppDataSource } from '../config/database';
 import { AuditLogRepository } from '../repository/AuditLogRepository';
 import {
     DocumentListResponse,
     DocumentListItemDto,
     DocumentDetailDto,
 } from '../dto/BorrowerDtos';
+import { getStatusCodeById, VerificationWorkflowStatusCode } from '../util/KycVerification';
 
 /**
  * B-07: BORROWER DOCUMENTS CENTER SERVICE
@@ -68,23 +69,22 @@ export class BorrowerDocumentsService {
                     relatedEntityId: Number(c.loanId),
                     createdAt: c.createdAt ? new Date(c.createdAt).toISOString().split('T')[0] : '',
                     downloadUrl: `/api/borrower/documents/${this.CONTRACT_OFFSET + Number(c.id)}/download`,
-                    status: 'verified',
+                    status: VerificationWorkflowStatusCode.APPROVED,
                 });
             }
 
             // Map verification documents
             const verDocs = Array.isArray(verRows) ? verRows : [];
             for (const v of verDocs) {
-                const statusMap: Record<number, string> = { 1: 'PENDING', 2: 'APPROVED', 3: 'REJECTED' };
                 documents.push({
                     id: Number(v.id),
                     type: 'VERIFICATION',
-                    name: `${String(v.vtCode || 'ID')} Document`,
+                    name: `${String(v.vtCode || 'DOCUMENT')} Document`,
                     relatedEntity: 'VERIFICATION',
                     relatedEntityId: Number(v.verificationId),
                     createdAt: v.uploadedAt ? new Date(v.uploadedAt).toISOString().split('T')[0] : '',
                     downloadUrl: `/api/borrower/documents/${v.id}/download`,
-                    status: statusMap[v.uvStatus] ?? 'PENDING',
+                    status: getStatusCodeById(Number(v.uvStatus)),
                     filePath: v.filePath,
                 });
             }

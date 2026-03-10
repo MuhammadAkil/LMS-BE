@@ -8,6 +8,10 @@ export class VerificationDocumentRepository {
         return await this.verificationDocumentRepository.save(document);
     }
 
+    async saveMany(documents: VerificationDocument[]): Promise<VerificationDocument[]> {
+        return await this.verificationDocumentRepository.save(documents);
+    }
+
     async findById(id: number): Promise<VerificationDocument | null> {
         return await this.verificationDocumentRepository.findOne({
             where: { id },

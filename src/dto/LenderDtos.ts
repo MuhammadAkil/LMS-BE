@@ -344,10 +344,17 @@ export interface VerificationListResponse {
 }
 
 export interface SubmitVerificationRequest {
-    verificationType: string; // KYC, BANK, INCOME, BUSINESS, etc.
+    verificationType: string; // KYC category code
     documents: {
         fileName: string;
         filePath: string;
+        category?: string;
+        subtype?: string;
+        side?: string;
+        issuedAt?: string;
+        expiresAt?: string;
+        fullName?: string;
+        addressLine?: string;
     }[];
 }
 

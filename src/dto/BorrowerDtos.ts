@@ -67,8 +67,8 @@ export class VerificationStatusDto {
 
 export class VerificationItemDto {
     id!: number;
-    type!: string; // EMAIL, PHONE, KYC, BANK
-    status!: string; // PENDING, APPROVED, REJECTED
+    type!: string; // Verification category code
+    status!: string; // PENDING_VERIFICATION, UNDER_REVIEW, APPROVED, REJECTED
     submittedAt?: string; // ISO date
     approvedAt?: string;
     rejectionReason?: string;
@@ -82,17 +82,23 @@ export class VerificationRequirementsDto {
 
 export class RequirementDto {
     id!: string;
-    type!: string; // EMAIL, PHONE, KYC, etc.
+    type!: string; // KYC category code
+    title?: string;
     description!: string;
     isRequired!: boolean;
     isCompleted!: boolean;
     expiresAt?: string; // ISO date
+    acceptedDocuments?: string[];
+    acceptedSubtypes?: string[];
+    requiresBothSidesFor?: string[];
+    maxAgeMonths?: number;
+    mustBeUnexpired?: boolean;
 }
 
 export class UploadVerificationRequest {
     @IsNotEmpty({ message: 'Verification type is required' })
     @IsString()
-    verificationType!: string; // EMAIL, PHONE, KYC, BANK
+    verificationType!: string; // KYC category code
 
     @IsArray({ message: 'Documents must be an array' })
     @ValidateNested({ each: true })
@@ -108,6 +114,34 @@ export class VerificationDocumentDto {
     @IsNotEmpty({ message: 'File path is required' })
     @IsString()
     filePath!: string; // S3 path or local path
+
+    @IsOptional()
+    @IsString()
+    category?: string;
+
+    @IsOptional()
+    @IsString()
+    subtype?: string;
+
+    @IsOptional()
+    @IsString()
+    side?: string;
+
+    @IsOptional()
+    @IsString()
+    issuedAt?: string;
+
+    @IsOptional()
+    @IsString()
+    expiresAt?: string;
+
+    @IsOptional()
+    @IsString()
+    fullName?: string;
+
+    @IsOptional()
+    @IsString()
+    addressLine?: string;
 }
 
 export class UploadVerificationResponse {

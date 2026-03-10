@@ -28,14 +28,14 @@ export class VerificationRepositoryBase {
 
     async findApprovedByUser(userId: number): Promise<Verification[]> {
         return await this.repo.find({
-            where: { userId, statusId: 2 }, // APPROVED status
+            where: { userId, statusId: 3 }, // APPROVED status
             order: { submittedAt: 'DESC' },
         });
     }
 
     async findPendingByUser(userId: number): Promise<Verification[]> {
         return await this.repo.find({
-            where: { userId, statusId: 1 }, // PENDING status
+            where: { userId, statusId: 1 }, // PENDING_VERIFICATION status
             order: { submittedAt: 'DESC' },
         });
     }

@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { Controller, Get, Post, Req, Res } from 'routing-controllers';
+import { BodyParam, Controller, Get, Post, Req, Res, UploadedFiles } from 'routing-controllers';
 import { BorrowerVerificationService } from '../service/BorrowerVerificationService';
 import {
     VerificationStatusDto,
@@ -8,6 +8,7 @@ import {
     UploadVerificationResponse,
     BorrowerApiResponse,
 } from '../dto/BorrowerDtos';
+import { kycUploadOptions } from '../util/UploadStorage';
 
 /**
  * B-02: BORROWER VERIFICATION CONTROLLER
@@ -88,14 +89,48 @@ export class BorrowerVerificationController {
     /**
      * POST /api/borrower/verification/upload
      * Submit verification documents
-     * Body: { verificationType: string, documents: [{ fileName, filePath }] }
+     * multipart/form-data:
+     * - verificationType: string
+     * - documentsMetadata: JSON array (optional; per-file metadata)
+     * - documents: file[] (required)
      */
     @Post('/upload')
-    async uploadVerification(@Req() req: Request, @Res() res: Response): Promise<void> {
+    async uploadVerification(
+        @Req() req: Request,
+        @Res() res: Response,
+        @BodyParam('verificationType') verificationType?: string,
+        @BodyParam('documentsMetadata') documentsMetadataRaw?: string,
+        @UploadedFiles('documents', { options: kycUploadOptions }) files?: Express.Multer.File[]
+    ): Promise<void> {
         try {
             const user = (req as any).user;
             const borrowerId = user.id.toString();
-            const request: UploadVerificationRequest = req.body;
+            const metadata: Array<Record<string, any>> = (() => {
+                if (!documentsMetadataRaw) return [];
+                try {
+                    return JSON.parse(documentsMetadataRaw);
+                } catch {
+                    return [];
+                }
+            })();
+
+            const request: UploadVerificationRequest = {
+                verificationType: verificationType || req.body?.verificationType,
+                documents: (files || ((req as any).files as Express.Multer.File[]) || []).map((file, index) => {
+                    const docMeta = metadata[index] || {};
+                    return {
+                        fileName: file.originalname,
+                        filePath: `/uploads/kyc/${file.filename}`,
+                        category: docMeta.category,
+                        subtype: docMeta.subtype,
+                        side: docMeta.side,
+                        issuedAt: docMeta.issuedAt,
+                        expiresAt: docMeta.expiresAt,
+                        fullName: docMeta.fullName,
+                        addressLine: docMeta.addressLine,
+                    };
+                }),
+            };
 
             // Validation
             if (!request.verificationType || !request.documents || request.documents.length === 0) {

@@ -2,6 +2,8 @@ import { VerificationRepository } from '../repository/VerificationRepository';
 import { UserRepository } from '../repository/UserRepository';
 import { AdminAuditService } from './AdminAuditService';
 import { VerificationListItemDto, VerificationDetailDto, ApproveVerificationRequest, RejectVerificationRequest } from '../dto/AdminDtos';
+import { VerificationDocumentRepository } from '../repository/VerificationDocumentRepository';
+import { VERIFICATION_STATUS_IDS, getStatusCodeById } from '../util/KycVerification';
 
 /**
  * Admin Verification Review Service
@@ -12,11 +14,13 @@ export class AdminVerificationsService {
   private verificationRepo: VerificationRepository;
   private userRepo: UserRepository;
   private auditService: AdminAuditService;
+  private verificationDocumentRepo: VerificationDocumentRepository;
 
   constructor() {
     this.verificationRepo = new VerificationRepository();
     this.userRepo = new UserRepository();
     this.auditService = new AdminAuditService();
+    this.verificationDocumentRepo = new VerificationDocumentRepository();
   }
 
   /**
@@ -36,7 +40,7 @@ export class AdminVerificationsService {
    * Get pending verifications (most important for admins)
    */
   async getPendingVerifications(limit: number = 20, offset: number = 0) {
-    const [verifications, total] = await this.verificationRepo.findPending(limit, offset);
+    const [verifications, total] = await this.verificationRepo.findReviewQueue(limit, offset);
 
     const dtos: VerificationListItemDto[] = await Promise.all(
       verifications.map(async v => this.mapToListDto(v))
@@ -72,9 +76,21 @@ export class AdminVerificationsService {
       throw new Error('Verification not found');
     }
 
-    // Update verification status to APPROVED (statusId = 2)
+    if (verification.statusId === VERIFICATION_STATUS_IDS.PENDING_VERIFICATION) {
+      await this.verificationRepo.update(verificationId, {
+        statusId: VERIFICATION_STATUS_IDS.UNDER_REVIEW,
+        reviewedBy: adminId,
+        reviewedAt: new Date(),
+      });
+    }
+
+    if (verification.statusId !== VERIFICATION_STATUS_IDS.UNDER_REVIEW && verification.statusId !== VERIFICATION_STATUS_IDS.PENDING_VERIFICATION) {
+      throw new Error('Only pending or under-review verifications can be approved');
+    }
+
+    // Update verification status to APPROVED
     const updated = await this.verificationRepo.update(verificationId, {
-      statusId: 2, // APPROVED
+      statusId: VERIFICATION_STATUS_IDS.APPROVED,
       reviewedBy: adminId,
       reviewedAt: new Date(),
       reviewComment: request.comment,
@@ -138,9 +154,21 @@ export class AdminVerificationsService {
       throw new Error('Verification not found');
     }
 
-    // Update verification status to REJECTED (statusId = 3)
+    if (verification.statusId === VERIFICATION_STATUS_IDS.PENDING_VERIFICATION) {
+      await this.verificationRepo.update(verificationId, {
+        statusId: VERIFICATION_STATUS_IDS.UNDER_REVIEW,
+        reviewedBy: adminId,
+        reviewedAt: new Date(),
+      });
+    }
+
+    if (verification.statusId !== VERIFICATION_STATUS_IDS.UNDER_REVIEW && verification.statusId !== VERIFICATION_STATUS_IDS.PENDING_VERIFICATION) {
+      throw new Error('Only pending or under-review verifications can be rejected');
+    }
+
+    // Update verification status to REJECTED
     const updated = await this.verificationRepo.update(verificationId, {
-      statusId: 3, // REJECTED
+      statusId: VERIFICATION_STATUS_IDS.REJECTED,
       reviewedBy: adminId,
       reviewedAt: new Date(),
       reviewComment: request.comment,
@@ -207,6 +235,25 @@ export class AdminVerificationsService {
     return await this.verificationRepo.countPending();
   }
 
+  async moveToUnderReview(verificationId: number, adminId: number): Promise<VerificationDetailDto | null> {
+    const verification = await this.verificationRepo.findById(verificationId);
+    if (!verification) {
+      throw new Error('Verification not found');
+    }
+
+    if (verification.statusId !== VERIFICATION_STATUS_IDS.PENDING_VERIFICATION) {
+      throw new Error('Only pending verification can move to under review');
+    }
+
+    await this.verificationRepo.update(verificationId, {
+      statusId: VERIFICATION_STATUS_IDS.UNDER_REVIEW,
+      reviewedBy: adminId,
+      reviewedAt: new Date(),
+    });
+
+    return this.getVerificationById(verificationId);
+  }
+
   private async mapToListDto(verification: any): Promise<VerificationListItemDto> {
     const user = await this.userRepo.findById(verification.userId);
 
@@ -227,6 +274,7 @@ export class AdminVerificationsService {
   private async mapToDetailDto(verification: any): Promise<VerificationDetailDto> {
     const user = await this.userRepo.findById(verification.userId);
     const reviewer = verification.reviewedBy ? await this.userRepo.findById(verification.reviewedBy) : null;
+    const documents = await this.verificationDocumentRepo.findByVerificationId(verification.id);
 
     return {
       id: verification.id,
@@ -241,27 +289,43 @@ export class AdminVerificationsService {
       reviewedBy: verification.reviewedBy,
       reviewerEmail: reviewer?.email,
       reviewComment: verification.reviewComment,
-      metadata: verification.metadata ? JSON.parse(verification.metadata) : undefined,
+      rejectionReason:
+        verification.statusId === VERIFICATION_STATUS_IDS.REJECTED ? verification.reviewComment : undefined,
+      documents: documents.map((d) => ({
+        id: d.id,
+        fileName: d.fileName,
+        filePath: d.filePath,
+        mimeType: d.mimeType,
+        category: d.category,
+        subtype: d.subtype,
+        side: d.side,
+        issuedAt: d.issuedAt,
+        expiresAt: d.expiresAt,
+        uploadedAt: d.uploadedAt,
+      })),
+      metadata:
+        typeof verification.metadata === 'string'
+          ? JSON.parse(verification.metadata)
+          : verification.metadata || undefined,
     };
   }
 
   private getVerificationType(typeId: number): string {
     const typeMap: Record<number, string> = {
-      1: 'KYC',
-      2: 'BANK',
+      1: 'INDIVIDUAL_IDENTITY',
+      2: 'INDIVIDUAL_PROOF_OF_ADDRESS',
       3: 'INCOME',
-      4: 'BUSINESS',
+      4: 'BIK',
+      5: 'PHONE',
+      6: 'EMAIL',
+      7: 'COMPANY_REGISTRATION',
+      8: 'COMPANY_DIRECTOR_IDENTITY',
+      9: 'COMPANY_PROOF_OF_ADDRESS',
     };
     return typeMap[typeId] || 'UNKNOWN';
   }
 
   private getVerificationStatus(statusId: number): string {
-    const statusMap: Record<number, string> = {
-      1: 'PENDING',
-      2: 'APPROVED',
-      3: 'REJECTED',
-      4: 'EXPIRED',
-    };
-    return statusMap[statusId] || 'UNKNOWN';
+    return getStatusCodeById(statusId);
   }
 }

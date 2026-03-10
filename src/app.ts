@@ -98,6 +98,7 @@ expressApp.post('/webhook/p24', async (req, res) => {
 // Serve generated PDFs (authenticated via query token in production)
 expressApp.use('/generated_pdfs', express.static(path.join(__dirname, '..', 'generated_pdfs')));
 expressApp.use('/exports', express.static(path.join(__dirname, '..', 'exports')));
+expressApp.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 
 // Setup routing-controllers with auto-discovery
 // Auto-discovers all controllers in the controller directory
