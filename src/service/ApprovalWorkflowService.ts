@@ -158,18 +158,35 @@ export class ApprovalWorkflowService {
       });
     }
 
-    const pendingTemplates = await AppDataSource.query(
-      `SELECT id, type, language, created_by, created_at FROM templates WHERE status = 'PENDING_APPROVAL'`
-    );
-    for (const t of pendingTemplates) {
-      items.push({
-        entityType: 'TEMPLATE',
-        entityId: t.id,
-        description: `Template: ${t.type} (${t.language})`,
-        createdBy: t.created_by,
-        createdAt: t.created_at,
-        status: 'PENDING_APPROVAL',
-      });
+    const templateCols = await this.getTemplateColumns();
+    const templateStatusCol = templateCols.has('status') ? 'status' : null;
+    const templateCreatedByCol = templateCols.has('created_by')
+      ? 'created_by'
+      : templateCols.has('createdBy')
+      ? 'createdBy'
+      : null;
+    const templateCreatedAtCol = templateCols.has('created_at')
+      ? 'created_at'
+      : templateCols.has('createdAt')
+      ? 'createdAt'
+      : null;
+
+    if (templateStatusCol && templateCreatedByCol && templateCreatedAtCol) {
+      const pendingTemplates = await AppDataSource.query(
+        `SELECT id, type, language, ${templateCreatedByCol} as createdBy, ${templateCreatedAtCol} as createdAt
+         FROM templates
+         WHERE ${templateStatusCol} = 'PENDING_APPROVAL'`
+      );
+      for (const t of pendingTemplates) {
+        items.push({
+          entityType: 'TEMPLATE',
+          entityId: t.id,
+          description: `Template: ${t.type} (${t.language})`,
+          createdBy: Number(t.createdBy) || 0,
+          createdAt: t.createdAt,
+          status: 'PENDING_APPROVAL',
+        });
+      }
     }
 
     const [fileConfigs] = await this.fileConfigRepo.findAll(100, 0);
@@ -206,10 +223,19 @@ export class ApprovalWorkflowService {
         return m ? { status: m.status, createdBy: m.createdBy } : null;
       }
       case 'TEMPLATE': {
+        const templateCols = await this.getTemplateColumns();
+        const templateStatusCol = templateCols.has('status') ? 'status' : null;
+        const templateCreatedByCol = templateCols.has('created_by')
+          ? 'created_by'
+          : templateCols.has('createdBy')
+          ? 'createdBy'
+          : null;
+        if (!templateStatusCol || !templateCreatedByCol) return null;
         const rows = await AppDataSource.query(
-          `SELECT status, created_by FROM templates WHERE id = ?`, [entityId]
+          `SELECT ${templateStatusCol} as status, ${templateCreatedByCol} as createdBy FROM templates WHERE id = ?`,
+          [entityId]
         );
-        return rows[0] ? { status: rows[0].status, createdBy: rows[0].created_by } : null;
+        return rows[0] ? { status: rows[0].status, createdBy: rows[0].createdBy } : null;
       }
       case 'FILE_CONFIG': {
         const f = await this.fileConfigRepo.findById(entityId);
@@ -260,15 +286,58 @@ export class ApprovalWorkflowService {
         });
         break;
       case 'TEMPLATE':
-        await AppDataSource.query(
-          `UPDATE templates SET status = ?, ${isApproved ? 'approved_by = ?, approved_at = NOW(),' : ''} ${isRejected ? 'rejection_reason = ?,' : ''} updated_at = NOW() WHERE id = ?`,
-          [
-            newStatus,
-            ...(isApproved ? [actorId] : []),
-            ...(isRejected && comment ? [comment] : []),
-            entityId,
-          ]
-        );
+        {
+          const templateCols = await this.getTemplateColumns();
+          const templateStatusCol = templateCols.has('status') ? 'status' : null;
+          const templateApprovedByCol = templateCols.has('approved_by')
+            ? 'approved_by'
+            : templateCols.has('approvedBy')
+            ? 'approvedBy'
+            : null;
+          const templateApprovedAtCol = templateCols.has('approved_at')
+            ? 'approved_at'
+            : templateCols.has('approvedAt')
+            ? 'approvedAt'
+            : null;
+          const templateRejectionCol = templateCols.has('rejection_reason')
+            ? 'rejection_reason'
+            : templateCols.has('rejectionReason')
+            ? 'rejectionReason'
+            : null;
+          const templateUpdatedAtCol = templateCols.has('updated_at')
+            ? 'updated_at'
+            : templateCols.has('updatedAt')
+            ? 'updatedAt'
+            : null;
+
+          if (!templateStatusCol) {
+            throw new Error('Templates table does not support approval status workflow');
+          }
+
+          const setClauses: string[] = [`${templateStatusCol} = ?`];
+          const params: any[] = [newStatus];
+
+          if (isApproved && templateApprovedByCol) {
+            setClauses.push(`${templateApprovedByCol} = ?`);
+            params.push(actorId);
+          }
+          if (isApproved && templateApprovedAtCol) {
+            setClauses.push(`${templateApprovedAtCol} = NOW()`);
+          }
+          if (isRejected && templateRejectionCol) {
+            setClauses.push(`${templateRejectionCol} = ?`);
+            params.push(comment || null);
+          }
+          if (templateUpdatedAtCol) {
+            setClauses.push(`${templateUpdatedAtCol} = NOW()`);
+          }
+
+          params.push(entityId);
+          await AppDataSource.query(
+            `UPDATE templates SET ${setClauses.join(', ')} WHERE id = ?`,
+            params
+          );
+        }
         break;
       case 'FILE_CONFIG':
         await this.fileConfigRepo.update(entityId, {
@@ -318,5 +387,16 @@ export class ApprovalWorkflowService {
         }
       }
     }
+  }
+
+  private async getTemplateColumns(): Promise<Set<string>> {
+    const dbName = AppDataSource.options.database;
+    const rows = await AppDataSource.query(
+      `SELECT COLUMN_NAME as columnName
+       FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'templates'`,
+      [dbName]
+    );
+    return new Set((rows || []).map((r: any) => String(r.columnName)));
   }
 }

@@ -1,12 +1,11 @@
 import { Request, Response } from 'express';
-import { Body, BodyParam, Controller, Get, Patch, Post, Req, Res, UploadedFiles, UseBefore } from 'routing-controllers';
+import { Body, Controller, Get, Patch, Post, Req, Res, UseBefore } from 'routing-controllers';
 import { LenderVerificationService, LenderProfileService } from '../service/LenderVerificationService';
 import { SubmitVerificationRequest, UpdateLenderProfileRequest } from '../dto/LenderDtos';
 import { AuthenticationMiddleware } from '../middleware/AuthenticationMiddleware';
 import { LenderRoleGuard } from '../middleware/LenderGuards';
 import { withLenderStatusGuard, withLenderVerificationGuard } from '../middleware/LenderGuardWrappers';
 import { AuditLogRepository } from '../repository/AuditLogRepository';
-import { kycUploadOptions } from '../util/UploadStorage';
 
 /**
  * L-08: LENDER VERIFICATION CONTROLLER
@@ -55,10 +54,7 @@ export class LenderVerificationController {
     /**
      * POST /lender/verifications
      * Submit verification documents
-     * multipart/form-data:
-     * - verificationType: string
-     * - documentsMetadata: JSON array (optional)
-     * - documents: file[]
+     * Body (JSON): { verificationType, documents: [{ fileName, filePath }] }
      * Required guards: LenderRoleGuard, LenderStatusGuard
      */
     @Post('/')
@@ -66,39 +62,11 @@ export class LenderVerificationController {
     async submitVerification(
         @Req() req: Request,
         @Res() res: Response,
-        @Body() _body?: SubmitVerificationRequest,
-        @BodyParam('verificationType') verificationType?: string,
-        @BodyParam('documentsMetadata') documentsMetadataRaw?: string,
-        @UploadedFiles('documents', { options: kycUploadOptions }) files?: Express.Multer.File[]
+        @Body() body?: SubmitVerificationRequest
     ): Promise<void> {
         try {
             const lenderId = (req as any).user.id;
-            const metadata: Array<Record<string, any>> = (() => {
-                if (!documentsMetadataRaw) return [];
-                try {
-                    return JSON.parse(documentsMetadataRaw);
-                } catch {
-                    return [];
-                }
-            })();
-
-            const request: SubmitVerificationRequest = {
-                verificationType: verificationType || req.body?.verificationType,
-                documents: (files || []).map((file, index) => {
-                    const docMeta = metadata[index] || {};
-                    return {
-                        fileName: file.originalname,
-                        filePath: `/uploads/kyc/${file.filename}`,
-                        category: docMeta.category,
-                        subtype: docMeta.subtype,
-                        side: docMeta.side,
-                        issuedAt: docMeta.issuedAt,
-                        expiresAt: docMeta.expiresAt,
-                        fullName: docMeta.fullName,
-                        addressLine: docMeta.addressLine,
-                    };
-                }),
-            };
+            const request: SubmitVerificationRequest = body || req.body;
 
             // Validate request
             const validation = this.validateVerificationRequest(request);

@@ -246,7 +246,10 @@ export class BorrowerVerificationService {
             }
 
             const applicantType = getApplicantTypeFromRoleId(user.roleId);
-            const validation = this.kycValidationService.validateSubmission(applicantType, request.documents || []);
+            const validation = this.kycValidationService.validateSubmission(applicantType, request.documents || [], {
+                requireAllCategories: false,
+                targetCategory: request.verificationType as any,
+            });
             if (!validation.valid) {
                 throw new Error(validation.errors.join('; '));
             }

@@ -1,9 +1,8 @@
 import { Request, Response } from 'express';
-import { BodyParam, Controller, Get, Post, Req, Res, UploadedFiles, UseBefore } from 'routing-controllers';
+import { Body, Controller, Get, Post, Req, Res, UseBefore } from 'routing-controllers';
 import { CompanyGuard, CompanyReadonlyGuard } from '../middleware/CompanyGuards';
 import { BorrowerVerificationService } from '../service/BorrowerVerificationService';
 import { UploadVerificationRequest } from '../dto/BorrowerDtos';
-import { kycUploadOptions } from '../util/UploadStorage';
 
 @Controller('/company/verification')
 @UseBefore(CompanyGuard, CompanyReadonlyGuard)
@@ -60,38 +59,11 @@ export class CompanyVerificationController {
   async uploadVerification(
     @Req() req: Request,
     @Res() res: Response,
-    @BodyParam('verificationType') verificationType?: string,
-    @BodyParam('documentsMetadata') documentsMetadataRaw?: string,
-    @UploadedFiles('documents', { options: kycUploadOptions }) files?: Express.Multer.File[]
+    @Body() body?: UploadVerificationRequest
   ): Promise<void> {
     try {
       const user = (req as any).user;
-      const metadata: Array<Record<string, any>> = (() => {
-        if (!documentsMetadataRaw) return [];
-        try {
-          return JSON.parse(documentsMetadataRaw);
-        } catch {
-          return [];
-        }
-      })();
-
-      const request: UploadVerificationRequest = {
-        verificationType: verificationType || req.body?.verificationType,
-        documents: (files || ((req as any).files as Express.Multer.File[]) || []).map((file, index) => {
-          const docMeta = metadata[index] || {};
-          return {
-            fileName: file.originalname,
-            filePath: `/uploads/kyc/${file.filename}`,
-            category: docMeta.category,
-            subtype: docMeta.subtype,
-            side: docMeta.side,
-            issuedAt: docMeta.issuedAt,
-            expiresAt: docMeta.expiresAt,
-            fullName: docMeta.fullName,
-            addressLine: docMeta.addressLine,
-          };
-        }),
-      };
+      const request: UploadVerificationRequest = body || req.body;
 
       const response = await this.verificationService.submitVerification(user.id.toString(), request);
       res.status(201).json({

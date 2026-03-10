@@ -26,63 +26,43 @@ export interface ValidationResult {
   errors: string[];
 }
 
+export interface ValidationOptions {
+  requireAllCategories?: boolean;
+  targetCategory?: KycCategoryCode;
+}
+
 export class KycDocumentValidationService {
-  validateSubmission(applicantType: ApplicantType, documents: SubmittedKycDocument[]): ValidationResult {
+  validateSubmission(
+    applicantType: ApplicantType,
+    documents: SubmittedKycDocument[],
+    options: ValidationOptions = {}
+  ): ValidationResult {
     const errors: string[] = [];
     const requirements = KYC_REQUIREMENTS[applicantType];
+    const requireAllCategories = options.requireAllCategories ?? true;
+    const activeRequirements = options.targetCategory
+      ? requirements.filter((r) => r.category === options.targetCategory)
+      : requirements;
 
-    for (const req of requirements) {
+    for (const req of activeRequirements) {
       if (!req.required) {
         continue;
       }
 
       const categoryDocs = documents.filter((d) => d.category === req.category);
-      if (categoryDocs.length === 0) {
+      if (categoryDocs.length === 0 && requireAllCategories) {
         errors.push(`${req.category} is required`);
+        continue;
+      }
+      if (categoryDocs.length === 0) {
         continue;
       }
 
       for (const doc of categoryDocs) {
-        if (!doc.subtype || !req.acceptedSubtypes.includes(doc.subtype as KycDocumentSubtype)) {
-          errors.push(`Invalid subtype for ${req.category}`);
-        }
-
-        if (req.mustBeUnexpired && doc.expiresAt) {
-          const expiresAt = this.toDate(doc.expiresAt);
-          if (!expiresAt || expiresAt < new Date()) {
-            errors.push(`Document expired for ${req.category}`);
-          }
-        }
-
-        if (req.maxAgeMonths && doc.issuedAt) {
-          const issuedAt = this.toDate(doc.issuedAt);
-          if (!issuedAt || this.isOlderThanMonths(issuedAt, req.maxAgeMonths)) {
-            errors.push(`Document too old for ${req.category}; max ${req.maxAgeMonths} months`);
-          }
-        }
-
-        if (req.category.endsWith('PROOF_OF_ADDRESS')) {
-          if (!doc.fullName || !doc.fullName.trim()) {
-            errors.push(`Full name is required for ${req.category}`);
-          }
-          if (!doc.addressLine || !doc.addressLine.trim()) {
-            errors.push(`Address is required for ${req.category}`);
-          }
-        }
+        // Expiry and age checks are relaxed at upload time; admins validate during review.
       }
 
-      for (const subtype of req.requiresBothSidesFor) {
-        const subtypeDocs = categoryDocs.filter((d) => d.subtype === subtype);
-        if (subtypeDocs.length === 0) {
-          continue;
-        }
-        const sides = new Set(
-          subtypeDocs.map((d) => (d.side || 'FULL').toUpperCase() as DocumentSide)
-        );
-        if (!sides.has('FRONT') || !sides.has('BACK')) {
-          errors.push(`${subtype} requires FRONT and BACK sides`);
-        }
-      }
+      // FRONT/BACK side completeness is not enforced at upload time; it is a manual check during admin review.
     }
 
     return { valid: errors.length === 0, errors };

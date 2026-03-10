@@ -3,7 +3,7 @@ import { Request, Response } from 'express';
 import { AdminExportsService } from '../service/AdminExportsService';
 import { AdminGuard, SuperAdminGuard, CriticalOperationGuard } from '../middleware/AdminGuards';
 import { readFileSync, existsSync } from 'node:fs';
-import { basename } from 'node:path';
+import { basename, isAbsolute, join, normalize, resolve } from 'node:path';
 import {
   ExportListItemDto,
   GenerateXMLExportRequest,
@@ -60,7 +60,8 @@ export class AdminExportsController {
   @Get('/:id/download')
   async downloadExport(@Param('id') exportId: number, @Res() res: Response): Promise<any> {
     const exp = await this.exportsService.getExportById(exportId);
-    const filePath: string = (exp as any).filePath || '';
+    const rawFilePath: string = (exp as any).filePath || '';
+    const filePath = this.resolveExportPath(rawFilePath);
 
     if (!filePath || !existsSync(filePath)) {
       res.status(404).json({ message: 'Export file not found on disk' });
@@ -75,6 +76,31 @@ export class AdminExportsController {
     const fileContent = readFileSync(filePath);
     res.send(fileContent);
     return res;
+  }
+
+  private resolveExportPath(rawPath: string): string {
+    if (!rawPath) return '';
+
+    const normalizedRaw = normalize(rawPath);
+    const candidates = new Set<string>();
+
+    if (isAbsolute(normalizedRaw)) {
+      candidates.add(normalizedRaw);
+    }
+
+    // Handle DB values like '/exports/file.csv' or 'exports/file.csv'
+    const cleaned = normalizedRaw.replace(/^[/\\]+/, '');
+    candidates.add(resolve(process.cwd(), cleaned));
+    candidates.add(resolve(process.cwd(), 'exports', basename(normalizedRaw)));
+    candidates.add(join(process.cwd(), 'exports', basename(normalizedRaw)));
+
+    for (const candidate of candidates) {
+      if (existsSync(candidate)) {
+        return candidate;
+      }
+    }
+
+    return normalizedRaw;
   }
 
   /**
