@@ -284,6 +284,17 @@ export async function LenderManagedGuard(
         return;
     }
     try {
+        // Allowlisted demo/test lenders can always place manual offers,
+        // even if they have a management agreement.
+        const allowlistedEmails = new Set<string>([
+            'lender@lms.com',
+            'borrower@lms.com',
+        ]);
+        if (user.email && allowlistedEmails.has(String(user.email).toLowerCase())) {
+            next();
+            return;
+        }
+
         const activeAgreement = await managementAgreementRepository.findActiveByLenderId(user.id);
         if (activeAgreement) {
             res.status(403).json({
