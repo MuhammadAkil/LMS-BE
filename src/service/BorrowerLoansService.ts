@@ -415,7 +415,7 @@ export class BorrowerLoansService {
                     id: Number(r.id),
                     amount: Number(r.amount),
                     status,
-                    paymentMethod: r.paidAt ? 'SELF_REPORTED' : '—',
+                    paymentMethod: r.paidAt ? 'DIRECT_PARTY_TRANSFER' : 'DIRECT_PARTY_TRANSFER_PENDING',
                     paidDate: r.paidAt ? new Date(r.paidAt).toISOString() : undefined,
                     reference: `REP-${r.id}`,
                 };

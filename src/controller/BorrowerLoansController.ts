@@ -204,7 +204,7 @@ export class BorrowerLoansController {
 
             res.status(200).json({
                 statusCode: '200',
-                statusMessage: 'Repayment marked as paid',
+                statusMessage: 'Repayment marked as paid (direct transfer between contract parties)',
                 data: result,
                 timestamp: new Date().toISOString(),
             });

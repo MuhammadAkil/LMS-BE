@@ -128,6 +128,7 @@ export class AdminNotificationsController {
    * Response: { success: boolean }
    */
   @Post('/mark-all-read')
+  @Put('/mark-all-read')
   @Patch('/mark-all-read')
   async markAllAsRead(@Req() req: Request) {
     const adminId = (req.user as any)?.id || (req.user as any)?.userId;

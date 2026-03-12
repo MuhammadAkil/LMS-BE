@@ -384,7 +384,7 @@ export class BorrowerPaymentsService {
       if (!borrower) throw new Error('Borrower not found');
 
       const lenderResult = await queryRunner.query(
-        `SELECT u.id, u.email, u.first_name, u.last_name
+        `SELECT u.id, u.email, u.first_name, u.last_name, u.bank_account
          FROM loan_offers lo
          JOIN users u ON u.id = lo.lender_id
          WHERE lo.loan_id = ?
@@ -423,6 +423,7 @@ export class BorrowerPaymentsService {
         borrowerAddress: borrower.address,
         lenderName: lender ? `${lender.first_name ?? ''} ${lender.last_name ?? ''}`.trim() || lender.email : 'Lender',
         lenderEmail: lender?.email ?? '',
+        lenderBankAccount: lender?.bank_account ?? undefined,
         loanAmount: Number(loan.totalAmount),
         durationMonths: Number(application.durationMonths),
         interestRate: loan.interestRate ? Number(loan.interestRate) : 0.075,

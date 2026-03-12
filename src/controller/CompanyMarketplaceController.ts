@@ -30,6 +30,7 @@ import { IsBoolean, IsEnum, IsInt, IsNumber, IsOptional, Min, Max, IsNotEmpty } 
 import { Request } from 'express';
 import { MarketplaceRequest } from '../common/MarketplaceRequest';
 import { MarketplaceBidService } from '../service/MarketplaceBidService';
+import { LenderOffersService } from '../service/LenderOffersService';
 import { CompanyGuard, CompanyStatusGuard, AgreementSignatureGuard } from '../middleware/CompanyGuards';
 import {
     CreateCompanyAutoBidRequest,
@@ -77,10 +78,23 @@ export class SaveAutoBidConfigRequest {
     timeBasedBidding?: boolean;
 }
 
+export class CreateDelegatedBidRequest {
+    @IsNotEmpty()
+    loanId!: string;
+
+    @IsInt()
+    lenderId!: number;
+
+    @IsNumber()
+    @Min(10)
+    amount!: number;
+}
+
 @Controller('/company/marketplace')
 @UseBefore(CompanyGuard, CompanyStatusGuard)
 export class CompanyMarketplaceController {
     private companyRepo = new CompanyRepository();
+    private offersService = new LenderOffersService();
 
     constructor(
         private bidService: MarketplaceBidService,
@@ -171,6 +185,42 @@ export class CompanyMarketplaceController {
         );
 
         return bid;
+    }
+
+    /**
+     * POST /api/company/marketplace/delegated-bid
+     * Company creates delegated bid for linked lender:
+     * 24h lender approval window, then 2h payment window.
+     */
+    @Post('delegated-bid')
+    @UseBefore(AgreementSignatureGuard)
+    @HttpCode(201)
+    async createDelegatedBid(
+        @Body() request: CreateDelegatedBidRequest,
+        @Req() req: Request,
+    ): Promise<any> {
+        const companyId = Number((req as any).user?.companyId);
+        const userId = Number((req as any).user?.id);
+        if (!companyId) throw new Error('Company ID not found in request');
+        if (!userId) throw new Error('User ID not found in request');
+
+        const created = await this.offersService.createDelegatedOffer(
+            companyId,
+            userId,
+            {
+                loanId: request.loanId,
+                lenderId: Number(request.lenderId),
+                amount: Number(request.amount),
+            }
+        );
+
+        return {
+            offerId: created.offerId,
+            status: created.status,
+            approvalExpiresAt: created.approvalExpiresAt,
+            commissionAmount: created.commissionAmount,
+            message: 'Delegated offer created. Lender must approve within 24h, then pay within 2h.',
+        };
     }
 
     /**

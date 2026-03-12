@@ -357,7 +357,7 @@ export class BulkActionResponse {
 // ==================== DOCUMENT CENTER DTOs ====================
 
 export class DocumentListItem {
-    id!: number;
+    id!: string | number;
     type!: string; // CONTRACT, EXPORT, CLAIM, REMINDER
     name!: string;
     fileSize?: number;
@@ -376,7 +376,7 @@ export class DocumentListResponse {
 }
 
 export class DocumentDownloadResponse {
-    id!: number;
+    id!: string | number;
     fileName!: string;
     contentType!: string;
     data!: Buffer;
