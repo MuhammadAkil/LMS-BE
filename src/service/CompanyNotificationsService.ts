@@ -185,6 +185,79 @@ export class CompanyNotificationsService {
     }
 
     /**
+     * Mark multiple notifications as read by ids.
+     * Returns number of rows updated for current user scope.
+     */
+    async markMultipleAsRead(userId: number, ids: Array<number | string>): Promise<{ updatedCount: number }> {
+        const queryRunner = AppDataSource.createQueryRunner();
+        try {
+            const normalizedIds = (ids || [])
+                .map((id) => Number(id))
+                .filter((id) => Number.isInteger(id) && id > 0);
+
+            if (!normalizedIds.length) {
+                return { updatedCount: 0 };
+            }
+
+            const placeholders = normalizedIds.map(() => '?').join(', ');
+            const result = await queryRunner.query(
+                `
+        UPDATE notifications
+        SET read = true
+        WHERE user_id = ? AND read = false AND id IN (${placeholders})
+        `,
+                [userId, ...normalizedIds]
+            );
+
+            const updatedCount = Number(result?.affectedRows ?? result?.rowCount ?? 0);
+            if (updatedCount > 0) {
+                await this.auditService.logAction(
+                    userId,
+                    'NOTIFICATIONS_READ_BULK',
+                    'NOTIFICATION',
+                    undefined,
+                    { ids: normalizedIds, updatedCount }
+                );
+            }
+
+            return { updatedCount };
+        } finally {
+            await queryRunner.release();
+        }
+    }
+
+    /**
+     * Mark all unread notifications as read for the user.
+     */
+    async markAllAsRead(userId: number): Promise<{ updatedCount: number }> {
+        const queryRunner = AppDataSource.createQueryRunner();
+        try {
+            const result = await queryRunner.query(
+                `
+        UPDATE notifications
+        SET read = true
+        WHERE user_id = ? AND read = false
+        `,
+                [userId]
+            );
+
+            const updatedCount = Number(result?.affectedRows ?? result?.rowCount ?? 0);
+            if (updatedCount > 0) {
+                await this.auditService.logAction(
+                    userId,
+                    'NOTIFICATIONS_READ_ALL',
+                    'NOTIFICATION',
+                    undefined,
+                    { updatedCount }
+                );
+            }
+            return { updatedCount };
+        } finally {
+            await queryRunner.release();
+        }
+    }
+
+    /**
      * Get user-friendly title for notification type
      */
     private getTitleForType(type: string): string {

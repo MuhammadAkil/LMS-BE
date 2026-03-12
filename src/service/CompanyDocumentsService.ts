@@ -5,6 +5,8 @@ import {
     DocumentDownloadResponse,
     CompanyPaginationQuery,
 } from '../dto/CompanyDtos';
+import { existsSync, readFileSync } from 'node:fs';
+import { basename } from 'node:path';
 
 /**
  * Company Documents Service
@@ -48,6 +50,30 @@ export class CompanyDocumentsService {
         WHERE cl.companyId = ?
         
         UNION ALL
+
+        SELECT
+          CONCAT('contract_', c.id) as id,
+          'CONTRACT' as type,
+          CONCAT('Management Agreement - ', c.created_at) as name,
+          NULL as fileSize,
+          c.created_at as createdAt,
+          c.id as metadata
+        FROM contracts c
+        WHERE c.company_id = ? AND c.contract_type = 'MANAGEMENT_AGREEMENT'
+
+        UNION ALL
+        
+        SELECT
+          CONCAT('export_', e.id) as id,
+          'EXPORT' as type,
+          CONCAT('Export - ', e.created_at) as name,
+          NULL as fileSize,
+          e.created_at as createdAt,
+          e.id as metadata
+        FROM exports e
+        WHERE e.metadata LIKE ?
+        
+        UNION ALL
         
         SELECT 
           CONCAT('claim_', c.id) as id,
@@ -78,7 +104,7 @@ export class CompanyDocumentsService {
         ORDER BY createdAt DESC
         LIMIT ? OFFSET ?
         `,
-                [companyId, companyId, companyId, pageSize, offset]
+                [companyId, companyId, `%"companyId":${companyId}%`, companyId, companyId, pageSize, offset]
             );
 
             // Get total count
@@ -86,10 +112,12 @@ export class CompanyDocumentsService {
                 `
         SELECT 
           (SELECT COUNT(DISTINCT c.id) FROM contracts c INNER JOIN loan_offers lo ON lo.loanId = c.loanId INNER JOIN company_lenders cl ON cl.lenderId = lo.lenderId WHERE cl.companyId = ?) +
+          (SELECT COUNT(DISTINCT c.id) FROM contracts c WHERE c.company_id = ? AND c.contract_type = 'MANAGEMENT_AGREEMENT') +
+          (SELECT COUNT(*) FROM exports e WHERE e.metadata LIKE ?) +
           (SELECT COUNT(DISTINCT c.id) FROM claims c INNER JOIN loan_offers lo ON lo.loanId = c.loanId INNER JOIN company_lenders cl ON cl.lenderId = lo.lenderId WHERE cl.companyId = ?) +
           (SELECT COUNT(DISTINCT r.id) FROM reminders r INNER JOIN loan_offers lo ON lo.loanId = r.loanId INNER JOIN company_lenders cl ON cl.lenderId = lo.lenderId WHERE cl.companyId = ?) as total
         `,
-                [companyId, companyId, companyId]
+                [companyId, companyId, `%"companyId":${companyId}%`, companyId, companyId]
             );
 
             const total = parseInt(countResult[0]?.total || 0);
@@ -124,71 +152,95 @@ export class CompanyDocumentsService {
      */
     async downloadDocument(
         companyId: number,
-        documentId: number
+        documentId: string
     ): Promise<DocumentDownloadResponse> {
         const queryRunner = AppDataSource.createQueryRunner();
 
         try {
-            // Parse document ID format: type_id
-            // e.g., contract_123, export_456, claim_789, reminder_101
+            const rawId = String(documentId);
+            const [prefix, idPart] = rawId.includes('_') ? rawId.split('_', 2) : ['export', rawId];
+            const numericId = Number(idPart);
+            if (!Number.isInteger(numericId) || numericId <= 0) {
+                throw new Error('Invalid document ID format');
+            }
 
-            // For now, handle exports (most common)
-            const exportDoc = await queryRunner.query(
-                `
-        SELECT 
-          id,
-          file_path as filePath,
-          created_at as createdAt
-        FROM exports
-        WHERE id = ?
-        `,
-                [documentId]
-            );
+            if (prefix === 'export') {
+                const exportDoc = await queryRunner.query(
+                    `
+          SELECT 
+            id,
+            file_path as filePath,
+            created_at as createdAt
+          FROM exports
+          WHERE id = ? AND metadata LIKE ?
+          `,
+                    [numericId, `%"companyId":${companyId}%`]
+                );
 
-            if (exportDoc && exportDoc.length > 0) {
+                if (!exportDoc || exportDoc.length === 0) {
+                    throw new Error('Document not found or company does not have access');
+                }
+
                 const doc = exportDoc[0];
                 const fp: string = doc.filePath || '';
-                const isXml = fp.endsWith('.xml');
-                let data: Buffer;
-                try {
-                    const { readFileSync, existsSync: fsExists } = await import('node:fs');
-                    data = fsExists(fp) ? readFileSync(fp) : Buffer.from('');
-                } catch {
-                    data = Buffer.from('');
-                }
+                const isXml = fp.toLowerCase().endsWith('.xml');
+                const data = fp && existsSync(fp) ? readFileSync(fp) : Buffer.from('');
                 return {
-                    id: doc.id,
-                    fileName: fp ? require('node:path').basename(fp) : `export_${documentId}`,
+                    id: `export_${doc.id}`,
+                    fileName: fp ? basename(fp) : `export_${doc.id}`,
                     contentType: isXml ? 'application/xml' : 'text/csv',
                     data,
                     createdAt: doc.createdAt,
                 };
             }
 
-            // Check contracts
-            const contractDoc = await queryRunner.query(
-                `
-        SELECT 
-          id,
-          createdAt
-        FROM contracts
-        WHERE id = ?
-        `,
-                [documentId]
-            );
+            if (prefix === 'contract') {
+                const contractDoc = await queryRunner.query(
+                    `
+          SELECT 
+            c.id,
+            c.createdAt,
+            c.pdf_path as pdfPath
+          FROM contracts c
+          INNER JOIN loan_offers lo ON lo.loanId = c.loanId
+          INNER JOIN company_lenders cl ON cl.lenderId = lo.lenderId
+          WHERE c.id = ? AND cl.companyId = ?
+          LIMIT 1
+          `,
+                    [numericId, companyId]
+                );
 
-            if (contractDoc && contractDoc.length > 0) {
-                const doc = contractDoc[0];
+                let contractRow = contractDoc?.[0];
+                if (!contractRow) {
+                    const mgmtContract = await queryRunner.query(
+                        `
+            SELECT 
+              c.id,
+              c.created_at as createdAt,
+              c.file_path as pdfPath
+            FROM contracts c
+            WHERE c.id = ? AND c.company_id = ? AND c.contract_type = 'MANAGEMENT_AGREEMENT'
+            LIMIT 1
+            `,
+                        [numericId, companyId]
+                    );
+                    contractRow = mgmtContract?.[0];
+                }
+                if (!contractRow) throw new Error('Document not found or company does not have access');
+
+                const doc = contractRow;
+                const fp: string = doc.pdfPath || '';
+                const data = fp && existsSync(fp) ? readFileSync(fp) : Buffer.from('PDF_CONTENT_PLACEHOLDER');
                 return {
-                    id: doc.id,
-                    fileName: `management_agreement_${companyId}.pdf`,
+                    id: `contract_${doc.id}`,
+                    fileName: fp ? basename(fp) : `management_agreement_${companyId}.pdf`,
                     contentType: 'application/pdf',
-                    data: Buffer.from('PDF_CONTENT_PLACEHOLDER'),
+                    data,
                     createdAt: doc.createdAt,
                 };
             }
 
-            throw new Error('Document not found or company does not have access');
+            throw new Error('Unsupported document type');
         } finally {
             await queryRunner.release();
         }

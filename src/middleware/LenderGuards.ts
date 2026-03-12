@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { UserRepository } from '../repository/UserRepository';
 import { ManagementAgreementRepository } from '../repository/ManagementAgreementRepository';
+import { VerificationAccessService } from '../service/VerificationAccessService';
 
 /**
  * LENDER GUARDS - Access control for LENDER module
@@ -9,6 +10,7 @@ import { ManagementAgreementRepository } from '../repository/ManagementAgreement
 
 const userRepository = new UserRepository();
 const managementAgreementRepository = new ManagementAgreementRepository();
+const verificationAccessService = new VerificationAccessService();
 
 /**
  * LenderRoleGuard
@@ -52,6 +54,22 @@ export async function LenderRoleGuard(
         }
 
         // Attach full user object for downstream use
+        const path = (req as any).path ?? req.path ?? req.url;
+        if (!verificationAccessService.isVerificationBypassPath(String(path))) {
+            const gate = await verificationAccessService.getVerificationGate(Number(fullUser.id), Number(fullUser.roleId));
+            if (!gate.isVerified) {
+                res.status(403).json({
+                    statusCode: '403',
+                    statusMessage: 'Verification required',
+                    detail: 'Complete and get admin approval for all required verification documents to use lender platform features.',
+                    missingRequirements: gate.missingCategories,
+                    redirectTo: '/api/lender/verifications',
+                    errorCode: 'VERIFICATION_INCOMPLETE',
+                });
+                return;
+            }
+        }
+
         (req as any).user = fullUser;
         next();
     } catch (error: any) {

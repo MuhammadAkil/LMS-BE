@@ -178,8 +178,11 @@ export class CompanyAutomationService {
         `,
                 [companyId, ruleId]
             );
+            if (!existing || existing.length === 0) {
+                throw new Error('Automation rule not found');
+            }
             const updateFields: string[] = [];
-            const updateValues: (number | string | boolean)[] = [];
+            const updateValues: any[] = [];
 
             if (request.minLevel !== undefined) {
                 // Validate against platform constraints

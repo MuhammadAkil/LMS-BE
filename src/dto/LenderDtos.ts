@@ -136,6 +136,31 @@ export interface MakeOfferResponse {
     message: string;
 }
 
+export interface DelegatedOfferActionResponse {
+    offerId: string;
+    status: string;
+    message: string;
+    approvalExpiresAt?: string;
+    paymentDueAt?: string;
+    commissionAmount?: number;
+    paymentId?: number;
+    sessionId?: string;
+    redirectUrl?: string;
+}
+
+export interface PendingDelegatedOfferDto {
+    offerId: string;
+    loanId: string;
+    companyId: number;
+    companyName: string;
+    amount: number;
+    commissionAmount: number;
+    status: string;
+    createdAt: string;
+    approvalExpiresAt?: string;
+    paymentDueAt?: string;
+}
+
 export interface OfferValidationResponse {
     isValid: boolean;
     errors: string[];

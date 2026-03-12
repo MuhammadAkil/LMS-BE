@@ -81,6 +81,11 @@ expressApp.post('/webhook/p24', async (req, res) => {
             const { BorrowerPaymentsService } = await import('./service/BorrowerPaymentsService');
             const service = new BorrowerPaymentsService();
             await service.handleCommissionWebhook(sessionId, orderId, amount, currency ?? 'PLN', sign);
+        } else if (payment && payment.paymentStep === 'DELEGATED_LENDER_MANAGEMENT_FEE') {
+            // Route to delegated lender payment handler
+            const { LenderOffersService } = await import('./service/LenderOffersService');
+            const service = new LenderOffersService();
+            await service.handleDelegatedPaymentWebhook(sessionId, orderId, amount, currency ?? 'PLN', sign);
         } else {
             // Route to generic payment handler (course payments, etc.)
             const { LmsPaymentsService } = await import('./service/LmsPaymentsService');

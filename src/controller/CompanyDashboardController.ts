@@ -507,7 +507,7 @@ export class CompanyDocumentsController {
     @Get('/:id/download')
     async downloadDocument(
         @Req() req: Request,
-        @Param('id') documentId: number
+        @Param('id') documentId: string
     ): Promise<DocumentDownloadResponse> {
         const companyId = (req.user as any)?.companyId;
         if (!companyId) {
@@ -560,6 +560,31 @@ export class CompanyNotificationsController {
             throw new Error('User ID not found in request');
         }
         return this.notificationsService.markAsRead(userId, notificationId);
+    }
+
+    @Put('/read')
+    @UseBefore(CompanyStatusGuard)
+    async markNotificationsAsRead(
+        @Req() req: Request,
+        @Body() body: { ids?: Array<number | string> }
+    ): Promise<{ updatedCount: number }> {
+        const userId = (req.user as any)?.id;
+        if (!userId) {
+            throw new Error('User ID not found in request');
+        }
+        return this.notificationsService.markMultipleAsRead(userId, body?.ids ?? []);
+    }
+
+    @Put('/mark-all-read')
+    @UseBefore(CompanyStatusGuard)
+    async markAllNotificationsAsRead(
+        @Req() req: Request
+    ): Promise<{ updatedCount: number }> {
+        const userId = (req.user as any)?.id;
+        if (!userId) {
+            throw new Error('User ID not found in request');
+        }
+        return this.notificationsService.markAllAsRead(userId);
     }
 }
 

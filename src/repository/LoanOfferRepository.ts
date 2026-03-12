@@ -15,10 +15,14 @@ export class LoanOfferRepository {
     }
 
     async findByLoanId(loanId: number): Promise<LoanOffer[]> {
-        return await this.loanOfferRepository.find({
-            where: { loanId },
-            order: { createdAt: 'DESC' },
-        });
+        return await this.loanOfferRepository
+            .createQueryBuilder('offer')
+            .where('offer.loanId = :loanId', { loanId })
+            .andWhere('(offer.delegatedStatus IS NULL OR offer.delegatedStatus = :active)', {
+                active: 'ACTIVE',
+            })
+            .orderBy('offer.createdAt', 'DESC')
+            .getMany();
     }
 
     async findByLenderId(lenderId: number): Promise<LoanOffer[]> {
@@ -47,6 +51,9 @@ export class LoanOfferRepository {
             .createQueryBuilder('offer')
             .select('COALESCE(SUM(offer.amount), 0)', 'total')
             .where('offer.loanId = :loanId', { loanId })
+            .andWhere('(offer.delegatedStatus IS NULL OR offer.delegatedStatus = :active)', {
+                active: 'ACTIVE',
+            })
             .getRawOne();
         return parseFloat(result?.total ?? '0');
     }

@@ -12,6 +12,7 @@ export interface LoanAgreementData {
   borrowerAddress?: string;
   lenderName: string;
   lenderEmail: string;
+  lenderBankAccount?: string;
   loanAmount: number;
   durationMonths?: number;
   durationDays?: number;
@@ -101,11 +102,13 @@ export class PdfGenerationService {
     doc.fontSize(10).font('Helvetica');
     doc.text(`Pożyczkobiorca / Borrower: ${data.borrowerName}`);
     doc.text(`Email: ${data.borrowerEmail}`);
+    if (data.borrowerBankAccount) doc.text(`Rachunek bankowy / Bank Account: ${data.borrowerBankAccount}`);
     if (data.borrowerAddress) doc.text(`Adres / Address: ${data.borrowerAddress}`);
     if (data.borrowerPesel) doc.text(`PESEL: ${data.borrowerPesel}`);
     doc.moveDown(0.5);
     doc.text(`Pożyczkodawca / Lender: ${data.lenderName}`);
     doc.text(`Email: ${data.lenderEmail}`);
+    if (data.lenderBankAccount) doc.text(`Rachunek bankowy / Bank Account: ${data.lenderBankAccount}`);
     doc.moveDown(1);
 
     // Loan Details
@@ -164,6 +167,8 @@ export class PdfGenerationService {
     doc.text(
       'Pożyczkobiorca zobowiązuje się do terminowej spłaty pożyczki wraz z należnymi odsetkami. ' +
       'W przypadku opóźnienia w spłacie, pożyczkodawca ma prawo do naliczenia odsetek za zwłokę. ' +
+      'Wypłata pożyczki oraz spłaty rat/całości pożyczki następują bezpośrednio między stronami niniejszej umowy ' +
+      '(pożyczkobiorcą i pożyczkodawcą), bez pośrednictwa platformy. ' +
       'Niniejsza umowa została zawarta za pośrednictwem platformy pożyczkowej i jest prawnie wiążąca.',
       { align: 'justify' }
     );
@@ -171,6 +176,8 @@ export class PdfGenerationService {
     doc.text(
       'The borrower undertakes to repay the loan with applicable interest on time. ' +
       'In case of payment delay, the lender is entitled to charge late payment interest. ' +
+      'Loan disbursement and repayments are executed directly between the contracting parties ' +
+      '(borrower and lender), without the platform acting as a payment intermediary. ' +
       'This agreement has been concluded through the lending platform and is legally binding.',
       { align: 'justify' }
     );
