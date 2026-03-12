@@ -6,7 +6,7 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { useExpressServer } from 'routing-controllers';
 import config from './config/Config';
-import { AppDataSource } from './config/database';
+import { initializeDatabase } from './config/database';
 import { initializeSwagger } from './config/SwaggerConfig';
 import { GlobalAuthMiddleware } from './middleware/globalAuth.middleware';
 import { BorrowerGuardMiddleware } from './middleware/BorrowerGuardMiddleware';
@@ -98,7 +98,6 @@ expressApp.post('/webhook/p24', async (req, res) => {
 // Serve generated PDFs (authenticated via query token in production)
 expressApp.use('/generated_pdfs', express.static(path.join(__dirname, '..', 'generated_pdfs')));
 expressApp.use('/exports', express.static(path.join(__dirname, '..', 'exports')));
-expressApp.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 
 // Setup routing-controllers with auto-discovery
 // Auto-discovers all controllers in the controller directory
@@ -125,7 +124,7 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 });
 
 // Initialize database and start server
-AppDataSource.initialize()
+initializeDatabase()
     .then(() => {
         console.log('Database connection established');
         console.log('DB USER:', process.env.MYSQL_USER);

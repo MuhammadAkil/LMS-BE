@@ -178,7 +178,8 @@ export class CompanyAutomationService {
         `,
                 [companyId, ruleId]
             );
-            const updateValues = [];
+            const updateFields: string[] = [];
+            const updateValues: (number | string | boolean)[] = [];
 
             if (request.minLevel !== undefined) {
                 // Validate against platform constraints
