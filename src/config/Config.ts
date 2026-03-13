@@ -115,6 +115,46 @@ const conf = convict({
             default: "",
             env: "FRONTEND_BASE_URL",
         },
+        // Frontend URL used specifically for CORS allow-list.
+        // Kept as separate mapping because existing deployments commonly set FRONTEND_URL.
+        frontendCorsUrl: {
+            format: "*",
+            default: "",
+            env: "FRONTEND_URL",
+        },
+    },
+
+    smtp: {
+        host: {
+            format: "*",
+            default: "smtp.gmail.com",
+            env: "SMTP_HOST",
+        },
+        port: {
+            format: "port",
+            default: 587,
+            env: "SMTP_PORT",
+        },
+        secure: {
+            format: Boolean,
+            default: false,
+            env: "SMTP_SECURE",
+        },
+        user: {
+            format: "*",
+            default: "",
+            env: "SMTP_USER",
+        },
+        pass: {
+            format: "*",
+            default: "",
+            env: "SMTP_PASS",
+        },
+        from: {
+            format: "*",
+            default: "noreply@lendingplatform.pl",
+            env: "SMTP_FROM",
+        },
     },
 });
 

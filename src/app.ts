@@ -42,8 +42,9 @@ const expressApp = express();
 const allowedOrigins: (string | RegExp)[] = [
     /^https?:\/\/localhost(:\d+)?$/,
 ];
-if (process.env.FRONTEND_URL) {
-    allowedOrigins.push(process.env.FRONTEND_URL);
+const configuredFrontendOrigin = (config.app.frontendCorsUrl || config.app.frontendUrl || '').trim();
+if (configuredFrontendOrigin) {
+    allowedOrigins.push(configuredFrontendOrigin);
 }
 
 // Middleware

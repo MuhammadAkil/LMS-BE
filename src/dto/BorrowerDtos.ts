@@ -367,6 +367,7 @@ export class LoanDetailDto {
 }
 
 export class RepaymentScheduleItemDto {
+    id!: number;
     dueDate!: string; // ISO date
     amount!: number;
     status!: string; // PENDING, PAID, OVERDUE
@@ -510,6 +511,7 @@ export class ProfileDto {
     firstName!: string;
     lastName!: string;
     phone!: string;
+    bankAccount?: string;
     dateOfBirth?: string; // ISO date
     roleId!: number;
     statusId!: number;
@@ -538,6 +540,10 @@ export class UpdateProfileRequest {
 
     @IsOptional()
     @IsString()
+    bankAccount?: string;
+
+    @IsOptional()
+    @IsString()
     dateOfBirth?: string; // ISO date
 }
 
@@ -547,6 +553,7 @@ export class UpdateProfileResponse {
     firstName!: string;
     lastName!: string;
     phone!: string;
+    bankAccount?: string;
     updatedAt!: string;
     message!: string;
 }

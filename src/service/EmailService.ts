@@ -1,5 +1,6 @@
 import nodemailer from 'nodemailer';
 import { LoanAgreementData } from './PdfGenerationService';
+import config from '../config/Config';
 
 export interface EmailOptions {
   to: string | string[];
@@ -14,35 +15,59 @@ export interface EmailOptions {
 }
 
 export class EmailService {
-  private transporter: nodemailer.Transporter;
+  private transporter?: nodemailer.Transporter;
+  private emailEnabled: boolean;
+  private static missingConfigLogged = false;
 
   constructor() {
+    const smtpUser = (config.smtp?.user ?? '').trim();
+    const smtpPass = config.smtp?.pass ?? '';
+
+    this.emailEnabled = Boolean(smtpUser && smtpPass);
+
+    if (!this.emailEnabled) {
+      if (!EmailService.missingConfigLogged) {
+        console.warn('[EmailService] SMTP_USER/SMTP_PASS missing. Email sending disabled.');
+        EmailService.missingConfigLogged = true;
+      }
+      return;
+    }
+
     this.transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST ?? 'smtp.gmail.com',
-      port: parseInt(process.env.SMTP_PORT ?? '587', 10),
-      secure: process.env.SMTP_SECURE === 'true',
+      host: config.smtp?.host ?? 'smtp.gmail.com',
+      port: Number(config.smtp?.port ?? 587),
+      secure: Boolean(config.smtp?.secure),
       auth: {
-        user: process.env.SMTP_USER ?? '',
-        pass: process.env.SMTP_PASS ?? '',
+        user: smtpUser,
+        pass: smtpPass,
       },
     });
   }
 
   async sendEmail(options: EmailOptions): Promise<void> {
-    const from = process.env.SMTP_FROM ?? 'noreply@lendingplatform.pl';
+    if (!this.emailEnabled || !this.transporter) {
+      return;
+    }
 
-    await this.transporter.sendMail({
-      from,
-      to: Array.isArray(options.to) ? options.to.join(', ') : options.to,
-      subject: options.subject,
-      html: options.html,
-      text: options.text,
-      attachments: options.attachments?.map(att => ({
-        filename: att.filename,
-        content: att.content,
-        contentType: att.contentType,
-      })),
-    });
+    const from = config.smtp?.from ?? 'noreply@lendingplatform.pl';
+
+    try {
+      await this.transporter.sendMail({
+        from,
+        to: Array.isArray(options.to) ? options.to.join(', ') : options.to,
+        subject: options.subject,
+        html: options.html,
+        text: options.text,
+        attachments: options.attachments?.map(att => ({
+          filename: att.filename,
+          content: att.content,
+          contentType: att.contentType,
+        })),
+      });
+    } catch (error: any) {
+      // Keep payment/loan activation flow non-blocking when SMTP is misconfigured.
+      console.warn(`[EmailService] Failed to send email: ${error?.message ?? error}`);
+    }
   }
 
   async sendLoanAgreementEmail(

@@ -221,6 +221,7 @@ export class BorrowerLoansService {
                 if (r.paidAt) {
                     paidAmount += Number(r.amount);
                     schedule.push({
+                        id: Number(r.id),
                         dueDate: toDateStr(r.dueDate)!,
                         amount: Number(r.amount),
                         status: 'PAID',
@@ -233,6 +234,7 @@ export class BorrowerLoansService {
                     const isPastDue = dueDateObj < today;
 
                     schedule.push({
+                        id: Number(r.id),
                         dueDate: toDateStr(r.dueDate)!,
                         amount: Number(r.amount),
                         status: isPastDue ? 'OVERDUE' : 'PENDING',
@@ -323,6 +325,7 @@ export class BorrowerLoansService {
             const schedule: RepaymentScheduleItemDto[] = repayments.map((r) => {
                 if (r.paidAt) {
                     return {
+                        id: Number(r.id),
                         dueDate: toDateStr(r.dueDate)!,
                         amount: Number(r.amount),
                         status: 'PAID',
@@ -333,6 +336,7 @@ export class BorrowerLoansService {
                     const dueDateObj = toDateObj(r.dueDate)!;
                     const isPastDue = dueDateObj < today;
                     return {
+                        id: Number(r.id),
                         dueDate: toDateStr(r.dueDate)!,
                         amount: Number(r.amount),
                         status: isPastDue ? 'OVERDUE' : 'PENDING',
