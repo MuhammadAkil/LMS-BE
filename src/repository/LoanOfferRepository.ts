@@ -18,9 +18,6 @@ export class LoanOfferRepository {
         return await this.loanOfferRepository
             .createQueryBuilder('offer')
             .where('offer.loanId = :loanId', { loanId })
-            .andWhere('(offer.delegatedStatus IS NULL OR offer.delegatedStatus = :active)', {
-                active: 'ACTIVE',
-            })
             .orderBy('offer.createdAt', 'DESC')
             .getMany();
     }
@@ -51,9 +48,6 @@ export class LoanOfferRepository {
             .createQueryBuilder('offer')
             .select('COALESCE(SUM(offer.amount), 0)', 'total')
             .where('offer.loanId = :loanId', { loanId })
-            .andWhere('(offer.delegatedStatus IS NULL OR offer.delegatedStatus = :active)', {
-                active: 'ACTIVE',
-            })
             .getRawOne();
         return parseFloat(result?.total ?? '0');
     }

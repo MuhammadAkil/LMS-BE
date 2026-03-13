@@ -9,8 +9,8 @@ import config from '../config/Config';
  * Amounts in grosz (100 PLN = 10000).
  *
  * Sign format for all endpoints:
- *   register: SHA384({"sessionId":"...","merchantId":...,"amount":...,"currency":"...","crcKey":"..."})
- *   webhook/verify: SHA384({"sessionId":"...","orderId":...,"amount":...,"currency":"...","crcKey":"..."})
+ *   register: SHA384({"sessionId":"...","merchantId":...,"amount":...,"currency":"...","crc":"..."})
+ *   webhook/verify: SHA384({"sessionId":"...","orderId":...,"amount":...,"currency":"...","crc":"..."})
  * Key order must match exactly as documented by P24.
  */
 export interface P24RegisterRequest {
@@ -92,7 +92,7 @@ export class Przelewy24Service {
 
     /**
      * Register transaction with P24. Returns token for redirect URL.
-     * Sign: SHA384({"sessionId":"...","merchantId":...,"amount":...,"currency":"...","crcKey":"..."})
+     * Sign: SHA384({"sessionId":"...","merchantId":...,"amount":...,"currency":"...","crc":"..."})
      * Response body: { "data": { "token": "..." }, "responseCode": 0 }
      */
     async registerTransaction(params: {
@@ -111,7 +111,7 @@ export class Przelewy24Service {
             merchantId: this.merchantId,
             amount: params.amount,
             currency,
-            crcKey: this.crc,
+            crc: this.crc,
         });
 
         const body: P24RegisterRequest = {
@@ -146,7 +146,7 @@ export class Przelewy24Service {
 
     /**
      * Verify P24 webhook notification signature.
-     * P24 computes: SHA384({"sessionId":"...","orderId":...,"amount":...,"currency":"...","crcKey":"..."})
+     * P24 computes: SHA384({"sessionId":"...","orderId":...,"amount":...,"currency":"...","crc":"..."})
      * Both sides produce a 96-char hex string; compared using timing-safe equality.
      */
     verifyWebhookSign(sessionId: string, orderId: number, amount: number, currency: string, sign: string): boolean {
@@ -157,7 +157,7 @@ export class Przelewy24Service {
             orderId,
             amount,
             currency,
-            crcKey: this.crc,
+            crc: this.crc,
         });
         // Compare decoded binary (48 bytes) for constant-time safety
         const a = Buffer.from(expected, 'hex');
@@ -168,7 +168,7 @@ export class Przelewy24Service {
     /**
      * Confirm transaction with P24 after webhook receipt (uses Order Key for auth).
      * Endpoint: PUT /api/v1/transaction/verify
-     * Sign: SHA384({"sessionId":"...","orderId":...,"amount":...,"currency":"...","crcKey":"..."})
+     * Sign: SHA384({"sessionId":"...","orderId":...,"amount":...,"currency":"...","crc":"..."})
      */
     async verifyTransaction(params: {
         sessionId: string;
@@ -182,7 +182,7 @@ export class Przelewy24Service {
             orderId: params.orderId,
             amount: params.amount,
             currency,
-            crcKey: this.crc,
+            crc: this.crc,
         });
 
         const body: P24VerifyRequest = {

@@ -29,7 +29,7 @@ export class Payment {
   @Column({ type: 'varchar', length: 30, nullable: true, name: 'payment_step' })
   paymentStep?: string; // PORTAL_COMMISSION | VOLUNTARY_COMMISSION | LOAN_REPAYMENT
 
-  @Column({ type: 'bigint', nullable: true, name: 'delegated_offer_id' })
+  @Column({ type: 'bigint', nullable: true, name: 'delegated_offer_id', select: false, insert: false, update: false })
   delegatedOfferId?: number; // References loan_offers.id for delegated lender-payment flow
 
   @Column({ type: 'bigint', nullable: true })

@@ -386,9 +386,9 @@ export class BorrowerPaymentsService {
       const lenderResult = await queryRunner.query(
         `SELECT u.id, u.email, u.first_name, u.last_name, u.bank_account
          FROM loan_offers lo
-         JOIN users u ON u.id = lo.lender_id
-         WHERE lo.loan_id = ?
-         ORDER BY lo.created_at ASC
+         JOIN users u ON u.id = lo.lenderId
+         WHERE lo.loanId = ?
+         ORDER BY lo.createdAt ASC
          LIMIT 1`,
         [loan.id]
       );
@@ -450,7 +450,7 @@ export class BorrowerPaymentsService {
       const pdfRelativePath = `generated_pdfs/${pdfFileName}`;
 
       await queryRunner.query(
-        `INSERT INTO contracts (loan_id, pdf_path, generated_at) VALUES (?, ?, NOW())`,
+        `INSERT INTO contracts (loanId, pdfPath, generatedAt) VALUES (?, ?, NOW())`,
         [loan.id, pdfRelativePath]
       );
 

@@ -41,6 +41,8 @@ export class LenderOffersService {
     private paymentRepo: PaymentRepository;
     private userRepo: UserRepository;
     private p24: Przelewy24Service;
+    private delegatedColumnsChecked = false;
+    private delegatedColumnsAvailable = false;
 
     constructor() {
         this.auditLogRepository = new AuditLogRepository();
@@ -64,25 +66,65 @@ export class LenderOffersService {
         await this.loanAppRepo.update(loan.applicationId, { fundedAmount, fundedPercent } as any);
     }
 
+    private async ensureDelegatedColumnsAvailability(): Promise<boolean> {
+        if (this.delegatedColumnsChecked) {
+            return this.delegatedColumnsAvailable;
+        }
+        const rows = await AppDataSource.query(
+            `SELECT COUNT(*) AS cnt
+             FROM INFORMATION_SCHEMA.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE()
+               AND TABLE_NAME = 'loan_offers'
+               AND COLUMN_NAME IN (
+                    'updatedAt',
+                    'delegated_by_company_id',
+                    'delegated_status',
+                    'delegated_approval_expires_at',
+                    'delegated_approved_at',
+                    'delegated_payment_due_at',
+                    'delegated_payment_status',
+                    'delegated_paid_at',
+                    'delegated_commission_amount'
+               )`
+        );
+        const cnt = Number(rows?.[0]?.cnt ?? 0);
+        this.delegatedColumnsAvailable = cnt >= 9;
+        this.delegatedColumnsChecked = true;
+        return this.delegatedColumnsAvailable;
+    }
+
     private async expireDelegatedOffers(): Promise<void> {
-        await AppDataSource.query(
-            `UPDATE loan_offers
-             SET delegated_status = 'EXPIRED',
-                 delegated_payment_status = COALESCE(delegated_payment_status, 'UNPAID'),
-                 updatedAt = NOW()
-             WHERE delegated_status = 'PENDING_LENDER_APPROVAL'
-               AND delegated_approval_expires_at IS NOT NULL
-               AND delegated_approval_expires_at < NOW()`
-        );
-        await AppDataSource.query(
-            `UPDATE loan_offers
-             SET delegated_status = 'EXPIRED',
-                 delegated_payment_status = 'UNPAID',
-                 updatedAt = NOW()
-             WHERE delegated_status = 'PENDING_LENDER_PAYMENT'
-               AND delegated_payment_due_at IS NOT NULL
-               AND delegated_payment_due_at < NOW()`
-        );
+        if (!(await this.ensureDelegatedColumnsAvailability())) {
+            return;
+        }
+        try {
+            await AppDataSource.query(
+                `UPDATE loan_offers
+                 SET delegated_status = 'EXPIRED',
+                     delegated_payment_status = COALESCE(delegated_payment_status, 'UNPAID'),
+                     updatedAt = NOW()
+                 WHERE delegated_status = 'PENDING_LENDER_APPROVAL'
+                   AND delegated_approval_expires_at IS NOT NULL
+                   AND delegated_approval_expires_at < NOW()`
+            );
+            await AppDataSource.query(
+                `UPDATE loan_offers
+                 SET delegated_status = 'EXPIRED',
+                     delegated_payment_status = 'UNPAID',
+                     updatedAt = NOW()
+                 WHERE delegated_status = 'PENDING_LENDER_PAYMENT'
+                   AND delegated_payment_due_at IS NOT NULL
+                   AND delegated_payment_due_at < NOW()`
+            );
+        } catch (error: any) {
+            const msg = String(error?.message ?? '');
+            if (msg.includes('Unknown column')) {
+                this.delegatedColumnsAvailable = false;
+                this.delegatedColumnsChecked = true;
+                return;
+            }
+            throw error;
+        }
     }
 
     async createDelegatedOffer(
@@ -90,6 +132,9 @@ export class LenderOffersService {
         userId: number,
         request: { loanId: string; lenderId: number; amount: number }
     ): Promise<{ offerId: string; status: string; approvalExpiresAt: string; commissionAmount: number }> {
+        if (!(await this.ensureDelegatedColumnsAvailability())) {
+            throw new Error('Delegated offer flow is unavailable: required DB columns are missing');
+        }
         await this.expireDelegatedOffers();
 
         if (request.amount < MIN_OFFER_PLN) {
@@ -197,6 +242,9 @@ export class LenderOffersService {
     }
 
     async listPendingDelegatedOffers(lenderId: string): Promise<PendingDelegatedOfferDto[]> {
+        if (!(await this.ensureDelegatedColumnsAvailability())) {
+            return [];
+        }
         await this.expireDelegatedOffers();
         const lenderIdNum = parseInt(lenderId, 10);
         const rows = await AppDataSource.query(
@@ -234,6 +282,9 @@ export class LenderOffersService {
     }
 
     async approveDelegatedOffer(lenderId: string, offerId: string): Promise<DelegatedOfferActionResponse> {
+        if (!(await this.ensureDelegatedColumnsAvailability())) {
+            throw new Error('Delegated offer flow is unavailable: required DB columns are missing');
+        }
         await this.expireDelegatedOffers();
         const lenderIdNum = parseInt(lenderId, 10);
         const offerIdNum = parseInt(offerId, 10);
@@ -270,6 +321,9 @@ export class LenderOffersService {
     }
 
     async rejectDelegatedOffer(lenderId: string, offerId: string): Promise<DelegatedOfferActionResponse> {
+        if (!(await this.ensureDelegatedColumnsAvailability())) {
+            throw new Error('Delegated offer flow is unavailable: required DB columns are missing');
+        }
         await this.expireDelegatedOffers();
         const lenderIdNum = parseInt(lenderId, 10);
         const offerIdNum = parseInt(offerId, 10);
@@ -302,6 +356,9 @@ export class LenderOffersService {
     }
 
     async payDelegatedOffer(lenderId: string, offerId: string): Promise<DelegatedOfferActionResponse> {
+        if (!(await this.ensureDelegatedColumnsAvailability())) {
+            throw new Error('Delegated offer flow is unavailable: required DB columns are missing');
+        }
         await this.expireDelegatedOffers();
         const lenderIdNum = parseInt(lenderId, 10);
         const offerIdNum = parseInt(offerId, 10);
