@@ -2,6 +2,19 @@
 
 import convict from "convict";
 
+function normalizeFrontendOrigin(input?: string): string {
+    const raw = (input ?? "").trim();
+    if (!raw) return "";
+    try {
+        const url = new URL(raw);
+        // Keep only scheme + host (+port). Payment return paths are appended by services.
+        return `${url.protocol}//${url.host}`;
+    } catch {
+        // Fallback for plain host values without protocol
+        return raw.replace(/\/+$/, "").replace(/\/auth\/login$/i, "");
+    }
+}
+
 const conf = convict({
     env: {
         format: ["development", "production", "test"],
@@ -70,32 +83,32 @@ const conf = convict({
     p24: {
         merchantId: {
             format: "int",
-            default: 0,
+            default: 119558,
             env: "P24_MERCHANT_ID",
         },
         posId: {
             format: "int",
-            default: 0,
+            default: 119558,
             env: "P24_POS_ID",
         },
         apiKey: {
             format: "*",
-            default: "",
+            default: "17d25a5bedb1b7d51cb404062c4f1974",
             env: "P24_API_KEY",
         },
         crc: {
             format: "*",
-            default: "",
+            default: "08eed59d347b8dca",
             env: "P24_CRC",
         },
         orderKey: {
             format: "*",
-            default: "",
+            default: "e6df8910",
             env: "P24_ORDER_KEY",
         },
         apiUrl: {
             format: "*",
-            default: "https://sandbox.przelewy24.pl",
+            default: "https://secure.przelewy24.pl",
             env: "P24_API_URL",
         },
     },
@@ -112,7 +125,7 @@ const conf = convict({
         // Override with FRONTEND_BASE_URL when they are on different domains (typical production setup).
         frontendUrl: {
             format: "*",
-            default: "",
+            default: "http://209.182.238.150",
             env: "FRONTEND_BASE_URL",
         },
         // Frontend URL used specifically for CORS allow-list.
@@ -161,5 +174,23 @@ const conf = convict({
 // Validate configuration strictness
 conf.validate({ allowed: "strict" });
 
+const properties = conf.getProperties() as any;
+
+// Harmonize frontend URL envs and normalize to origin-only format.
+// This allows values like "http://209.182.238.150/auth/login/" from env
+// while still generating correct payment return URLs.
+const frontendUrlFromBase = normalizeFrontendOrigin(properties.app?.frontendUrl);
+const frontendUrlFromCors = normalizeFrontendOrigin(properties.app?.frontendCorsUrl);
+properties.app.frontendUrl = frontendUrlFromBase || frontendUrlFromCors || "";
+properties.app.frontendCorsUrl = frontendUrlFromCors || frontendUrlFromBase || "";
+
+// Normalize P24 values to prevent subtle prod issues from whitespace/casing.
+properties.p24.apiKey = String(properties.p24?.apiKey ?? "").trim();
+properties.p24.crc = String(properties.p24?.crc ?? "").trim();
+properties.p24.orderKey = String(properties.p24?.orderKey ?? "").trim();
+properties.p24.apiUrl = String(properties.p24?.apiUrl ?? "https://secure.przelewy24.pl")
+    .trim()
+    .replace(/\/+$/, "");
+
 // Export final validated config object
-export default conf.getProperties();
+export default properties;
