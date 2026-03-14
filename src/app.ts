@@ -14,8 +14,7 @@ import { errorHandler } from './middleware/errorHandler';
 import path from 'path';
 
 const PORT = config.server.port;
-
-const INTERNAL_API_PREFIX = "/api";
+const INTERNAL_API_PREFIX = config.server.routingPrefix || "/api";
 
 // Rate limit: 10 login attempts per 15 min per IP (per spec)
 const loginLimiter = rateLimit({
@@ -57,9 +56,9 @@ expressApp.use(express.json());
 expressApp.use(express.urlencoded({ extended: true }));
 
 // Apply rate limits to auth routes
-expressApp.use('/api/users/login', loginLimiter);
-expressApp.use('/api/auth/admin/login', loginLimiter);
-expressApp.use('/api/users/signup', signupLimiter);
+expressApp.use(`${INTERNAL_API_PREFIX}/users/login`, loginLimiter);
+expressApp.use(`${INTERNAL_API_PREFIX}/auth/admin/login`, loginLimiter);
+expressApp.use(`${INTERNAL_API_PREFIX}/users/signup`, signupLimiter);
 
 // Health check (before routing-controllers)
 expressApp.get('/health', (_req, res) => {

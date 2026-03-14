@@ -40,7 +40,7 @@ const conf = convict({
     mysql: {
         host: {
             format: "*",
-            default: "209.182.238.150",
+            default: "localhost",
             env: "MYSQL_HOST",
         },
         port: {
@@ -50,12 +50,12 @@ const conf = convict({
         },
         username: {
             format: "*",
-            default: "lms_user",
+            default: "root",
             env: "MYSQL_USER",
         },
         password: {
             format: "*",
-            default: "LmsPortal@786",
+            default: "",
             env: "MYSQL_PASSWORD",
         },
         database: {
@@ -83,27 +83,27 @@ const conf = convict({
     p24: {
         merchantId: {
             format: "int",
-            default: 119558,
+            default: 0,
             env: "P24_MERCHANT_ID",
         },
         posId: {
             format: "int",
-            default: 119558,
+            default: 0,
             env: "P24_POS_ID",
         },
         apiKey: {
             format: "*",
-            default: "17d25a5bedb1b7d51cb404062c4f1974",
+            default: "",
             env: "P24_API_KEY",
         },
         crc: {
             format: "*",
-            default: "08eed59d347b8dca",
+            default: "",
             env: "P24_CRC",
         },
         orderKey: {
             format: "*",
-            default: "e6df8910",
+            default: "",
             env: "P24_ORDER_KEY",
         },
         apiUrl: {
@@ -125,7 +125,7 @@ const conf = convict({
         // Override with FRONTEND_BASE_URL when they are on different domains (typical production setup).
         frontendUrl: {
             format: "*",
-            default: "http://209.182.238.150",
+            default: "http://localhost:4200",
             env: "FRONTEND_BASE_URL",
         },
         // Frontend URL used specifically for CORS allow-list.
