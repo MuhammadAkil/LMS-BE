@@ -15,6 +15,7 @@ import path from 'path';
 
 const PORT = config.server.port;
 const INTERNAL_API_PREFIX = config.server.routingPrefix || "/api";
+const DUPLICATE_API_PREFIX = `${INTERNAL_API_PREFIX}${INTERNAL_API_PREFIX}`;
 
 // Rate limit: 10 login attempts per 15 min per IP (per spec)
 const loginLimiter = rateLimit({
@@ -54,6 +55,13 @@ expressApp.use(cors({
 }));
 expressApp.use(express.json());
 expressApp.use(express.urlencoded({ extended: true }));
+
+expressApp.use((req, _res, next) => {
+    if (req.url === DUPLICATE_API_PREFIX || req.url.startsWith(`${DUPLICATE_API_PREFIX}/`)) {
+        req.url = req.url.replace(DUPLICATE_API_PREFIX, INTERNAL_API_PREFIX);
+    }
+    next();
+});
 
 // Apply rate limits to auth routes
 expressApp.use(`${INTERNAL_API_PREFIX}/users/login`, loginLimiter);
