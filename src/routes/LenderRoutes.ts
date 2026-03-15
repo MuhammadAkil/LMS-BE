@@ -288,6 +288,17 @@ export function registerLenderRoutes(app: Express): void {
     );
 
     /**
+     * GET /lender/exports/xml-template
+     * Download pre-defined XML borrowing template (read-only; no customization). PENDING: schema TBD.
+     * Guards: Role, Status (read-only), Verification (level 0)
+     */
+    app.get(
+        '/lender/exports/xml-template',
+        ...lenderGuardChain(true, 0),
+        async (req: Request, res: Response) => exportsController.downloadXmlTemplate(req, res)
+    );
+
+    /**
      * GET /lender/exports/history
      * Get export history
      * Query params: page, pageSize
@@ -338,6 +349,17 @@ export function registerLenderRoutes(app: Express): void {
         '/lender/management-agreements',
         ...lenderInvestmentGuardChain(2),
         async (req: Request, res: Response) => managementController.createManagementAgreement(req, res)
+    );
+
+    /**
+     * GET /lender/management-agreements/eligibility
+     * Whether lender can select a management company (account active, verified, bank account). Unlocks automatically when met.
+     * Guards: Role, Status (read-only), Verification (level 0)
+     */
+    app.get(
+        '/lender/management-agreements/eligibility',
+        ...lenderGuardChain(true, 0),
+        async (req: Request, res: Response) => managementController.getManagementAgreementEligibility(req, res)
     );
 
     /**

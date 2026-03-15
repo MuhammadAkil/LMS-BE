@@ -104,13 +104,15 @@ export class GlobalAuthMiddleware implements ExpressMiddlewareInterface {
                 path.startsWith('/api/lender') ||
                 path.startsWith('/api/borrower') ||
                 path.startsWith('/api/repayment') ||
+                path.startsWith('/api/legal-documents') ||
                 // fallback without /api prefix
                 path.startsWith('/admin') ||
                 path.startsWith('/payments') ||
                 path.startsWith('/company') ||
                 path.startsWith('/lender') ||
                 path.startsWith('/borrower') ||
-                path.startsWith('/repayment');
+                path.startsWith('/repayment') ||
+                path.startsWith('/legal-documents');
 
             if (isUserAuthRoute) {
                 // User JWT validation

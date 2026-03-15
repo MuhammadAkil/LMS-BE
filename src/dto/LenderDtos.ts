@@ -199,6 +199,11 @@ export interface LenderInvestmentDto {
     nextRepaymentDate: string | null;
     repaymentStatus: 'ON_TRACK' | 'OVERDUE' | 'COMPLETED';
     contractPdfUrl: string | null;
+    /** Set when the offer was placed / is managed by a company on the lender's behalf (read-only for lender). */
+    managedByCompanyId?: number;
+    managedByCompanyName?: string;
+    /** Loan created_at / activated for display. */
+    loanCreatedAt?: string;
 }
 
 export interface LenderInvestmentsPageResponse {
@@ -333,6 +338,15 @@ export interface ManagementCompaniesResponse {
 export interface CreateManagementAgreementRequest {
     companyId: string;
     amount: number;
+}
+
+/** Eligibility to select management company: account complete + verified */
+export interface ManagementAgreementEligibilityResponse {
+    eligible: boolean;
+    accountActive: boolean;
+    verificationComplete: boolean;
+    bankAccountVerified: boolean;
+    message?: string;
 }
 
 /** Lender or company signing: name, role, signature data */

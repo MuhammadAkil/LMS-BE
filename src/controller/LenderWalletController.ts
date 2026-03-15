@@ -6,7 +6,11 @@ import { LenderRoleGuard } from '../middleware/LenderGuards';
 
 /**
  * LENDER WALLET CONTROLLER
- * GET  /lender/wallet              - Get wallet balance
+ * Platform fund flow: the portal does NOT hold or manage lender investment funds.
+ * This wallet is for (a) service/platform fees owed to the portal and (b) commission
+ * fees payable to the lender (e.g. via Przelewy24). Investment capital is not held here.
+ *
+ * GET  /lender/wallet              - Get wallet balance (fees/commissions only)
  * POST /lender/wallet/topup        - Top-up wallet via card (simulated)
  * POST /lender/wallet/withdraw     - Withdraw to bank account
  * GET  /lender/wallet/transactions - Transaction history

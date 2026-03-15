@@ -46,7 +46,7 @@ export class LenderMarketplaceController {
      * - Capital locked immediately
      * - Bid amount must be <= remaining loan amount
      * - Must not exceed lender's max bid limit
-     * - Funds held in virtual wallet hold
+     * - Bid commitment recorded; investment capital is not held by the portal (see platform fund flow rules).
      * 
      * Request body:
      * - loan_request_id: string

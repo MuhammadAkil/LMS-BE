@@ -6,7 +6,7 @@ import { UserRepository } from '../repository/UserRepository';
 import { LmsNotificationService } from './LmsNotificationService';
 import { CompanyDashboardService } from './CompanyDashboardService';
 import { CompanyRankingService } from './CompanyRankingService';
-import { CompanyListItemDto, CompanyDetailDto, ApproveCompanyRequest, RejectCompanyRequest, UpdateCompanyConditionsRequest, CreateCompanyRequest, CreateCompanyResponse } from '../dto/AdminDtos';
+import { CompanyListItemDto, CompanyDetailDto, ApproveCompanyRequest, RejectCompanyRequest, RequestCorrectionRequest, UpdateCompanyConditionsRequest, CreateCompanyRequest, CreateCompanyResponse } from '../dto/AdminDtos';
 
 /**
  * Admin Companies Service
@@ -91,6 +91,9 @@ export class AdminCompaniesService {
 
     const performanceScore = totalLoans > 0 ? Math.round(Math.max(0, Math.min(100, 100 - defaultRate))) : undefined;
 
+    const metadata = typeof company.metadata === 'string' ? JSON.parse(company.metadata || '{}') : company.metadata || {};
+    const correctionRequest = metadata.correctionRequest || null;
+
     return {
       id: company.id,
       name: company.name,
@@ -122,6 +125,7 @@ export class AdminCompaniesService {
       totalLoans,
       defaultRate,
       rank: company.rank ?? null,
+      correctionRequest,
     };
   }
 
@@ -187,6 +191,61 @@ export class AdminCompaniesService {
       conditions: (typeof company.conditionsJson === 'string' ? JSON.parse(company.conditionsJson || '{}') : company.conditionsJson) || {},
       approvedAt: company.approvedAt,
     };
+  }
+
+  /**
+   * Request correction: flag specific fields for resubmission. Company stays PENDING.
+   * Stores correction in metadata; notifies company. Verification is data completeness only.
+   */
+  async requestCorrection(
+    companyId: number,
+    request: RequestCorrectionRequest,
+    adminId: number
+  ): Promise<CompanyDetailDto> {
+    const company = await this.companyRepo.findById(companyId);
+    if (!company) {
+      throw new Error(`Company ${companyId} not found`);
+    }
+
+    if (company.statusId !== 1) {
+      throw new Error(`Company status is ${this.getStatusName(company.statusId)}, can only request correction for PENDING`);
+    }
+
+    if (!request.fieldKeys?.length || !request.comment?.trim()) {
+      throw new Error('fieldKeys and comment are required');
+    }
+
+    const metadata = typeof company.metadata === 'string' ? JSON.parse(company.metadata || '{}') : { ...(company.metadata || {}) };
+    metadata.correctionRequest = {
+      requestedAt: new Date().toISOString(),
+      fieldKeys: request.fieldKeys,
+      comment: request.comment.trim(),
+    };
+    company.metadata = JSON.stringify(metadata);
+    await this.companyRepo.save(company);
+
+    await this.auditService.logAction(
+      adminId,
+      'COMPANY_CORRECTION_REQUESTED',
+      'COMPANY',
+      companyId,
+      { companyName: company.name, fieldKeys: request.fieldKeys, comment: request.comment }
+    );
+
+    const companyUsers = await this.userRepo.findByCompanyId(companyId);
+    const companyUserIds = companyUsers.map((u) => u.id);
+    if (companyUserIds.length > 0) {
+      const fieldList = request.fieldKeys.join(', ');
+      await this.notificationService.notifyMultiple(
+        companyUserIds,
+        'COMPANY_CORRECTION_REQUESTED',
+        'Correction requested',
+        `Your company "${company.name}" application needs corrections. Please review and update: ${fieldList}. Comment: ${request.comment}`,
+        { companyId, companyName: company.name, fieldKeys: request.fieldKeys, comment: request.comment }
+      );
+    }
+
+    return this.getCompanyById(companyId);
   }
 
   /**

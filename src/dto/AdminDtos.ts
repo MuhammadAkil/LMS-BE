@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsString, IsEmail, IsInt, IsOptional, Min, Max, IsEnum, IsJSON, IsDefined, IsNumber } from 'class-validator';
+import { IsNotEmpty, IsString, IsEmail, IsInt, IsOptional, Min, Max, IsEnum, IsJSON, IsDefined, IsNumber, IsArray } from 'class-validator';
 import { Type } from 'class-transformer';
 
 // ==================== DASHBOARD DTOs ====================
@@ -443,6 +443,8 @@ export class CompanyDetailDto {
   defaultRate?: number;
   /** Auto-computed rank (1 = highest). Read-only. */
   rank?: number | null;
+  /** Set when admin requested correction (data completeness); company stays PENDING. */
+  correctionRequest?: { requestedAt: string; fieldKeys: string[]; comment: string } | null;
 }
 
 export class ApproveCompanyRequest {
@@ -453,6 +455,17 @@ export class ApproveCompanyRequest {
 
 export class RejectCompanyRequest {
   @IsNotEmpty({ message: 'Rejection comment is required' })
+  @IsString()
+  comment!: string;
+}
+
+/** Request correction: flag specific fields for resubmission (company stays PENDING). */
+export class RequestCorrectionRequest {
+  @IsArray()
+  @IsString({ each: true })
+  fieldKeys!: string[];
+
+  @IsNotEmpty({ message: 'Comment is required' })
   @IsString()
   comment!: string;
 }

@@ -4,11 +4,17 @@ import {
     CreateManagementAgreementRequest,
     ManagementAgreementDto,
     ManagementAgreementsResponse,
+    ManagementAgreementEligibilityResponse,
 } from '../dto/LenderDtos';
 import { AuditLogRepository } from '../repository/AuditLogRepository';
 import { CompanyRepository } from '../repository/CompanyRepository';
 import { ManagementAgreementRepository } from '../repository/ManagementAgreementRepository';
+import { UserRepository } from '../repository/UserRepository';
 import { ManagementAgreement } from '../domain/ManagementAgreement';
+import { VerificationAccessService } from './VerificationAccessService';
+
+const ACTIVE_STATUS_ID = 2;
+const REQUIRED_VERIFICATION_LEVEL = 2;
 
 /**
  * L-07: LENDER MANAGEMENT AGREEMENTS SERVICE
@@ -18,11 +24,48 @@ export class LenderManagementService {
     private auditLogRepository: AuditLogRepository;
     private companyRepo: CompanyRepository;
     private agreementRepo: ManagementAgreementRepository;
+    private userRepo: UserRepository;
+    private verificationAccess: VerificationAccessService;
 
     constructor() {
         this.auditLogRepository = new AuditLogRepository();
         this.companyRepo = new CompanyRepository();
         this.agreementRepo = new ManagementAgreementRepository();
+        this.userRepo = new UserRepository();
+        this.verificationAccess = new VerificationAccessService();
+    }
+
+    /**
+     * Eligibility to select management company: account must be ACTIVE, verification complete (level >= 2 + all required KYC approved), and bank account verified.
+     * Unlocks automatically when all conditions are met (no manual approval).
+     */
+    async getManagementAgreementEligibility(lenderId: string): Promise<ManagementAgreementEligibilityResponse> {
+        const userId = parseInt(lenderId, 10);
+        const user = await this.userRepo.findById(userId);
+        if (!user) {
+            return {
+                eligible: false,
+                accountActive: false,
+                verificationComplete: false,
+                bankAccountVerified: false,
+                message: 'Account not found.',
+            };
+        }
+        const accountActive = user.statusId === ACTIVE_STATUS_ID;
+        const gate = await this.verificationAccess.getVerificationGate(userId, user.roleId);
+        const levelOk = (user.level ?? 0) >= REQUIRED_VERIFICATION_LEVEL;
+        const verificationComplete = gate.isVerified && levelOk;
+        const bankAccountVerified = !!(user.bankAccount != null && String(user.bankAccount).trim().length > 0);
+        const eligible = accountActive && verificationComplete && bankAccountVerified;
+        const steps: string[] = [];
+        if (!accountActive) steps.push('Your account must be active (complete account setup and any required approval).');
+        if (!verificationComplete) {
+            if (!gate.isVerified) steps.push('Complete identity and document verification and wait for approval.');
+            else if (!levelOk) steps.push('Reach verification level 2 (complete all required verification steps).');
+        }
+        if (!bankAccountVerified) steps.push('Add and verify your bank account in Profile.');
+        const message = eligible ? undefined : steps.length > 0 ? steps.join(' ') : 'Complete account and verification requirements to select a management company.';
+        return { eligible, accountActive, verificationComplete, bankAccountVerified, message };
     }
 
     /**

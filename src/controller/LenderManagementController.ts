@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { basename } from 'node:path';
 import { Body, Controller, Delete, Get, Param, Post, Req, Res, UseBefore } from 'routing-controllers';
 import { LenderManagementService } from '../service/LenderManagementService';
-import { CreateManagementAgreementRequest } from '../dto/LenderDtos';
+import { CreateManagementAgreementRequest, ManagementAgreementEligibilityResponse } from '../dto/LenderDtos';
 import { AuthenticationMiddleware } from '../middleware/AuthenticationMiddleware';
 import { LenderBankAccountGuard, LenderRoleGuard } from '../middleware/LenderGuards';
 import { withLenderStatusGuard, withLenderVerificationGuard } from '../middleware/LenderGuardWrappers';
@@ -51,6 +51,35 @@ export class LenderManagementController {
             res.status(500).json({
                 statusCode: '500',
                 statusMessage: 'Failed to retrieve management companies',
+                errors: [error.message],
+                timestamp: new Date().toISOString(),
+            });
+        }
+    }
+
+    /**
+     * GET /lender/management-agreements/eligibility
+     * Whether the lender can select a management company (account active, verified, bank account).
+     * No manual approval: unlocks automatically when conditions are met.
+     */
+    @Get('/management-agreements/eligibility')
+    @UseBefore(withLenderStatusGuard(true), withLenderVerificationGuard(0))
+    async getManagementAgreementEligibility(@Req() req: Request, @Res() res: Response): Promise<void> {
+        try {
+            const lenderId = (req as any).user.id;
+            const eligibility: ManagementAgreementEligibilityResponse =
+                await this.managementService.getManagementAgreementEligibility(lenderId);
+            res.status(200).json({
+                statusCode: '200',
+                statusMessage: 'Eligibility retrieved',
+                data: eligibility,
+                timestamp: new Date().toISOString(),
+            });
+        } catch (error: any) {
+            console.error('Error in getManagementAgreementEligibility:', error);
+            res.status(500).json({
+                statusCode: '500',
+                statusMessage: 'Failed to retrieve eligibility',
                 errors: [error.message],
                 timestamp: new Date().toISOString(),
             });
