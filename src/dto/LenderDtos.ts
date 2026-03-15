@@ -217,10 +217,23 @@ export interface LenderInvestmentsPageResponse {
     };
 }
 
+/** Off-platform disbursement record (manual bank transfer). */
+export interface DisbursementDto {
+    id: number;
+    loanId: number;
+    senderType: 'LENDER' | 'COMPANY';
+    amount: number;
+    transferDate: string;
+    referenceNumber?: string;
+    confirmedAt: string;
+}
+
 export interface LenderInvestmentDetailResponse extends LenderInvestmentDto {
     repayments: RepaymentDto[];
     estimatedROI: number;
     actualROI?: number;
+    /** Set when disbursement has been confirmed (by lender or company). */
+    disbursement?: DisbursementDto;
 }
 
 // ============================================

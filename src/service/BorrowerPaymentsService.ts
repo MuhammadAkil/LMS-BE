@@ -366,9 +366,15 @@ export class BorrowerPaymentsService {
 
   /**
    * Generate loan agreement PDF, persist repayment schedule, reveal borrower data to lenders.
-   * Called after portal commission paid when voluntary_fee === 0, or after voluntary commission paid.
+   * MUST only be called after portal commission is confirmed/settled via Przelewy24 (webhook).
+   * Called after portal commission paid when voluntary_fee === 0, after voluntary commission paid, or when borrower skips voluntary.
+   * @param options.voluntaryCommissionPaid - If false, agreement is generated with repayment obligation NOT arising (skip path).
    */
-  private async generateAgreementAndRevealData(applicationId: number, borrowerId: number): Promise<void> {
+  private async generateAgreementAndRevealData(
+    applicationId: number,
+    borrowerId: number,
+    options?: { voluntaryCommissionPaid?: boolean }
+  ): Promise<void> {
     const queryRunner = AppDataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
@@ -376,6 +382,9 @@ export class BorrowerPaymentsService {
     try {
       const application = await this.loanAppRepo.findById(applicationId);
       if (!application) throw new Error('Application not found');
+      if (application.commissionStatus !== 'PAID') {
+        throw new Error('Portal commission must be paid before loan agreement can be generated');
+      }
 
       const loan = await this.loanRepo.findByApplicationId(applicationId);
       if (!loan) throw new Error('Loan not found for application');
@@ -403,7 +412,7 @@ export class BorrowerPaymentsService {
         loan.interestRate ? Number(loan.interestRate) : undefined
       );
 
-      // Persist repayment schedule to DB (used by loan detail and history)
+      // Persist repayment schedule to DB (used by loan detail and history; when voluntary not paid, schedule is informational only)
       const repaymentRepo = queryRunner.manager.getRepository(Repayment);
       for (const i of schedule.installments) {
         const r = new Repayment();
@@ -412,6 +421,14 @@ export class BorrowerPaymentsService {
         r.amount = i.totalAmount;
         await repaymentRepo.save(r);
       }
+
+      // Voluntary commission paid: true when voluntary_fee === 0, or when voluntary step is PAID; false when borrower skipped
+      const voluntaryStep = await this.paymentStepRepo.findByApplicationAndStep(applicationId, 'VOLUNTARY_COMMISSION');
+      const voluntaryAmount = Number(application.voluntaryCommission ?? 0);
+      const voluntaryCommissionPaid =
+        options?.voluntaryCommissionPaid !== undefined
+          ? options.voluntaryCommissionPaid
+          : voluntaryAmount === 0 || voluntaryStep?.status === 'PAID';
 
       const agreementData = {
         loanId: loan.id,
@@ -428,7 +445,8 @@ export class BorrowerPaymentsService {
         durationMonths: Number(application.durationMonths),
         interestRate: loan.interestRate ? Number(loan.interestRate) : 0.075,
         repaymentType: loan.repaymentType ?? 'LUMP_SUM',
-        voluntaryCommission: Number(application.voluntaryCommission),
+        voluntaryCommission: voluntaryAmount,
+        voluntaryCommissionPaid,
         portalCommission: Number(application.amount) * 0.02,
         disbursementDate: new Date().toISOString().split('T')[0],
         dueDate: loan.dueDate instanceof Date
@@ -548,6 +566,48 @@ export class BorrowerPaymentsService {
       createdAt: payment.createdAt.toISOString(),
       completedAt: payment.paidAt?.toISOString(),
     };
+  }
+
+  /**
+   * Skip voluntary lender commission and generate the loan agreement without repayment obligation.
+   * Allowed when: portal commission is paid, voluntary amount > 0, voluntary not paid, and no agreement generated yet.
+   * The agreement will state that the repayment obligation does NOT arise.
+   */
+  async skipVoluntaryAndGenerateAgreement(borrowerId: string, applicationId: number): Promise<void> {
+    const borrowerIdNum = parseInt(borrowerId, 10);
+    const application = await this.loanAppRepo.findById(applicationId);
+    if (!application || Number(application.borrowerId) !== borrowerIdNum) {
+      throw new Error('Application not found');
+    }
+    if (application.statusId === 4) throw new Error('Application is cancelled');
+    if (application.commissionStatus !== 'PAID') {
+      throw new Error('Portal commission must be paid before you can generate the agreement');
+    }
+    const voluntaryAmount = Number(application.voluntaryCommission ?? 0);
+    if (voluntaryAmount <= 0) {
+      throw new Error('Voluntary commission is not set or is zero; no need to skip. Complete portal commission to generate the agreement.');
+    }
+    const voluntaryStep = await this.paymentStepRepo.findByApplicationAndStep(applicationId, 'VOLUNTARY_COMMISSION');
+    if (voluntaryStep?.status === 'PAID') {
+      throw new Error('Voluntary commission is already paid; agreement should already be available.');
+    }
+    const loan = await this.loanRepo.findByApplicationId(applicationId);
+    if (!loan) throw new Error('Loan not found for application');
+    const existingContract = await AppDataSource.query(
+      'SELECT id FROM contracts WHERE loanId = ? LIMIT 1',
+      [loan.id]
+    );
+    if (Array.isArray(existingContract) && existingContract.length > 0) {
+      throw new Error('Loan agreement has already been generated for this loan');
+    }
+    await this.generateAgreementAndRevealData(applicationId, borrowerIdNum, { voluntaryCommissionPaid: false });
+    await this.auditRepo.create({
+      actorId: borrowerIdNum,
+      action: 'VOLUNTARY_COMMISSION_SKIPPED_AGREEMENT_GENERATED',
+      entity: 'APPLICATION',
+      entityId: applicationId,
+      createdAt: new Date(),
+    } as any);
   }
 
   /**

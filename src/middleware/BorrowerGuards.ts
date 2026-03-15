@@ -211,10 +211,10 @@ export async function BorrowerCommissionPaymentGuard(
         return;
     }
 
-    // payment_type_id 3 = PORTAL_COMMISSION; status 'PAID' = commission fully paid
+    // payment_type_id 3 = PORTAL_COMMISSION; status_id 2 = PAID (payment_statuses)
     const rows: any[] = await AppDataSource.query(
         `SELECT id FROM payments
-         WHERE user_id = ? AND payment_type_id = 3 AND status = 'PAID'
+         WHERE user_id = ? AND payment_type_id = 3 AND status_id = 2
          ORDER BY created_at DESC LIMIT 1`,
         [user.id]
     );

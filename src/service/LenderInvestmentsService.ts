@@ -8,6 +8,7 @@ import { LoanOfferRepository } from '../repository/LoanOfferRepository';
 import { LoanRepository } from '../repository/LoanRepository';
 import { LoanApplicationRepository } from '../repository/LoanApplicationRepository';
 import { UserRepository } from '../repository/UserRepository';
+import { LoanDisbursementService } from './LoanDisbursementService';
 
 const LOAN_STATUS_NAMES: Record<number, string> = { 1: 'OPEN', 2: 'ACTIVE', 3: 'CLOSED', 4: 'DEFAULT' };
 
@@ -21,11 +22,14 @@ export class LenderInvestmentsService {
     private loanAppRepo: LoanApplicationRepository;
     private userRepo: UserRepository;
 
+    private disbursementService: LoanDisbursementService;
+
     constructor() {
         this.loanOfferRepo = new LoanOfferRepository();
         this.loanRepo = new LoanRepository();
         this.loanAppRepo = new LoanApplicationRepository();
         this.userRepo = new UserRepository();
+        this.disbursementService = new LoanDisbursementService();
     }
 
     async getInvestmentsPaginated(
@@ -108,6 +112,7 @@ export class LenderInvestmentsService {
             ? `${borrower.firstName ?? ''} ${borrower.lastName ?? ''}`.trim() || borrower.email
             : 'Borrower';
 
+        const disbursement = await this.disbursementService.getByLoanId(loan.id);
         const base: LenderInvestmentDto = {
             investmentId: String(offer.id),
             loanId: String(loan.id),
@@ -129,6 +134,7 @@ export class LenderInvestmentsService {
             ...base,
             repayments: [],
             estimatedROI: 0.08,
+            disbursement: disbursement ?? undefined,
         };
     }
 

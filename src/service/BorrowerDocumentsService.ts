@@ -188,11 +188,17 @@ export class BorrowerDocumentsService {
             if (docIdNum >= this.CONTRACT_OFFSET) {
                 const contractId = docIdNum - this.CONTRACT_OFFSET;
                 const rows: any[] = await db.query(
-                    'SELECT c.pdfPath FROM contracts c JOIN loans l ON l.id = c.loanId WHERE c.id = ? AND l.borrowerId = ?',
+                    `SELECT c.pdfPath FROM contracts c
+                     JOIN loans l ON l.id = c.loanId
+                     JOIN loan_applications la ON la.id = l.application_id
+                     WHERE c.id = ? AND l.borrowerId = ? AND la.commission_status = 'PAID'`,
                     [contractId, borrowerIdNum]
                 );
                 const row = Array.isArray(rows) ? rows[0] : null;
-                filePath = row?.pdfPath ?? '';
+                if (!row?.pdfPath) {
+                    throw new Error('Loan agreement is not available until portal commission has been paid via Przelewy24');
+                }
+                filePath = row.pdfPath;
             } else {
                 const rows: any[] = await db.query(
                     `SELECT vd.filePath FROM verification_documents vd

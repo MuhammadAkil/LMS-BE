@@ -1,5 +1,5 @@
-import { Controller, Get, Post, Put, Delete, UseBefore, Req, Body, Param, QueryParams } from 'routing-controllers';
-import { Request } from 'express';
+import { Controller, Get, Post, Put, Delete, UseBefore, Req, Res, Body, Param, QueryParams } from 'routing-controllers';
+import { Request, Response } from 'express';
 import { AppDataSource } from '../config/database';
 import { CompanyDashboardService } from '../service/CompanyDashboardService';
 import { CompanyProfileService } from '../service/CompanyProfileService';
@@ -7,6 +7,7 @@ import { CompanyAgreementService } from '../service/CompanyAgreementService';
 import { CompanyLendersService } from '../service/CompanyLendersService';
 import { CompanyAutomationService } from '../service/CompanyAutomationService';
 import { CompanyLoansService } from '../service/CompanyLoansService';
+import { LoanDisbursementService, ConfirmDisbursementRequest } from '../service/LoanDisbursementService';
 import { CompanyBulkService } from '../service/CompanyBulkService';
 import { CompanyDocumentsService } from '../service/CompanyDocumentsService';
 import { CompanyNotificationsService } from '../service/CompanyNotificationsService';
@@ -366,9 +367,11 @@ export class CompanyAutomationController {
 @UseBefore(CompanyGuard, CompanyReadonlyGuard)
 export class CompanyLoansController {
     private readonly loansService: CompanyLoansService;
+    private readonly disbursementService: LoanDisbursementService;
 
     constructor() {
         this.loansService = new CompanyLoansService();
+        this.disbursementService = new LoanDisbursementService();
     }
 
     @Get('')
@@ -393,6 +396,59 @@ export class CompanyLoansController {
             throw new Error('Company ID not found in request');
         }
         return this.loansService.getManagedLoanDetail(companyId, loanId);
+    }
+
+    /**
+     * POST /api/company/loans/:id/disbursement
+     * Confirm off-platform disbursement (company sends on behalf of lender via bank transfer).
+     * Body: { amount, transferDate, referenceNumber? }
+     */
+    @Post('/:id/disbursement')
+    async confirmDisbursement(
+        @Req() req: Request,
+        @Res() res: Response,
+        @Param('id') loanId: number,
+        @Body() body: ConfirmDisbursementRequest
+    ): Promise<void> {
+        const companyId = (req.user as any)?.companyId;
+        if (!companyId) {
+            res.status(401).json({
+                statusCode: '401',
+                statusMessage: 'Company ID not found',
+                timestamp: new Date().toISOString(),
+            });
+            return;
+        }
+        if (!body?.amount || body.amount <= 0 || !body?.transferDate) {
+            res.status(400).json({
+                statusCode: '400',
+                statusMessage: 'amount and transferDate are required',
+                errors: ['amount and transferDate are required'],
+                timestamp: new Date().toISOString(),
+            });
+            return;
+        }
+        try {
+            const data = await this.disbursementService.confirmByCompany(companyId, loanId, {
+                amount: Number(body.amount),
+                transferDate: String(body.transferDate),
+                referenceNumber: body.referenceNumber,
+            });
+            res.status(201).json({
+                statusCode: '201',
+                statusMessage: 'Disbursement confirmed. Borrower has been notified.',
+                data,
+                timestamp: new Date().toISOString(),
+            });
+        } catch (error: any) {
+            const code = error.message?.includes('not found') || error.message?.includes('already been recorded') ? 400 : 500;
+            res.status(code).json({
+                statusCode: String(code),
+                statusMessage: error.message || 'Failed to confirm disbursement',
+                errors: [error.message],
+                timestamp: new Date().toISOString(),
+            });
+        }
     }
 }
 

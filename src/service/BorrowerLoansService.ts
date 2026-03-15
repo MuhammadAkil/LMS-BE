@@ -2,6 +2,7 @@ import { AuditLogRepository } from '../repository/AuditLogRepository';
 import { LoanRepository } from '../repository/LoanRepository';
 import { LoanApplicationRepository } from '../repository/LoanApplicationRepository';
 import { RepaymentRepository } from '../repository/RepaymentRepository';
+import { LoanDisbursementService } from './LoanDisbursementService';
 import {
     ActiveLoanListResponse,
     ActiveLoanListItemDto,
@@ -42,12 +43,14 @@ export class BorrowerLoansService {
     private loanRepo: LoanRepository;
     private loanAppRepo: LoanApplicationRepository;
     private repaymentRepo: RepaymentRepository;
+    private disbursementService: LoanDisbursementService;
 
     constructor() {
         this.auditRepo = new AuditLogRepository();
         this.loanRepo = new LoanRepository();
         this.loanAppRepo = new LoanApplicationRepository();
         this.repaymentRepo = new RepaymentRepository();
+        this.disbursementService = new LoanDisbursementService();
     }
 
     /**
@@ -255,6 +258,7 @@ export class BorrowerLoansService {
             const expectedCompletionDate = new Date(loanCreatedAt);
             expectedCompletionDate.setMonth(expectedCompletionDate.getMonth() + app.durationMonths);
 
+            const disbursement = await this.disbursementService.getByLoanId(loanIdNum);
             const loanDetail: LoanDetailDto = {
                 id: loanIdNum,
                 applicationId: loan.applicationId,
@@ -270,6 +274,7 @@ export class BorrowerLoansService {
                 nextRepaymentAmount: nextRepaymentAmount,
                 delayedPaymentsCount: delayedPaymentsCount,
                 repaymentSchedule: schedule,
+                disbursement: disbursement ?? undefined,
             };
 
             // Audit log

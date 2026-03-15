@@ -301,12 +301,25 @@ export class ManagedLoansListResponse {
     };
 }
 
+/** Off-platform disbursement record (manual bank transfer by lender or company). */
+export interface DisbursementDto {
+    id: number;
+    loanId: number;
+    senderType: 'LENDER' | 'COMPANY';
+    amount: number;
+    transferDate: string;
+    referenceNumber?: string;
+    confirmedAt: string;
+}
+
 export class ManagedLoanDetailResponse extends ManagedLoanResponse {
     contractTerms!: string;
     interestRate!: number;
     totalRepayments!: number;
     paidRepayments!: number;
     overdueRepayments!: number;
+    /** Set when disbursement has been confirmed (by lender or company). */
+    disbursement?: DisbursementDto;
 }
 
 // ==================== BULK ACTIONS DTOs ====================

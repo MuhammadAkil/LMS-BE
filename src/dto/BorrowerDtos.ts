@@ -348,6 +348,17 @@ export class ActiveLoanListResponse {
     totalOutstandingBalance!: number;
 }
 
+/** Off-platform disbursement record (manual bank transfer by lender or company). */
+export interface DisbursementDto {
+    id: number;
+    loanId: number;
+    senderType: 'LENDER' | 'COMPANY';
+    amount: number;
+    transferDate: string;
+    referenceNumber?: string;
+    confirmedAt: string;
+}
+
 export class LoanDetailDto {
     id!: number;
     applicationId!: number;
@@ -364,6 +375,8 @@ export class LoanDetailDto {
     nextRepaymentAmount?: number;
     delayedPaymentsCount!: number;
     repaymentSchedule!: RepaymentScheduleItemDto[];
+    /** Set when lender or company has confirmed off-platform disbursement. */
+    disbursement?: DisbursementDto;
 }
 
 export class RepaymentScheduleItemDto {

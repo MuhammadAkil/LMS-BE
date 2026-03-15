@@ -6,6 +6,7 @@ import {
     CompanyPaginationQuery,
     RepaymentDetailDto,
 } from '../dto/CompanyDtos';
+import { LoanDisbursementService } from './LoanDisbursementService';
 
 /**
  * Company Loans Service
@@ -218,6 +219,9 @@ export class CompanyLoansService {
             ).length;
             const overdueRepayments = repayments.filter((r: any) => !r.paidDate && new Date(r.dueDate) < new Date()).length;
 
+            const disbursementService = new LoanDisbursementService();
+            const disbursement = await disbursementService.getByLoanId(loanId);
+
             return {
                 id: loan[0].id,
                 borrowerId: loan[0].borrowerId,
@@ -244,6 +248,7 @@ export class CompanyLoansService {
                 totalRepayments,
                 paidRepayments,
                 overdueRepayments,
+                disbursement: disbursement ?? undefined,
             };
         } finally {
             await queryRunner.release();

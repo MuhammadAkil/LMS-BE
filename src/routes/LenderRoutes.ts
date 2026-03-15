@@ -165,6 +165,17 @@ export function registerLenderRoutes(app: Express): void {
         async (req: Request, res: Response) => loansController.getLoanDetail(req, res)
     );
 
+    /**
+     * POST /lender/loans/:loanId/disbursement
+     * Confirm off-platform disbursement (lender direct bank transfer to borrower).
+     * Body: { amount, transferDate, referenceNumber? }
+     */
+    app.post(
+        '/lender/loans/:loanId/disbursement',
+        ...lenderGuardChain(false, 0),
+        async (req: Request, res: Response) => loansController.confirmDisbursement(req, res)
+    );
+
     // ============================================
     // L-03: MAKE OFFER (CRITICAL)
     // ============================================
