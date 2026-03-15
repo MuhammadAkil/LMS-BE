@@ -158,10 +158,16 @@ export class CompanyAgreementController {
     @Get('')
     async getAgreement(@Req() req: Request): Promise<CompanyAgreementResponse | null> {
         const companyId = (req.user as any)?.companyId;
-        if (!companyId) {
-            throw new Error('Company ID not found in request');
-        }
+        if (!companyId) throw new Error('Company ID not found in request');
         return this.agreementService.getAgreement(companyId);
+    }
+
+    /** Agreements pending company signature (lender already signed) — for bilateral flow */
+    @Get('/pending')
+    async getAgreementsPendingSign(@Req() req: Request): Promise<CompanyAgreementResponse[]> {
+        const companyId = (req.user as any)?.companyId;
+        if (!companyId) throw new Error('Company ID not found in request');
+        return this.agreementService.getAgreementsPendingCompanySign(companyId);
     }
 
     @Post('/sign')

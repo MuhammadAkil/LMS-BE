@@ -1,5 +1,6 @@
 import { AppDataSource } from '../config/database';
 import { CompanyAuditService } from './CompanyAuditService';
+import { CompanyExportTemplateService } from './CompanyExportTemplateService';
 import {
     CompanyReportsQuery,
     CompanyPortfolioLoanDto,
@@ -29,11 +30,13 @@ import { join } from 'node:path';
 export class CompanyReportsService {
     private readonly auditService: CompanyAuditService;
     private readonly exportRepo: ExportRepository;
+    private readonly templateService: CompanyExportTemplateService;
     private readonly exportsDir: string;
 
     constructor() {
         this.auditService = new CompanyAuditService();
         this.exportRepo = new ExportRepository();
+        this.templateService = new CompanyExportTemplateService();
         this.exportsDir = join(process.cwd(), 'exports');
         if (!existsSync(this.exportsDir)) mkdirSync(this.exportsDir, { recursive: true });
     }
@@ -354,23 +357,12 @@ export class CompanyReportsService {
             if (loans.length > 500) throw new Error('XML export is limited to 500 loans per request');
 
             const commissionRate = await this.getCompanyCommissionRate(qr, companyId);
-            const xmlItems = loans
-                .map((r: any) => {
-                    const commission = (parseFloat(r.loanAmount ?? 0) * commissionRate / 100).toFixed(2);
-                    return `  <Loan>
-    <LoanId>${this.escapeXml(String(r.id))}</LoanId>
-    <LoanAmount>${r.loanAmount ?? 0}</LoanAmount>
-    <OutstandingBalance>${r.outstandingBalance ?? 0}</OutstandingBalance>
-    <Status>${this.escapeXml(r.status ?? '')}</Status>
-    <BorrowerEmail>${this.escapeXml(r.borrowerEmail ?? '')}</BorrowerEmail>
-    <BorrowerLevel>${this.escapeXml(r.borrowerLevel ?? '')}</BorrowerLevel>
-    <LenderEmail>${this.escapeXml(r.lenderEmail ?? '')}</LenderEmail>
-    <CommissionAmount>${commission}</CommissionAmount>
-    <CreatedAt>${r.loanCreatedAt ? new Date(r.loanCreatedAt).toISOString() : ''}</CreatedAt>
-  </Loan>`;
-                })
-                .join('\n');
-            const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<PortfolioReport generatedAt="${new Date().toISOString()}" companyId="${companyId}">\n${xmlItems}\n</PortfolioReport>`;
+            const effectiveFields = await this.templateService.resolveFieldKeys(
+                companyId,
+                request.templateId,
+                request.fields
+            );
+            const xml = this.buildPortfolioXml(loans, commissionRate, effectiveFields, companyId);
 
             const fileName = `export_${Date.now()}_company${companyId}_portfolio.xml`;
             const filePath = join(this.exportsDir, fileName);
@@ -398,6 +390,62 @@ export class CompanyReportsService {
                 downloadUrl: `/api/company/documents/${exportId}/download`,
                 createdAt: new Date(),
             };
+        } finally {
+            await qr.release();
+        }
+    }
+
+    /**
+     * Build XML string from loan rows using only the given field keys.
+     * Row keys: id, loanAmount, outstandingBalance, status, loanCreatedAt, borrowerEmail, borrowerLevel, lenderEmail.
+     * Mapped: loanId <- id, commissionAmount <- computed.
+     */
+    buildPortfolioXml(
+        rows: any[],
+        commissionRate: number,
+        fieldKeys: string[],
+        companyId: number
+    ): string {
+        const xmlItems = rows
+            .map((r: any) => {
+                const commission = (parseFloat(r.loanAmount ?? 0) * commissionRate / 100).toFixed(2);
+                const valueByKey: Record<string, string> = {
+                    loanId: String(r.id ?? ''),
+                    loanAmount: String(r.loanAmount ?? 0),
+                    outstandingBalance: String(r.outstandingBalance ?? 0),
+                    status: r.status ?? '',
+                    borrowerEmail: r.borrowerEmail ?? '',
+                    borrowerLevel: r.borrowerLevel ?? '',
+                    lenderEmail: r.lenderEmail ?? '',
+                    commissionAmount: commission,
+                    loanCreatedAt: r.loanCreatedAt ? new Date(r.loanCreatedAt).toISOString() : '',
+                };
+                const lines = fieldKeys
+                    .filter((k) => valueByKey[k] !== undefined)
+                    .map((k) => {
+                        const tag = k.charAt(0).toUpperCase() + k.slice(1);
+                        const raw = valueByKey[k];
+                        const escaped = /[&<>"']/.test(raw) ? this.escapeXml(raw) : raw;
+                        return `    <${tag}>${escaped}</${tag}>`;
+                    });
+                return `  <Loan>\n${lines.join('\n')}\n  </Loan>`;
+            })
+            .join('\n');
+        return `<?xml version="1.0" encoding="UTF-8"?>\n<PortfolioReport generatedAt="${new Date().toISOString()}" companyId="${companyId}">\n${xmlItems}\n</PortfolioReport>`;
+    }
+
+    /**
+     * Public: fetch loan rows and commission rate for export (e.g. bulk XML).
+     */
+    async getLoanRowsForExport(
+        companyId: number,
+        request: { loanIds?: number[]; dateFrom?: string; dateTo?: string; lenderId?: number; loanStatus?: string; borrowerLevel?: string }
+    ): Promise<{ rows: any[]; commissionRate: number }> {
+        const qr = AppDataSource.createQueryRunner();
+        try {
+            const rows = await this.getLoansForExport(qr, companyId, request as CompanyReportExportRequest);
+            const commissionRate = await this.getCompanyCommissionRate(qr, companyId);
+            return { rows, commissionRate };
         } finally {
             await qr.release();
         }

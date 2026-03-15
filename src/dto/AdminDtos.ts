@@ -396,6 +396,8 @@ export class CompanyListItemDto {
   statusName!: string;
   bankAccount?: string;
   createdAt!: Date;
+  /** Auto-computed rank (1 = highest). Read-only. */
+  rank?: number | null;
 }
 
 /** Performance KPIs for admin company detail */
@@ -439,6 +441,8 @@ export class CompanyDetailDto {
   activeLoans?: number;
   totalLoans?: number;
   defaultRate?: number;
+  /** Auto-computed rank (1 = highest). Read-only. */
+  rank?: number | null;
 }
 
 export class ApproveCompanyRequest {

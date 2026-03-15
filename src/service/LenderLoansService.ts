@@ -90,6 +90,53 @@ export class LenderLoansService {
         }
     }
 
+    /**
+     * Browse open loans for company "act as lender" view. Same shape as lender browse; ctaEligible true (company uses delegated bid).
+     */
+    async browseOpenLoansForCompany(filters: LoanBrowseFilterDto): Promise<LoanBrowsePageResponse> {
+        const page = filters.page || 1;
+        const pageSize = filters.pageSize || 10;
+        const [loans, totalItems] = await this.loanRepo.findOpenPaginatedWithFilters(page, pageSize, {
+            minAmount: filters.minAmount,
+            maxAmount: filters.maxAmount,
+            minDuration: filters.minDuration,
+            maxDuration: filters.maxDuration,
+        });
+        const items: LoanBrowseItemDto[] = [];
+        for (const loan of loans) {
+            const app = await this.loanAppRepo.findById(loan.applicationId);
+            if (!app) continue;
+            const offers = await this.loanOfferRepo.findByLoanId(loan.id);
+            const totalOffered = offers.reduce((s, o) => s + Number(o.amount), 0);
+            const remaining = Math.max(0, Number(loan.totalAmount) - totalOffered);
+            const fundedPercent = Number(loan.totalAmount) > 0
+                ? Math.min(100, (totalOffered / Number(loan.totalAmount)) * 100)
+                : 0;
+            items.push({
+                id: String(loan.id),
+                amount: Number(loan.totalAmount),
+                durationMonths: app.durationMonths,
+                purpose: app.purpose ?? '',
+                statusCode: 'OPEN',
+                statusName: 'Open',
+                createdAt: (loan.createdAt as Date).toISOString(),
+                fundedPercent: Math.round(fundedPercent * 100) / 100,
+                remainingAmount: Math.round(remaining * 100) / 100,
+                offerCount: offers.length,
+                ctaEligible: remaining >= MIN_OFFER_PLN,
+            });
+        }
+        return {
+            items,
+            pagination: {
+                page,
+                pageSize,
+                totalItems,
+                totalPages: Math.ceil(totalItems / pageSize),
+            },
+        };
+    }
+
     async getLoanDetail(lenderId: string, loanId: string): Promise<LoanDetailResponse> {
         const loanIdNum = parseInt(loanId, 10);
         const loan = await this.loanRepo.findById(loanIdNum);

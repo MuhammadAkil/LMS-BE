@@ -54,6 +54,13 @@ export class Company {
   @Column({ type: 'text', nullable: true, name: 'admin_revision_note' })
   adminRevisionNote?: string;
 
+  /**
+   * Auto-computed rank (1 = highest). Based on total funds managed and account tenure.
+   * Updated automatically when managed funds or tenure change; no manual assignment.
+   */
+  @Column({ type: 'int', nullable: true })
+  rank?: number | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 

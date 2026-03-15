@@ -99,7 +99,7 @@ export class LenderManagementService {
         agreement.lenderId = lenderIdNum;
         agreement.companyId = companyId;
         agreement.amount = request.amount;
-        agreement.signedAt = new Date();
+        // Do not set signedAt — bilateral: lender signs next, then company
         const saved = await this.agreementRepo.save(agreement);
 
         return {
@@ -108,9 +108,50 @@ export class LenderManagementService {
             companyId: String(companyId),
             companyName: company.name,
             amount: request.amount,
-            signedAt: (saved.signedAt ?? new Date()).toISOString(),
-            pdfPath: `/generated_pdfs/management_agreement_${saved.id}.pdf`,
+            signedAt: '',
+            pdfPath: null,
             status: 'ACTIVE',
+            signingStatus: 'PENDING_LENDER',
+        };
+    }
+
+    /**
+     * Lender signs the agreement (name, role, signature).
+     * After this, company can sign to complete bilateral flow.
+     */
+    async signAgreement(
+        lenderId: string,
+        agreementId: string,
+        request: { signerName: string; signerRole: string; signatureData?: string }
+    ): Promise<ManagementAgreementDto> {
+        const lenderIdNum = parseInt(lenderId, 10);
+        const id = parseInt(agreementId, 10);
+        const agreement = await this.agreementRepo.findById(id);
+        if (!agreement || agreement.lenderId !== lenderIdNum) throw new Error('Agreement not found');
+        if (agreement.terminatedAt) throw new Error('Agreement is terminated');
+        if (agreement.lenderSignedAt) throw new Error('You have already signed this agreement');
+
+        agreement.lenderSignedAt = new Date();
+        agreement.lenderSignerName = request.signerName?.trim() || null;
+        agreement.lenderSignerRole = request.signerRole?.trim() || null;
+        agreement.lenderSignatureData = request.signatureData || null;
+        const saved = await this.agreementRepo.save(agreement);
+
+        const company = await this.companyRepo.findById(saved.companyId);
+        const signingStatus = saved.companySignedAt ? 'SIGNED' : 'PENDING_COMPANY';
+        return {
+            id: String(saved.id),
+            lenderId,
+            companyId: String(saved.companyId),
+            companyName: company?.name ?? 'Company',
+            amount: Number(saved.amount ?? 0),
+            signedAt: saved.signedAt ? saved.signedAt.toISOString() : '',
+            pdfPath: saved.signedDocumentPath || null,
+            status: saved.terminatedAt ? 'TERMINATED' : 'ACTIVE',
+            signingStatus,
+            lenderSignedAt: saved.lenderSignedAt?.toISOString(),
+            companySignedAt: saved.companySignedAt?.toISOString(),
+            signedDocumentPath: saved.signedDocumentPath || null,
         };
     }
 
@@ -148,6 +189,13 @@ export class LenderManagementService {
         const agreements: ManagementAgreementDto[] = [];
         for (const ma of slice) {
             const company = await this.companyRepo.findById(ma.companyId);
+            const signingStatus = ma.signedAt
+                ? 'SIGNED'
+                : ma.companySignedAt
+                    ? 'PENDING_LENDER'
+                    : ma.lenderSignedAt
+                        ? 'PENDING_COMPANY'
+                        : 'PENDING_LENDER';
             agreements.push({
                 id: String(ma.id),
                 lenderId: String(ma.lenderId),
@@ -155,8 +203,12 @@ export class LenderManagementService {
                 companyName: company?.name ?? 'Company',
                 amount: Number(ma.amount ?? 0),
                 signedAt: ma.signedAt ? ma.signedAt.toISOString() : '',
-                pdfPath: null,
+                pdfPath: ma.signedDocumentPath || null,
                 status: ma.terminatedAt ? 'TERMINATED' : 'ACTIVE',
+                signingStatus,
+                lenderSignedAt: ma.lenderSignedAt?.toISOString(),
+                companySignedAt: ma.companySignedAt?.toISOString(),
+                signedDocumentPath: ma.signedDocumentPath || null,
             });
         }
         return {
@@ -191,5 +243,16 @@ export class LenderManagementService {
             message: 'Agreement terminated successfully. Automation will stop; existing loans remain active.',
             terminatedAt: agreement.terminatedAt.toISOString(),
         };
+    }
+
+    /**
+     * Get signed document path for download (lender must own the agreement; agreement must be fully signed).
+     */
+    async getSignedDocumentPath(lenderId: string, agreementId: string): Promise<string | null> {
+        const lenderIdNum = parseInt(lenderId, 10);
+        const id = parseInt(agreementId, 10);
+        const agreement = await this.agreementRepo.findById(id);
+        if (!agreement || agreement.lenderId !== lenderIdNum || !agreement.signedDocumentPath) return null;
+        return agreement.signedDocumentPath;
     }
 }

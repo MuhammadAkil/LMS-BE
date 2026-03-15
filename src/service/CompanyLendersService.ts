@@ -1,5 +1,6 @@
 import { AppDataSource } from '../config/database';
 import { CompanyAuditService } from './CompanyAuditService';
+import { CompanyRankingService } from './CompanyRankingService';
 import {
     CompanyLenderResponse,
     LinkLenderRequest,
@@ -18,9 +19,11 @@ import {
  */
 export class CompanyLendersService {
     private auditService: CompanyAuditService;
+    private rankingService: CompanyRankingService;
 
     constructor() {
         this.auditService = new CompanyAuditService();
+        this.rankingService = new CompanyRankingService();
     }
 
     /**
@@ -195,6 +198,7 @@ export class CompanyLendersService {
                 throw new Error('Failed to create lender link');
             }
 
+            await this.rankingService.recomputeAllRanks();
             return linked;
         } finally {
             await queryRunner.release();
@@ -280,6 +284,7 @@ export class CompanyLendersService {
                 throw new Error('Failed to retrieve updated lender');
             }
 
+            await this.rankingService.recomputeAllRanks();
             return record;
         } finally {
             await queryRunner.release();
@@ -342,6 +347,7 @@ export class CompanyLendersService {
                 throw new Error('Failed to retrieve updated lender');
             }
 
+            await this.rankingService.recomputeAllRanks();
             return record;
         } finally {
             await queryRunner.release();
@@ -376,6 +382,7 @@ export class CompanyLendersService {
                 companyId,
                 timestamp: new Date(),
             });
+            await this.rankingService.recomputeAllRanks();
         } finally {
             await queryRunner.release();
         }

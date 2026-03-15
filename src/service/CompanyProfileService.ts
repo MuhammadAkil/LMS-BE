@@ -40,7 +40,8 @@ export class CompanyProfileService {
           c.conditions_json as conditionsJson,
           c.approved_at as approvedAt,
           c.created_at as createdAt,
-          c.updated_at as updatedAt
+          c.updated_at as updatedAt,
+          c.rank
         FROM companies c
         LEFT JOIN user_statuses us ON c.status_id = us.id
         WHERE c.id = ?
@@ -70,6 +71,7 @@ export class CompanyProfileService {
                 approvedAt: company[0].approvedAt,
                 createdAt: company[0].createdAt,
                 updatedAt: company[0].updatedAt,
+                rank: company[0].rank ?? null,
             };
         } finally {
             await queryRunner.release();

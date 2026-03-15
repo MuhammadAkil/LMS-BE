@@ -31,6 +31,7 @@ import { Request } from 'express';
 import { MarketplaceRequest } from '../common/MarketplaceRequest';
 import { MarketplaceBidService } from '../service/MarketplaceBidService';
 import { LenderOffersService } from '../service/LenderOffersService';
+import { LenderLoansService } from '../service/LenderLoansService';
 import { CompanyGuard, CompanyStatusGuard, AgreementSignatureGuard } from '../middleware/CompanyGuards';
 import {
     CreateCompanyAutoBidRequest,
@@ -95,6 +96,7 @@ export class CreateDelegatedBidRequest {
 export class CompanyMarketplaceController {
     private companyRepo = new CompanyRepository();
     private offersService = new LenderOffersService();
+    private loansService = new LenderLoansService();
 
     constructor(
         private bidService: MarketplaceBidService,
@@ -221,6 +223,32 @@ export class CompanyMarketplaceController {
             commissionAmount: created.commissionAmount,
             message: 'Delegated offer created. Lender must approve within 24h, then pay within 2h.',
         };
+    }
+
+    /**
+     * GET /api/company/marketplace/open-loans
+     * Browse open loans for "act as lender" / proxy investment flow. Same shape as lender browse.
+     */
+    @Get('open-loans')
+    @UseBefore(AgreementSignatureGuard)
+    async getOpenLoans(
+        @Req() req: Request,
+        @QueryParam('page') page: number = 1,
+        @QueryParam('pageSize') pageSize: number = 20,
+        @QueryParam('minAmount') minAmount?: number,
+        @QueryParam('maxAmount') maxAmount?: number,
+        @QueryParam('minDuration') minDuration?: number,
+        @QueryParam('maxDuration') maxDuration?: number,
+    ): Promise<any> {
+        const filters = {
+            page: Number(page) || 1,
+            pageSize: Math.min(Number(pageSize) || 20, 100),
+            minAmount: minAmount != null ? Number(minAmount) : undefined,
+            maxAmount: maxAmount != null ? Number(maxAmount) : undefined,
+            minDuration: minDuration != null ? Number(minDuration) : undefined,
+            maxDuration: maxDuration != null ? Number(maxDuration) : undefined,
+        };
+        return this.loansService.browseOpenLoansForCompany(filters);
     }
 
     /**

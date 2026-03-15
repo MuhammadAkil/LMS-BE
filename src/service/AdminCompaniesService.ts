@@ -5,6 +5,7 @@ import { CompanyRepository } from '../repository/CompanyRepository';
 import { UserRepository } from '../repository/UserRepository';
 import { LmsNotificationService } from './LmsNotificationService';
 import { CompanyDashboardService } from './CompanyDashboardService';
+import { CompanyRankingService } from './CompanyRankingService';
 import { CompanyListItemDto, CompanyDetailDto, ApproveCompanyRequest, RejectCompanyRequest, UpdateCompanyConditionsRequest, CreateCompanyRequest, CreateCompanyResponse } from '../dto/AdminDtos';
 
 /**
@@ -18,6 +19,7 @@ export class AdminCompaniesService {
   private readonly auditService: AdminAuditService;
   private readonly notificationService: LmsNotificationService;
   private readonly dashboardService: CompanyDashboardService;
+  private readonly rankingService: CompanyRankingService;
 
   constructor() {
     this.companyRepo = new CompanyRepository();
@@ -25,6 +27,7 @@ export class AdminCompaniesService {
     this.auditService = new AdminAuditService();
     this.notificationService = new LmsNotificationService();
     this.dashboardService = new CompanyDashboardService();
+    this.rankingService = new CompanyRankingService();
   }
 
   /**
@@ -38,7 +41,8 @@ export class AdminCompaniesService {
       statusId: company.statusId,
       statusName: this.getStatusName(company.statusId),
       bankAccount: company.bankAccount,
-      createdAt: new Date(),  // Schema doesn't have created_at
+      createdAt: company.createdAt ?? new Date(),
+      rank: company.rank ?? null,
     }));
   }
 
@@ -53,7 +57,8 @@ export class AdminCompaniesService {
       statusId: company.statusId,
       statusName: this.getStatusName(company.statusId),
       bankAccount: company.bankAccount,
-      createdAt: new Date(),
+      createdAt: company.createdAt ?? new Date(),
+      rank: company.rank ?? null,
     }));
   }
 
@@ -116,6 +121,7 @@ export class AdminCompaniesService {
       activeLoans,
       totalLoans,
       defaultRate,
+      rank: company.rank ?? null,
     };
   }
 
@@ -145,6 +151,8 @@ export class AdminCompaniesService {
     company.conditionsLockedAt = new Date();
     company.conditionsStatus = 'approved';
     await this.companyRepo.save(company);
+
+    await this.rankingService.recomputeAllRanks();
 
     await this.auditService.logAction(
       adminId,

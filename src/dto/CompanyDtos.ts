@@ -63,6 +63,8 @@ export class CompanyProfileResponse {
     approvedAt?: Date;
     createdAt!: Date;
     updatedAt!: Date;
+    /** Auto-computed rank (1 = highest). Read-only. */
+    rank?: number | null;
 }
 
 // ==================== CONDITIONS DTOs ====================
@@ -126,6 +128,14 @@ export class CompanyAgreementResponse {
     createdAt!: Date;
     updatedAt!: Date;
     status!: 'UNSIGNED' | 'SIGNED';
+    /** Bilateral: pending lender, pending company, or both signed */
+    signingStatus?: 'PENDING_LENDER' | 'PENDING_COMPANY' | 'SIGNED';
+    lenderSignedAt?: Date;
+    companySignedAt?: Date;
+    signedDocumentPath?: string;
+    /** For pending list: lender display name/email */
+    lenderName?: string;
+    lenderEmail?: string;
 }
 
 export class SignAgreementRequest {
@@ -135,7 +145,15 @@ export class SignAgreementRequest {
 
     @IsOptional()
     @IsString()
-    signatureData?: string; // Base64 encoded signature
+    signerName?: string;
+
+    @IsOptional()
+    @IsString()
+    signerRole?: string;
+
+    @IsOptional()
+    @IsString()
+    signatureData?: string; // Base64 encoded signature image/data
 }
 
 export class AgreementDownloadResponse {
@@ -259,6 +277,10 @@ export class ManagedLoanResponse {
     createdAt!: Date;
     nextPaymentDueDate?: Date;
     repaymentDetails!: RepaymentDetailDto[];
+    /** Lender on whose behalf the company is managing this loan */
+    lenderId!: number;
+    lenderName!: string;
+    lenderEmail?: string;
 }
 
 export class RepaymentDetailDto {
@@ -326,6 +348,17 @@ export class BulkXmlExportRequest {
     @IsInt({ each: true })
     @IsNotEmpty({ message: 'Loan IDs are required' })
     loanIds!: number[];
+
+    /** Optional: field keys to include in XML (default: all). */
+    @IsOptional()
+    @IsArray()
+    @IsString({ each: true })
+    fields?: string[];
+
+    /** Optional: use saved template's field selection. */
+    @IsOptional()
+    @IsInt()
+    templateId?: number;
 
     // ENFORCED: loanIds.length must be <= 500
 }
@@ -598,4 +631,45 @@ export class CompanyReportExportRequest {
     @IsArray()
     @IsInt({ each: true })
     loanIds?: number[]; // If provided, export only these loans
+
+    /** Optional: field keys to include in XML/CSV (default: all). */
+    @IsOptional()
+    @IsArray()
+    @IsString({ each: true })
+    fields?: string[];
+
+    /** Optional: use saved template's field selection. */
+    @IsOptional()
+    @IsInt()
+    templateId?: number;
+}
+
+// ==================== EXPORT TEMPLATES ====================
+
+export class CreateCompanyExportTemplateRequest {
+    @IsNotEmpty()
+    @IsString()
+    name!: string;
+
+    @IsArray()
+    @IsString({ each: true })
+    fieldKeys!: string[];
+}
+
+export class UpdateCompanyExportTemplateRequest {
+    @IsOptional()
+    @IsString()
+    name?: string;
+
+    @IsOptional()
+    @IsArray()
+    @IsString({ each: true })
+    fieldKeys?: string[];
+}
+
+export class CompanyExportTemplateResponse {
+    id!: number;
+    name!: string;
+    fieldKeys!: string[];
+    createdAt!: string;
 }

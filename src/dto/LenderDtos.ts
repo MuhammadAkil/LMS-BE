@@ -322,6 +322,13 @@ export interface CreateManagementAgreementRequest {
     amount: number;
 }
 
+/** Lender or company signing: name, role, signature data */
+export interface AgreementSigningRequest {
+    signerName: string;
+    signerRole: string;
+    signatureData?: string; // Base64 signature image
+}
+
 export interface ManagementAgreementDto {
     id: string;
     lenderId: string;
@@ -331,6 +338,10 @@ export interface ManagementAgreementDto {
     signedAt: string;
     pdfPath: string | null;
     status: 'ACTIVE' | 'TERMINATED' | 'SUSPENDED';
+    signingStatus?: 'PENDING_LENDER' | 'PENDING_COMPANY' | 'SIGNED';
+    lenderSignedAt?: string;
+    companySignedAt?: string;
+    signedDocumentPath?: string | null;
 }
 
 export interface ManagementAgreementsResponse {

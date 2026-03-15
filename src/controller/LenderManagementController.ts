@@ -1,5 +1,7 @@
 import { Request, Response } from 'express';
-import { Body, Controller, Delete, Get, Post, Req, Res, UseBefore } from 'routing-controllers';
+import { existsSync, readFileSync } from 'node:fs';
+import { basename } from 'node:path';
+import { Body, Controller, Delete, Get, Param, Post, Req, Res, UseBefore } from 'routing-controllers';
 import { LenderManagementService } from '../service/LenderManagementService';
 import { CreateManagementAgreementRequest } from '../dto/LenderDtos';
 import { AuthenticationMiddleware } from '../middleware/AuthenticationMiddleware';
@@ -138,6 +140,66 @@ export class LenderManagementController {
                 errors: [error.message],
                 timestamp: new Date().toISOString(),
             });
+        }
+    }
+
+    /**
+     * POST /lender/management-agreements/:agreementId/sign
+     * Lender signs the agreement (name, role, signature). Required before company can complete.
+     */
+    @Post('/management-agreements/:agreementId/sign')
+    @UseBefore(withLenderStatusGuard(false), withLenderVerificationGuard(2))
+    async signAgreement(
+        @Req() req: Request,
+        @Res() res: Response,
+        @Param('agreementId') agreementId: string,
+        @Body() body: { signerName?: string; signerRole?: string; signatureData?: string }
+    ): Promise<void> {
+        try {
+            const lenderId = (req as any).user.id;
+            const agreement = await this.managementService.signAgreement(lenderId, agreementId, {
+                signerName: body.signerName ?? '',
+                signerRole: body.signerRole ?? '',
+                signatureData: body.signatureData,
+            });
+            res.status(200).json({
+                statusCode: '200',
+                statusMessage: 'Agreement signed successfully',
+                data: agreement,
+                timestamp: new Date().toISOString(),
+            });
+        } catch (error: any) {
+            console.error('Error in signAgreement:', error);
+            res.status(error.message?.includes('not found') ? 404 : 400).json({
+                statusCode: error.message?.includes('not found') ? '404' : '400',
+                statusMessage: 'Failed to sign agreement',
+                errors: [error.message],
+                timestamp: new Date().toISOString(),
+            });
+        }
+    }
+
+    /**
+     * GET /lender/management-agreements/:agreementId/download
+     * Download signed agreement PDF (when both parties have signed).
+     */
+    @Get('/management-agreements/:agreementId/download')
+    @UseBefore(withLenderStatusGuard(true))
+    async downloadAgreement(@Req() req: Request, @Res() res: Response, @Param('agreementId') agreementId: string): Promise<void> {
+        try {
+            const lenderId = (req as any).user.id;
+            const path = await this.managementService.getSignedDocumentPath(lenderId, agreementId);
+            if (!path || !existsSync(path)) {
+                res.status(404).json({ statusCode: '404', statusMessage: 'Signed document not found' });
+                return;
+            }
+            const data = readFileSync(path);
+            const fileName = basename(path);
+            res.setHeader('Content-Type', 'application/pdf');
+            res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+            res.send(data);
+        } catch (e: any) {
+            res.status(500).json({ statusCode: '500', statusMessage: e?.message || 'Download failed' });
         }
     }
 

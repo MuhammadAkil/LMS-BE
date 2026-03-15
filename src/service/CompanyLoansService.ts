@@ -37,7 +37,7 @@ export class CompanyLoansService {
             const pageSize = Math.min(query.pageSize || 20, 100);
             const offset = (page - 1) * pageSize;
 
-            // Get loans managed by this company's linked lenders
+            // Get loans managed by this company's linked lenders, with lender info (on whose behalf company acts).
             const loans = await queryRunner.query(
                 `
         SELECT 
@@ -50,14 +50,17 @@ export class CompanyLoansService {
           l.statusId,
           ls.code as status,
           l.createdAt,
-          l.dueDate as nextPaymentDueDate
+          l.dueDate as nextPaymentDueDate,
+          MIN(lo.lenderId) as lenderId,
+          GROUP_CONCAT(DISTINCT COALESCE(NULLIF(TRIM(CONCAT(COALESCE(ul.first_name,''), ' ', COALESCE(ul.last_name,''))), ''), ul.email) ORDER BY lo.lenderId) as lenderName,
+          (SELECT ul2.email FROM users ul2 WHERE ul2.id = MIN(lo.lenderId) LIMIT 1) as lenderEmail
         FROM loans l
         INNER JOIN loan_offers lo ON lo.loanId = l.id
-        INNER JOIN company_lenders cl ON cl.lenderId = lo.lenderId
+        INNER JOIN company_lenders cl ON cl.lenderId = lo.lenderId AND cl.companyId = ? AND cl.active = true
         INNER JOIN users u ON l.borrowerId = u.id
         LEFT JOIN loan_statuses ls ON l.statusId = ls.id
-        WHERE cl.companyId = ? AND cl.active = true
-        GROUP BY l.id, u.email, u.first_name, u.last_name, ls.code
+        LEFT JOIN users ul ON ul.id = lo.lenderId
+        GROUP BY l.id, l.borrowerId, u.email, u.first_name, u.last_name, l.totalAmount, l.fundedAmount, l.statusId, ls.code, l.createdAt, l.dueDate
         ORDER BY l.createdAt DESC
         LIMIT ? OFFSET ?
         `,
@@ -107,6 +110,9 @@ export class CompanyLoansService {
                         statusId: loan.statusId,
                         createdAt: loan.createdAt,
                         nextPaymentDueDate: loan.nextPaymentDueDate,
+                        lenderId: loan.lenderId,
+                        lenderName: loan.lenderName || loan.lenderEmail || 'Lender',
+                        lenderEmail: loan.lenderEmail,
                         repaymentDetails: repayments.map((r: any) => ({
                             id: r.id,
                             dueDate: r.dueDate,
@@ -146,7 +152,7 @@ export class CompanyLoansService {
         const queryRunner = AppDataSource.createQueryRunner();
 
         try {
-            // Verify company's lender manages this loan
+            // Verify company's lender manages this loan (one lender row via company_lenders)
             const loan = await queryRunner.query(
                 `
         SELECT 
@@ -161,15 +167,19 @@ export class CompanyLoansService {
           ls.code as status,
           l.createdAt,
           l.dueDate as nextPaymentDueDate,
-          lo.lenderId
+          lo.lenderId,
+          COALESCE(NULLIF(TRIM(CONCAT(COALESCE(ul.first_name,''), ' ', COALESCE(ul.last_name,''))), ''), ul.email) as lenderName,
+          ul.email as lenderEmail
         FROM loans l
         INNER JOIN loan_offers lo ON lo.loanId = l.id
+        INNER JOIN company_lenders cl ON cl.lenderId = lo.lenderId AND cl.companyId = ? AND cl.active = true
         INNER JOIN users u ON l.borrowerId = u.id
         LEFT JOIN loan_statuses ls ON l.statusId = ls.id
+        LEFT JOIN users ul ON ul.id = lo.lenderId
         WHERE l.id = ?
         LIMIT 1
         `,
-                [loanId]
+                [companyId, loanId]
             );
 
             if (!loan || loan.length === 0) {
@@ -219,6 +229,9 @@ export class CompanyLoansService {
                 statusId: loan[0].statusId,
                 createdAt: loan[0].createdAt,
                 nextPaymentDueDate: loan[0].nextPaymentDueDate,
+                lenderId: loan[0].lenderId,
+                lenderName: loan[0].lenderName || loan[0].lenderEmail || 'Lender',
+                lenderEmail: loan[0].lenderEmail,
                 repaymentDetails: repayments.map((r: any) => ({
                     id: r.id,
                     dueDate: r.dueDate,

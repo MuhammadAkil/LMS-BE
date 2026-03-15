@@ -1,5 +1,10 @@
 import { AppDataSource } from '../config/database';
+import { join } from 'node:path';
+import { writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { CompanyAuditService } from './CompanyAuditService';
+import { CompanyReportsService } from './CompanyReportsService';
+import { CompanyExportTemplateService } from './CompanyExportTemplateService';
+import { ExportRepository } from '../repository/ExportRepository';
 import {
     BulkRemindersRequest,
     BulkRemindersResponse,
@@ -23,9 +28,18 @@ import {
  */
 export class CompanyBulkService {
     private auditService: CompanyAuditService;
+    private reportsService: CompanyReportsService;
+    private templateService: CompanyExportTemplateService;
+    private exportRepo: ExportRepository;
+    private readonly exportsDir: string;
 
     constructor() {
         this.auditService = new CompanyAuditService();
+        this.reportsService = new CompanyReportsService();
+        this.templateService = new CompanyExportTemplateService();
+        this.exportRepo = new ExportRepository();
+        this.exportsDir = join(process.cwd(), 'exports');
+        if (!existsSync(this.exportsDir)) mkdirSync(this.exportsDir, { recursive: true });
     }
 
     /**
@@ -201,96 +215,70 @@ export class CompanyBulkService {
     }
 
     /**
-     * Export loans as XML
+     * Export loans as XML with optional field selection or template.
+     * Generates file, saves export record with file_path and metadata for company document download.
      * Fintech compliance: Limited to 500 items
-     * Guard ensures this, but we validate again here
      */
     async exportXml(
         companyId: number,
         userId: number,
         request: BulkXmlExportRequest
     ): Promise<BulkActionResponse> {
-        const queryRunner = AppDataSource.createQueryRunner();
+        const loanIds = request.loanIds;
 
-        try {
-            const loanIds = request.loanIds;
+        if (loanIds.length > 500) throw new Error('XML export limited to 500 loans per request');
+        if (loanIds.length === 0) throw new Error('Loan IDs cannot be empty');
 
-            // Double-check limit (guard should have caught this)
-            if (loanIds.length > 500) {
-                throw new Error('XML export limited to 500 loans per request');
-            }
+        const { rows, commissionRate } = await this.reportsService.getLoanRowsForExport(companyId, {
+            loanIds,
+        });
+        if (rows.length === 0) throw new Error('No accessible loans found for the given IDs');
+        const accessibleIds = new Set(rows.map((r: any) => r.id));
+        const missing = loanIds.filter((id) => !accessibleIds.has(id));
+        if (missing.length) throw new Error('Company does not have access to all specified loans');
 
-            if (loanIds.length === 0) {
-                throw new Error('Loan IDs cannot be empty');
-            }
+        const effectiveFields = await this.templateService.resolveFieldKeys(
+            companyId,
+            request.templateId,
+            request.fields
+        );
+        const xml = this.reportsService.buildPortfolioXml(rows, commissionRate, effectiveFields, companyId);
 
-            // Validate access
-            const access = await queryRunner.query(
-                `
-        SELECT COUNT(DISTINCT l.id) as validCount
-        FROM loans l
-        INNER JOIN loan_offers lo ON lo.loanId = l.id
-        INNER JOIN company_lenders cl ON cl.lenderId = lo.lenderId
-        WHERE cl.companyId = ? AND l.id IN (?)
-        `,
-                [companyId, loanIds]
-            );
+        const fileName = `export_${Date.now()}_company${companyId}_bulk.xml`;
+        const filePath = join(this.exportsDir, fileName);
+        writeFileSync(filePath, xml, 'utf-8');
 
-            if (access[0].validCount !== loanIds.length) {
-                throw new Error('Company does not have access to all specified loans');
-            }
+        const saved = await this.exportRepo.save({
+            typeId: 2, // XML
+            createdBy: userId,
+            filePath,
+            recordCount: rows.length,
+            metadata: JSON.stringify({ companyId, fileName }),
+        } as any);
+        const exportId = Number(saved.id);
 
-            // Create export record (export_type_id=2 for XML)
-            const exportResult = await queryRunner.query(
-                `
-        INSERT INTO exports (
-          export_type_id,
-          created_by,
-          record_count,
-          created_at
-        ) VALUES (2, ?, ?, NOW())
-        `,
-                [
-                    userId,
-                    loanIds.length,
-                ]
-            );
+        await this.auditService.logAction(userId, 'BULK_ACTION_EXECUTED', 'XML_EXPORT', exportId, {
+            companyId,
+            itemCount: rows.length,
+        });
 
-            const exportId = exportResult.insertId;
+        await this.auditService.notifyUser(userId, 'EXPORT_CREATED', {
+            title: 'Export created',
+            message: 'XML export has been created',
+            exportId,
+            type: 'XML',
+            itemCount: rows.length,
+            timestamp: new Date(),
+        });
 
-            // Audit the export
-            await this.auditService.logAction(
-                userId,
-                'BULK_ACTION_EXECUTED',
-                'XML_EXPORT',
-                exportId,
-                {
-                    companyId,
-                    itemCount: loanIds.length,
-                }
-            );
-
-            // Notify user
-            await this.auditService.notifyUser(userId, 'EXPORT_CREATED', {
-                title: 'Export created',
-                message: 'XML export has been created',
-                exportId,
-                type: 'XML',
-                itemCount: loanIds.length,
-                timestamp: new Date(),
-            });
-
-            return {
-                exportId,
-                type: 'XML',
-                itemCount: loanIds.length,
-                status: 'PENDING',
-                downloadUrl: `/api/company/documents/${exportId}/download`,
-                createdAt: new Date(),
-            };
-        } finally {
-            await queryRunner.release();
-        }
+        return {
+            exportId,
+            type: 'XML',
+            itemCount: rows.length,
+            status: 'COMPLETED',
+            downloadUrl: `/api/company/documents/${exportId}/download`,
+            createdAt: new Date(),
+        };
     }
 
     /**
