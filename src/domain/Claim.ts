@@ -19,6 +19,12 @@ export class Claim {
   @Column({ type: 'varchar', length: 255, nullable: true })
   xmlPath?: string;
 
+  @Column({ type: 'varchar', length: 500, nullable: true, name: 'document_key' })
+  documentKey?: string;
+
+  @Column({ type: 'varchar', length: 1000, nullable: true, name: 'document_url' })
+  documentUrl?: string;
+
   @Column({ type: 'datetime' })
   generatedAt!: Date;
 

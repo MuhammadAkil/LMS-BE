@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { Controller, Get, Post, Req, Res } from 'routing-controllers';
+import { Controller, Get, Post, Req, Res, UseBefore } from 'routing-controllers';
 import { BorrowerVerificationService } from '../service/BorrowerVerificationService';
 import {
     VerificationStatusDto,
@@ -8,6 +8,8 @@ import {
     UploadVerificationResponse,
     BorrowerApiResponse,
 } from '../dto/BorrowerDtos';
+import { uploadMultiple } from '../middleware/upload.middleware';
+import { s3Service } from '../services/s3.service';
 
 /**
  * B-02: BORROWER VERIFICATION CONTROLLER
@@ -91,11 +93,41 @@ export class BorrowerVerificationController {
      * Body (JSON): { verificationType, documents: [{ fileName, filePath, ...metadata }] }
      */
     @Post('/upload')
+    @UseBefore(uploadMultiple('documents', 10))
     async uploadVerification(@Req() req: Request, @Res() res: Response): Promise<void> {
         try {
             const user = (req as any).user;
             const borrowerId = user.id.toString();
-            const request: UploadVerificationRequest = req.body;
+            const files = (((req as any).files || []) as Express.Multer.File[]);
+            const verificationType = req.body?.verificationType;
+
+            if (!verificationType || files.length === 0) {
+                res.status(400).json({
+                    statusCode: '400',
+                    statusMessage: 'Invalid request',
+                    errors: ['verificationType and at least one file are required'],
+                    timestamp: new Date().toISOString(),
+                });
+                return;
+            }
+
+            const uploadedDocuments = await Promise.all(
+                files.map(async (file) => {
+                    const key = s3Service.generateKey('borrower', borrowerId, file.originalname);
+                    await s3Service.uploadFile(file.buffer, key, file.mimetype);
+                    return {
+                        fileName: file.originalname,
+                        filePath: key,
+                        mimeType: file.mimetype,
+                        size: file.size,
+                    };
+                })
+            );
+
+            const request: UploadVerificationRequest = {
+                verificationType,
+                documents: uploadedDocuments as any,
+            };
 
             if (!request.verificationType || !request.documents || request.documents.length === 0) {
                 res.status(400).json({

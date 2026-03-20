@@ -6,6 +6,8 @@ import { AuthenticationMiddleware } from '../middleware/AuthenticationMiddleware
 import { LenderRoleGuard } from '../middleware/LenderGuards';
 import { withLenderStatusGuard, withLenderVerificationGuard } from '../middleware/LenderGuardWrappers';
 import { AuditLogRepository } from '../repository/AuditLogRepository';
+import { uploadMultiple } from '../middleware/upload.middleware';
+import { s3Service } from '../services/s3.service';
 
 /**
  * L-08: LENDER VERIFICATION CONTROLLER
@@ -59,6 +61,7 @@ export class LenderVerificationController {
      */
     @Post('/')
     @UseBefore(withLenderStatusGuard(false), withLenderVerificationGuard(0))
+    @UseBefore(uploadMultiple('documents', 10))
     async submitVerification(
         @Req() req: Request,
         @Res() res: Response,
@@ -66,7 +69,24 @@ export class LenderVerificationController {
     ): Promise<void> {
         try {
             const lenderId = (req as any).user.id;
-            const request: SubmitVerificationRequest = body || req.body;
+            const files = (((req as any).files || []) as Express.Multer.File[]);
+            const verificationType = (body || req.body)?.verificationType;
+            const uploadedDocuments = await Promise.all(
+                files.map(async (file) => {
+                    const key = s3Service.generateKey('lender', String(lenderId), file.originalname);
+                    await s3Service.uploadFile(file.buffer, key, file.mimetype);
+                    return {
+                        fileName: file.originalname,
+                        filePath: key,
+                        mimeType: file.mimetype,
+                        size: file.size,
+                    };
+                })
+            );
+            const request: SubmitVerificationRequest = {
+                verificationType,
+                documents: uploadedDocuments as any,
+            };
 
             // Validate request
             const validation = this.validateVerificationRequest(request);

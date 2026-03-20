@@ -13,8 +13,7 @@ import {
     BulkActionResponse,
 } from '../dto/CompanyDtos';
 import { ExportRepository } from '../repository/ExportRepository';
-import { writeFileSync, existsSync, mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { s3Service } from '../services/s3.service';
 
 /**
  * Company Reports Service
@@ -31,14 +30,11 @@ export class CompanyReportsService {
     private readonly auditService: CompanyAuditService;
     private readonly exportRepo: ExportRepository;
     private readonly templateService: CompanyExportTemplateService;
-    private readonly exportsDir: string;
 
     constructor() {
         this.auditService = new CompanyAuditService();
         this.exportRepo = new ExportRepository();
         this.templateService = new CompanyExportTemplateService();
-        this.exportsDir = join(process.cwd(), 'exports');
-        if (!existsSync(this.exportsDir)) mkdirSync(this.exportsDir, { recursive: true });
     }
 
     // ─────────────────────────────────────────────────
@@ -311,15 +307,17 @@ export class CompanyReportsService {
             const csv = header + rows;
 
             const fileName = `export_${Date.now()}_company${companyId}_portfolio.csv`;
-            const filePath = join(this.exportsDir, fileName);
-            writeFileSync(filePath, csv, 'utf-8');
+            const fileBuffer = Buffer.from(csv, 'utf-8');
+            const key = s3Service.generateKey('company', String(companyId), fileName);
+            await s3Service.uploadFile(fileBuffer, key, 'text/csv');
 
             const saved = await this.exportRepo.save({
                 typeId: 2, // CSV_EXPORT
                 createdBy: userId,
-                filePath,
+                filePath: null as any,
+                documentKey: key,
                 recordCount: loans.length,
-                metadata: JSON.stringify({ companyId, filters: request, fileName }),
+                metadata: JSON.stringify({ companyId, filters: request, fileName, key }),
             } as any);
             const exportId = Number(saved.id);
 
@@ -333,7 +331,7 @@ export class CompanyReportsService {
                 type: 'CSV_REPORT',
                 itemCount: loans.length,
                 status: 'COMPLETED',
-                downloadUrl: `/api/company/documents/${exportId}/download`,
+                downloadUrl: `/api/company/documents/export_${exportId}/download`,
                 createdAt: new Date(),
             };
         } finally {
@@ -365,15 +363,17 @@ export class CompanyReportsService {
             const xml = this.buildPortfolioXml(loans, commissionRate, effectiveFields, companyId);
 
             const fileName = `export_${Date.now()}_company${companyId}_portfolio.xml`;
-            const filePath = join(this.exportsDir, fileName);
-            writeFileSync(filePath, xml, 'utf-8');
+            const fileBuffer = Buffer.from(xml, 'utf-8');
+            const key = s3Service.generateKey('company', String(companyId), fileName);
+            await s3Service.uploadFile(fileBuffer, key, 'application/xml');
 
             const saved = await this.exportRepo.save({
                 typeId: 1, // XML_EXPORT
                 createdBy: userId,
-                filePath,
+                filePath: null as any,
+                documentKey: key,
                 recordCount: loans.length,
-                metadata: JSON.stringify({ companyId, filters: request, fileName }),
+                metadata: JSON.stringify({ companyId, filters: request, fileName, key }),
             } as any);
             const exportId = Number(saved.id);
 
@@ -387,7 +387,7 @@ export class CompanyReportsService {
                 type: 'XML_REPORT',
                 itemCount: loans.length,
                 status: 'COMPLETED',
-                downloadUrl: `/api/company/documents/${exportId}/download`,
+                downloadUrl: `/api/company/documents/export_${exportId}/download`,
                 createdAt: new Date(),
             };
         } finally {

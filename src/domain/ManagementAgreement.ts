@@ -52,6 +52,12 @@ export class ManagementAgreement {
   @Column({ type: 'varchar', length: 500, nullable: true, name: 'signed_document_path' })
   signedDocumentPath?: string;
 
+  @Column({ type: 'varchar', length: 500, nullable: true, name: 'document_key' })
+  documentKey?: string;
+
+  @Column({ type: 'varchar', length: 1000, nullable: true, name: 'document_url' })
+  documentUrl?: string;
+
   @Column({ type: 'datetime', nullable: true, name: 'terminated_at' })
   terminatedAt?: Date;
 

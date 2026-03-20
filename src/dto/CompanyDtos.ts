@@ -160,7 +160,9 @@ export class AgreementDownloadResponse {
     contractId!: number;
     fileName!: string;
     contentType!: string;
-    data!: Buffer; // Binary PDF data
+    key!: string;
+    url!: string;
+    expiresIn!: number;
     createdAt!: Date;
 }
 
@@ -425,7 +427,9 @@ export class DocumentDownloadResponse {
     id!: string | number;
     fileName!: string;
     contentType!: string;
-    data!: Buffer;
+    key!: string;
+    url!: string;
+    expiresIn!: number;
     createdAt!: Date;
 }
 

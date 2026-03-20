@@ -138,7 +138,7 @@ describe('CompanyAgreementService', () => {
             expect(result.contractId).toBe(300);
             expect(result.contentType).toBe('application/pdf');
             expect(result.fileName).toContain(`management_agreement_${COMPANY_ID}`);
-            expect(result.data).toBeInstanceOf(Buffer);
+            expect(result.url).toBeDefined();
         });
 
         it('throws when no signed agreement contract exists', async () => {

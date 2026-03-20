@@ -1,6 +1,4 @@
 import { Request, Response } from 'express';
-import { existsSync, readFileSync } from 'node:fs';
-import { basename } from 'node:path';
 import { Body, Controller, Delete, Get, Param, Post, Req, Res, UseBefore } from 'routing-controllers';
 import { LenderManagementService } from '../service/LenderManagementService';
 import { CreateManagementAgreementRequest, ManagementAgreementEligibilityResponse } from '../dto/LenderDtos';
@@ -217,16 +215,17 @@ export class LenderManagementController {
     async downloadAgreement(@Req() req: Request, @Res() res: Response, @Param('agreementId') agreementId: string): Promise<void> {
         try {
             const lenderId = (req as any).user.id;
-            const path = await this.managementService.getSignedDocumentPath(lenderId, agreementId);
-            if (!path || !existsSync(path)) {
+            const data = await this.managementService.getSignedDocumentPath(lenderId, agreementId);
+            if (!data) {
                 res.status(404).json({ statusCode: '404', statusMessage: 'Signed document not found' });
                 return;
             }
-            const data = readFileSync(path);
-            const fileName = basename(path);
-            res.setHeader('Content-Type', 'application/pdf');
-            res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
-            res.send(data);
+            res.status(200).json({
+                statusCode: '200',
+                statusMessage: 'Presigned URL generated',
+                data,
+                timestamp: new Date().toISOString(),
+            });
         } catch (e: any) {
             res.status(500).json({ statusCode: '500', statusMessage: e?.message || 'Download failed' });
         }

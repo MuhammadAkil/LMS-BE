@@ -12,6 +12,7 @@ import { ManagementAgreementRepository } from '../repository/ManagementAgreement
 import { UserRepository } from '../repository/UserRepository';
 import { ManagementAgreement } from '../domain/ManagementAgreement';
 import { VerificationAccessService } from './VerificationAccessService';
+import { s3Service } from '../services/s3.service';
 
 const ACTIVE_STATUS_ID = 2;
 const REQUIRED_VERIFICATION_LEVEL = 2;
@@ -291,11 +292,14 @@ export class LenderManagementService {
     /**
      * Get signed document path for download (lender must own the agreement; agreement must be fully signed).
      */
-    async getSignedDocumentPath(lenderId: string, agreementId: string): Promise<string | null> {
+    async getSignedDocumentPath(lenderId: string, agreementId: string): Promise<{ key: string; url: string; expiresIn: number } | null> {
         const lenderIdNum = parseInt(lenderId, 10);
         const id = parseInt(agreementId, 10);
         const agreement = await this.agreementRepo.findById(id);
-        if (!agreement || agreement.lenderId !== lenderIdNum || !agreement.signedDocumentPath) return null;
-        return agreement.signedDocumentPath;
+        const key = agreement?.documentKey || agreement?.signedDocumentPath || '';
+        if (!agreement || agreement.lenderId !== lenderIdNum || !key) return null;
+        const expiresIn = 3600;
+        const url = await s3Service.getPresignedUrl(key, expiresIn);
+        return { key, url, expiresIn };
     }
 }

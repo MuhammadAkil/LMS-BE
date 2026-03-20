@@ -5,8 +5,7 @@ import {
     DocumentDownloadResponse,
     CompanyPaginationQuery,
 } from '../dto/CompanyDtos';
-import { existsSync, readFileSync } from 'node:fs';
-import { basename } from 'node:path';
+import { s3Service } from '../services/s3.service';
 
 /**
  * Company Documents Service
@@ -170,6 +169,7 @@ export class CompanyDocumentsService {
           SELECT 
             id,
             file_path as filePath,
+            document_key as documentKey,
             created_at as createdAt
           FROM exports
           WHERE id = ? AND metadata LIKE ?
@@ -182,14 +182,20 @@ export class CompanyDocumentsService {
                 }
 
                 const doc = exportDoc[0];
-                const fp: string = doc.filePath || '';
-                const isXml = fp.toLowerCase().endsWith('.xml');
-                const data = fp && existsSync(fp) ? readFileSync(fp) : Buffer.from('');
+                const key: string = doc.documentKey || doc.filePath || '';
+                if (!key) {
+                    throw new Error('Document key not found');
+                }
+                const isXml = key.toLowerCase().endsWith('.xml');
+                const expiresIn = 3600;
+                const url = await s3Service.getPresignedUrl(key, expiresIn);
                 return {
                     id: `export_${doc.id}`,
-                    fileName: fp ? basename(fp) : `export_${doc.id}`,
+                    fileName: key.split('/').pop() || `export_${doc.id}`,
                     contentType: isXml ? 'application/xml' : 'text/csv',
-                    data,
+                    key,
+                    url,
+                    expiresIn,
                     createdAt: doc.createdAt,
                 };
             }
@@ -200,7 +206,8 @@ export class CompanyDocumentsService {
           SELECT 
             c.id,
             c.createdAt,
-            c.pdf_path as pdfPath
+            c.pdf_path as pdfPath,
+            c.document_key as documentKey
           FROM contracts c
           INNER JOIN loan_offers lo ON lo.loanId = c.loanId
           INNER JOIN company_lenders cl ON cl.lenderId = lo.lenderId
@@ -217,7 +224,8 @@ export class CompanyDocumentsService {
             SELECT 
               c.id,
               c.created_at as createdAt,
-              c.file_path as pdfPath
+              c.file_path as pdfPath,
+              c.document_key as documentKey
             FROM contracts c
             WHERE c.id = ? AND c.company_id = ? AND c.contract_type = 'MANAGEMENT_AGREEMENT'
             LIMIT 1
@@ -229,13 +237,19 @@ export class CompanyDocumentsService {
                 if (!contractRow) throw new Error('Document not found or company does not have access');
 
                 const doc = contractRow;
-                const fp: string = doc.pdfPath || '';
-                const data = fp && existsSync(fp) ? readFileSync(fp) : Buffer.from('PDF_CONTENT_PLACEHOLDER');
+                const key: string = doc.documentKey || doc.pdfPath || '';
+                if (!key) {
+                    throw new Error('Document key not found');
+                }
+                const expiresIn = 3600;
+                const url = await s3Service.getPresignedUrl(key, expiresIn);
                 return {
                     id: `contract_${doc.id}`,
-                    fileName: fp ? basename(fp) : `management_agreement_${companyId}.pdf`,
+                    fileName: key.split('/').pop() || `management_agreement_${companyId}.pdf`,
                     contentType: 'application/pdf',
-                    data,
+                    key,
+                    url,
+                    expiresIn,
                     createdAt: doc.createdAt,
                 };
             }

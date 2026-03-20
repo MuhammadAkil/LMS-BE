@@ -2,8 +2,7 @@ import { Controller, Get, Post, Delete, Body, Param, QueryParam, UseBefore, Req,
 import { Request, Response } from 'express';
 import { AdminExportsService } from '../service/AdminExportsService';
 import { AdminGuard, SuperAdminGuard, CriticalOperationGuard } from '../middleware/AdminGuards';
-import { readFileSync, existsSync } from 'node:fs';
-import { basename, isAbsolute, join, normalize, resolve } from 'node:path';
+import { s3Service } from '../services/s3.service';
 import {
   ExportListItemDto,
   GenerateXMLExportRequest,
@@ -55,52 +54,20 @@ export class AdminExportsController {
 
   /**
    * GET /admin/exports/:id/download
-   * Downloads the physical export file as an attachment
+   * Returns presigned URL for export file
    */
   @Get('/:id/download')
   async downloadExport(@Param('id') exportId: number, @Res() res: Response): Promise<any> {
     const exp = await this.exportsService.getExportById(exportId);
-    const rawFilePath: string = (exp as any).filePath || '';
-    const filePath = this.resolveExportPath(rawFilePath);
-
-    if (!filePath || !existsSync(filePath)) {
-      res.status(404).json({ message: 'Export file not found on disk' });
+    const key: string = (exp as any).filePath || '';
+    if (!key) {
+      res.status(404).json({ message: 'Export file key not found' });
       return res;
     }
-
-    const fileName = basename(filePath);
-    const isXml = fileName.endsWith('.xml');
-    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
-    res.setHeader('Content-Type', isXml ? 'application/xml' : 'text/csv');
-    res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
-    const fileContent = readFileSync(filePath);
-    res.send(fileContent);
+    const expiresIn = 3600;
+    const url = await s3Service.getPresignedUrl(key, expiresIn);
+    res.status(200).json({ url, key, expiresIn });
     return res;
-  }
-
-  private resolveExportPath(rawPath: string): string {
-    if (!rawPath) return '';
-
-    const normalizedRaw = normalize(rawPath);
-    const candidates = new Set<string>();
-
-    if (isAbsolute(normalizedRaw)) {
-      candidates.add(normalizedRaw);
-    }
-
-    // Handle DB values like '/exports/file.csv' or 'exports/file.csv'
-    const cleaned = normalizedRaw.replace(/^[/\\]+/, '');
-    candidates.add(resolve(process.cwd(), cleaned));
-    candidates.add(resolve(process.cwd(), 'exports', basename(normalizedRaw)));
-    candidates.add(join(process.cwd(), 'exports', basename(normalizedRaw)));
-
-    for (const candidate of candidates) {
-      if (existsSync(candidate)) {
-        return candidate;
-      }
-    }
-
-    return normalizedRaw;
   }
 
   /**

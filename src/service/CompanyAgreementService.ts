@@ -1,6 +1,4 @@
 import { AppDataSource } from '../config/database';
-import { writeFileSync, existsSync, mkdirSync } from 'node:fs';
-import { join } from 'node:path';
 import { CompanyAuditService } from './CompanyAuditService';
 import { CompanyRankingService } from './CompanyRankingService';
 import {
@@ -8,6 +6,7 @@ import {
     SignAgreementRequest,
     AgreementDownloadResponse,
 } from '../dto/CompanyDtos';
+import { s3Service } from '../services/s3.service';
 
 /**
  * Company Agreement Service
@@ -168,29 +167,27 @@ export class CompanyAgreementService {
 
             let contractId: number | undefined;
             let signedDocPath: string | null = null;
+            let signedDocKey: string | null = null;
 
             if (lenderAlreadySigned) {
                 // 2. Set fully signed timestamp and generate stored document
-                const dir = join(process.cwd(), 'generated_pdfs');
-                if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
                 const fileName = `management_agreement_${agreementId}_${now.toISOString().replace(/[:.]/g, '-')}.pdf`;
-                const fullPath = join(dir, fileName);
-                signedDocPath = fullPath;
-
                 const pdfBuffer = await this.generateManagementAgreementPdf(queryRunner, agreementId, companyId);
-                writeFileSync(fullPath, pdfBuffer);
+                signedDocKey = s3Service.generateKey('company', String(companyId), fileName);
+                await s3Service.uploadFile(pdfBuffer, signedDocKey, 'application/pdf');
+                signedDocPath = signedDocKey;
 
                 await queryRunner.query(
-                    `UPDATE management_agreements SET signedAt = ?, signed_document_path = ? WHERE id = ? AND companyId = ?`,
-                    [now, fullPath, agreementId, companyId]
+                    `UPDATE management_agreements SET signedAt = ?, signed_document_path = ?, document_key = ? WHERE id = ? AND companyId = ?`,
+                    [now, signedDocPath, signedDocKey, agreementId, companyId]
                 );
 
                 const contractResult = await queryRunner.query(
                     `
-        INSERT INTO contracts (company_id, management_agreement_id, contract_type, signed_at, file_path, created_at)
-        VALUES (?, ?, 'MANAGEMENT_AGREEMENT', ?, ?, NOW())
+        INSERT INTO contracts (company_id, management_agreement_id, contract_type, signed_at, file_path, document_key, created_at)
+        VALUES (?, ?, 'MANAGEMENT_AGREEMENT', ?, ?, ?, NOW())
         `,
-                    [companyId, agreementId, now, fullPath]
+                    [companyId, agreementId, now, signedDocPath, signedDocKey]
                 );
                 contractId = contractResult.insertId;
             }
@@ -266,8 +263,7 @@ export class CompanyAgreementService {
     }
 
     /**
-     * Download agreement (PDF contract)
-     * Returns binary PDF data from contracts table
+     * Download agreement (PDF contract) as presigned URL
      */
     async downloadAgreement(companyId: number): Promise<AgreementDownloadResponse> {
         const queryRunner = AppDataSource.createQueryRunner();
@@ -279,6 +275,7 @@ export class CompanyAgreementService {
         SELECT 
           c.id,
           c.file_path as filePath,
+          c.document_key as documentKey,
           c.created_at as createdAt
         FROM contracts c
         INNER JOIN management_agreements ma ON c.management_agreement_id = ma.id
@@ -293,15 +290,20 @@ export class CompanyAgreementService {
                 throw new Error('No signed agreement found');
             }
 
-            // In production, read PDF from file_path
-            // For now, return placeholder
-            const pdfData = Buffer.from('PDF_CONTENT_PLACEHOLDER');
+            const key = contract[0].documentKey || contract[0].filePath;
+            if (!key) {
+                throw new Error('No agreement file key found');
+            }
+            const expiresIn = 3600;
+            const url = await s3Service.getPresignedUrl(key, expiresIn);
 
             return {
                 contractId: contract[0].id,
                 fileName: `management_agreement_${companyId}_${new Date().toISOString().split('T')[0]}.pdf`,
                 contentType: 'application/pdf',
-                data: pdfData,
+                key,
+                url,
+                expiresIn,
                 createdAt: contract[0].createdAt,
             };
         } finally {

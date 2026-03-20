@@ -22,6 +22,12 @@ export class Export {
   @Column({ type: 'varchar', length: 255, nullable: true, name: 'file_path' })
   filePath?: string;
 
+  @Column({ type: 'varchar', length: 500, nullable: true, name: 'document_key' })
+  documentKey?: string;
+
+  @Column({ type: 'varchar', length: 1000, nullable: true, name: 'document_url' })
+  documentUrl?: string;
+
   @Column({ type: 'int', nullable: true, name: 'record_count' })
   recordCount?: number;
 
