@@ -74,8 +74,8 @@ export class LenderInvestmentsService {
                 amount: Number(o.amount),
                 confirmedAmount: o.confirmedAmount != null ? Number(o.confirmedAmount) : null,
                 createdAt: o.createdAt as Date,
-                delegatedByCompanyId: null,
-                companyName: null,
+                delegatedByCompanyId: null as number | null,
+                companyName: null as string | null,
             }));
         }
         if (viewFilter === 'direct') {

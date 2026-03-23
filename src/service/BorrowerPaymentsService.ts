@@ -64,6 +64,45 @@ export class BorrowerPaymentsService {
     this.scheduleService = new RepaymentScheduleService();
   }
 
+  private isE2EMockEnabled(): boolean {
+    return Boolean((config as any).e2e?.mockPayment);
+  }
+
+  private async finalizeE2EMockCommissionPayment(
+    paymentId: number,
+    sessionId: string,
+    step: 'PORTAL_COMMISSION' | 'VOLUNTARY_COMMISSION',
+    applicationId: number,
+    borrowerId: number,
+    frontendBaseUrl: string
+  ): Promise<{ redirectUrl: string; paymentId: number; step: string }> {
+    await this.paymentRepo.update(paymentId, {
+      statusId: STATUS_PAID,
+      paidAt: new Date(),
+      providerOrderId: `E2E-MOCK-${Date.now()}`,
+    });
+
+    const paymentStep = await this.paymentStepRepo.findByPaymentId(paymentId);
+    if (paymentStep) {
+      await this.paymentStepRepo.update(paymentStep.id, {
+        status: 'PAID',
+        paidAt: new Date(),
+      });
+    }
+
+    if (step === 'PORTAL_COMMISSION') {
+      await this.onPortalCommissionPaid(applicationId, borrowerId);
+    } else {
+      await this.onVoluntaryCommissionPaid(applicationId, borrowerId);
+    }
+
+    return {
+      redirectUrl: `${frontendBaseUrl}/payment/commission-success?sessionId=${sessionId}&step=${step}`,
+      paymentId,
+      step,
+    };
+  }
+
   /**
    * STEP 1: Initiate portal commission payment via Przelewy24.
    * Must be called before voluntary commission.
@@ -137,6 +176,23 @@ export class BorrowerPaymentsService {
       step.status = 'PENDING';
       step.amount = commissionAmount;
       await this.paymentStepRepo.save(step);
+    }
+
+    if (this.isE2EMockEnabled()) {
+      const mocked = await this.finalizeE2EMockCommissionPayment(
+        savedPayment.id as number,
+        sessionId,
+        'PORTAL_COMMISSION',
+        appIdNum,
+        borrowerIdNum,
+        frontendBaseUrl
+      );
+      return {
+        redirectUrl: mocked.redirectUrl,
+        paymentId: mocked.paymentId,
+        amount: commissionAmount,
+        step: 'PORTAL_COMMISSION',
+      };
     }
 
     // Register with Przelewy24
@@ -237,6 +293,23 @@ export class BorrowerPaymentsService {
       step.status = 'PENDING';
       step.amount = voluntaryAmount;
       await this.paymentStepRepo.save(step);
+    }
+
+    if (this.isE2EMockEnabled()) {
+      const mocked = await this.finalizeE2EMockCommissionPayment(
+        savedPayment.id as number,
+        sessionId,
+        'VOLUNTARY_COMMISSION',
+        applicationId,
+        borrowerIdNum,
+        frontendBaseUrl
+      );
+      return {
+        redirectUrl: mocked.redirectUrl,
+        paymentId: mocked.paymentId,
+        amount: voluntaryAmount,
+        step: 'VOLUNTARY_COMMISSION',
+      };
     }
 
     const urlReturn = `${frontendBaseUrl}/payment/commission-success?sessionId=${sessionId}&step=VOLUNTARY_COMMISSION`;

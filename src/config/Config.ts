@@ -137,6 +137,14 @@ const conf = convict({
         },
     },
 
+    e2e: {
+        mockPayment: {
+            format: Boolean,
+            default: false,
+            env: "E2E_MOCK_PAYMENT",
+        },
+    },
+
     smtp: {
         host: {
             format: "*",

@@ -173,7 +173,13 @@ export function registerLenderRoutes(app: Express): void {
     app.post(
         '/lender/loans/:loanId/disbursement',
         ...lenderGuardChain(false, 0),
-        async (req: Request, res: Response) => loansController.confirmDisbursement(req, res)
+        async (req: Request, res: Response) =>
+            loansController.confirmDisbursement(
+                req,
+                res,
+                Number(req.params.loanId),
+                req.body
+            )
     );
 
     // ============================================

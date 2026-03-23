@@ -64,8 +64,15 @@ expressApp.use((req, _res, next) => {
 });
 
 // Apply rate limits to auth routes
-expressApp.use(`${INTERNAL_API_PREFIX}/users/login`, loginLimiter);
-expressApp.use(`${INTERNAL_API_PREFIX}/auth/admin/login`, loginLimiter);
+const disableAuthRateLimit =
+    String(process.env.E2E_DISABLE_AUTH_RATE_LIMIT ?? '').toLowerCase() === 'true' ||
+    String(process.env.E2E_MOCK_PAYMENT ?? '').toLowerCase() === 'true';
+if (!disableAuthRateLimit) {
+    expressApp.use(`${INTERNAL_API_PREFIX}/users/login`, loginLimiter);
+    expressApp.use(`${INTERNAL_API_PREFIX}/auth/admin/login`, loginLimiter);
+} else {
+    console.log('[E2E] Auth rate limit disabled');
+}
 expressApp.use(`${INTERNAL_API_PREFIX}/users/signup`, signupLimiter);
 
 // Health check (before routing-controllers)

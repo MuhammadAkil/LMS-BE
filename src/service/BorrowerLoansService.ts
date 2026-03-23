@@ -459,7 +459,12 @@ export class BorrowerLoansService {
      * Borrower marks an installment as paid (self-report).
      * Sets repayments.paid_at for the given repayment id.
      */
-    async confirmRepayment(borrowerId: string, loanId: string, repaymentId: string): Promise<{ success: boolean }> {
+    async confirmRepayment(
+        borrowerId: string,
+        loanId: string,
+        repaymentId: string,
+        options?: { isE2EMockPayment?: boolean }
+    ): Promise<{ success: boolean; mocked?: boolean; confirmation?: string }> {
         const borrowerIdNum = parseInt(borrowerId, 10);
         const loanIdNum = parseInt(loanId, 10);
         const repaymentIdNum = parseInt(repaymentId, 10);
@@ -471,6 +476,10 @@ export class BorrowerLoansService {
         if (!repayment || Number(repayment.loanId) !== loanIdNum) throw new Error('Repayment not found');
         if (repayment.paidAt) throw new Error('This installment is already marked as paid');
 
+        if (options?.isE2EMockPayment) {
+            console.log(`[E2E] Mock payment bypass enabled for loan ${loanIdNum}, repayment ${repaymentIdNum}`);
+        }
+
         await this.repaymentRepo.update(repaymentIdNum, { paidAt: new Date() });
 
         await this.auditRepo.create({
@@ -481,6 +490,10 @@ export class BorrowerLoansService {
             createdAt: new Date(),
         } as any);
 
-        return { success: true };
+        return {
+            success: true,
+            mocked: Boolean(options?.isE2EMockPayment),
+            confirmation: 'Repayment confirmed successfully',
+        };
     }
 }
