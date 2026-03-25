@@ -11,8 +11,8 @@ import {
 import { AuditLogRepository } from '../repository/AuditLogRepository';
 import { ExportRepository } from '../repository/ExportRepository';
 import { AppDataSource } from '../config/database';
-import { writeFileSync, existsSync, mkdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, statSync } from 'node:fs';
+import { s3Service } from '../services/s3.service';
 
 /**
  * L-05: LENDER REMINDERS SERVICE
@@ -79,16 +79,10 @@ export class LenderRemindersService {
 export class LenderExportsService {
     private auditLogRepository: AuditLogRepository;
     private exportRepo: ExportRepository;
-    private readonly exportsDir: string;
-    private readonly claimsDir: string;
 
     constructor() {
         this.auditLogRepository = new AuditLogRepository();
         this.exportRepo = new ExportRepository();
-        this.exportsDir = join(process.cwd(), 'exports');
-        this.claimsDir = join(process.cwd(), 'claims');
-        if (!existsSync(this.exportsDir)) mkdirSync(this.exportsDir, { recursive: true });
-        if (!existsSync(this.claimsDir)) mkdirSync(this.claimsDir, { recursive: true });
     }
 
     /**
@@ -149,14 +143,13 @@ export class LenderExportsService {
             }
 
             const fileName = `export_${Date.now()}_investments.csv`;
-            const filePath = join(this.exportsDir, fileName);
-            writeFileSync(filePath, csv, 'utf-8');
-            const fileSize = statSync(filePath).size;
+            const key = s3Service.generateKey('lender', String(lenderIdNum), fileName);
+            await s3Service.uploadFile(Buffer.from(csv, 'utf-8'), key, 'text/csv');
 
             const saved = await this.exportRepo.save({
                 typeId: 2, // CSV_EXPORT
                 createdBy: lenderIdNum,
-                filePath,
+                filePath: key,
                 recordCount: rows.length,
                 metadata: JSON.stringify({ dateFrom: request.dateFrom, dateTo: request.dateTo, fileName }),
             } as any);
@@ -166,7 +159,7 @@ export class LenderExportsService {
                 entityId: Number(saved.id), createdAt: new Date(),
             } as any);
 
-            return { filePath: `/lender/exports/download/${saved.id}`, fileSize };
+            return { filePath: `/lender/exports/download/${saved.id}`, fileSize: Buffer.byteLength(csv, 'utf-8') };
         } finally {
             await qr.release();
         }
@@ -218,14 +211,13 @@ export class LenderExportsService {
             const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<InvestmentsExport lenderId="${lenderIdNum}" generatedAt="${new Date().toISOString()}">\n${items}\n</InvestmentsExport>`;
 
             const fileName = `export_${Date.now()}_investments.xml`;
-            const filePath = join(this.exportsDir, fileName);
-            writeFileSync(filePath, xml, 'utf-8');
-            const fileSize = statSync(filePath).size;
+            const key = s3Service.generateKey('lender', String(lenderIdNum), fileName);
+            await s3Service.uploadFile(Buffer.from(xml, 'utf-8'), key, 'application/xml');
 
             const saved = await this.exportRepo.save({
                 typeId: 1, // XML_EXPORT
                 createdBy: lenderIdNum,
-                filePath,
+                filePath: key,
                 recordCount: rows.length,
                 metadata: JSON.stringify({ dateFrom: request.dateFrom, dateTo: request.dateTo, fileName }),
             } as any);
@@ -235,7 +227,11 @@ export class LenderExportsService {
                 entityId: Number(saved.id), createdAt: new Date(),
             } as any);
 
-            return { filePath: `/lender/exports/download/${saved.id}`, fileSize, itemCount: rows.length };
+            return {
+                filePath: `/lender/exports/download/${saved.id}`,
+                fileSize: Buffer.byteLength(xml, 'utf-8'),
+                itemCount: rows.length,
+            };
         } finally {
             await qr.release();
         }
@@ -357,13 +353,13 @@ export class LenderExportsService {
 </InsuranceClaim>`;
 
             const fileName = `claim_${Date.now()}_loan${loanIdNum}.xml`;
-            const xmlPath = join(this.claimsDir, fileName);
-            writeFileSync(xmlPath, xml, 'utf-8');
+            const key = s3Service.generateKey('lender', String(lenderIdNum), fileName);
+            await s3Service.uploadFile(Buffer.from(xml, 'utf-8'), key, 'application/xml');
 
             // Insert into claims table
             const claimResult = await qr.query(
                 `INSERT INTO claims (loanId, xmlPath, generatedAt, createdAt) VALUES (?, ?, NOW(), NOW())`,
-                [loanIdNum, xmlPath]
+                [loanIdNum, key]
             );
             const claimId = String(claimResult?.insertId ?? Date.now());
 

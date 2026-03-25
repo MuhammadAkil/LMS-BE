@@ -569,13 +569,25 @@ export class CompanyDocumentsController {
     @Get('/:id/download')
     async downloadDocument(
         @Req() req: Request,
+        @Res() res: Response,
         @Param('id') documentId: string
-    ): Promise<DocumentDownloadResponse> {
+    ): Promise<void> {
         const companyId = (req.user as any)?.companyId;
         if (!companyId) {
             throw new Error('Company ID not found in request');
         }
-        return this.documentsService.downloadDocument(companyId, documentId);
+        const result = await this.documentsService.downloadDocument(companyId, documentId);
+        if (result.url) {
+            res.redirect(302, result.url);
+            return;
+        }
+        const data = result.data ?? Buffer.alloc(0);
+        res.setHeader('Content-Type', result.contentType);
+        res.setHeader(
+            'Content-Disposition',
+            `attachment; filename="${String(result.fileName).replace(/"/g, '')}"`
+        );
+        res.send(data);
     }
 }
 

@@ -2,8 +2,8 @@ import { AdminAuditService } from './AdminAuditService';
 import { ExportRepository } from '../repository/ExportRepository';
 import { AppDataSource } from '../config/database';
 import { ExportListItemDto, GenerateXMLExportRequest, GenerateCSVExportRequest, GenerateClaimsRequest } from '../dto/AdminDtos';
-import { writeFileSync, existsSync, unlinkSync, mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, unlinkSync } from 'node:fs';
+import { s3Service } from '../services/s3.service';
 
 /**
  * Admin Exports Service
@@ -14,16 +14,10 @@ import { join } from 'node:path';
 export class AdminExportsService {
   private readonly exportRepo: ExportRepository;
   private readonly auditService: AdminAuditService;
-  private readonly exportsDir: string;
 
   constructor() {
     this.exportRepo = new ExportRepository();
     this.auditService = new AdminAuditService();
-    // Create exports directory if it doesn't exist
-    this.exportsDir = join(process.cwd(), 'exports');
-    if (!existsSync(this.exportsDir)) {
-      mkdirSync(this.exportsDir, { recursive: true });
-    }
   }
 
   /**
@@ -55,16 +49,14 @@ export class AdminExportsService {
       // Generate XML
       const xml = this.generateXMLContent(loans);
       const fileName = `export_${Date.now()}_loans.xml`;
-      const filePath = join(this.exportsDir, fileName);
-
-      // Write to disk
-      writeFileSync(filePath, xml, 'utf-8');
+      const key = s3Service.generateKey('admin', String(adminId), fileName);
+      await s3Service.uploadFile(Buffer.from(xml, 'utf-8'), key, 'application/xml');
 
       // Create export record (immutable)
       const exportRecord = {
         typeId: 1, // XML_EXPORT
         createdBy: adminId,
-        filePath: filePath,
+        filePath: key,
         recordCount: loans.length,
         metadata: JSON.stringify({
           loanStatus: request.loanStatus,
@@ -129,16 +121,14 @@ export class AdminExportsService {
       // Generate CSV
       const csv = this.generateCSVContent(loans);
       const fileName = `export_${Date.now()}_${(request.entityType || 'loans').toLowerCase()}.csv`;
-      const filePath = join(this.exportsDir, fileName);
-
-      // Write to disk
-      writeFileSync(filePath, csv, 'utf-8');
+      const key = s3Service.generateKey('admin', String(adminId), fileName);
+      await s3Service.uploadFile(Buffer.from(csv, 'utf-8'), key, 'text/csv');
 
       // Create export record
       const exportRecord = {
         typeId: 2, // CSV_EXPORT
         createdBy: adminId,
-        filePath: filePath,
+        filePath: key,
         recordCount: loans.length,
         metadata: JSON.stringify({
           entityType: request.entityType,
@@ -198,15 +188,14 @@ export class AdminExportsService {
       // Generate claims CSV
       const claims = this.generateClaimsContent(defaultedLoans);
       const fileName = `export_${Date.now()}_claims.csv`;
-      const filePath = join(this.exportsDir, fileName);
-
-      writeFileSync(filePath, claims, 'utf-8');
+      const key = s3Service.generateKey('admin', String(adminId), fileName);
+      await s3Service.uploadFile(Buffer.from(claims, 'utf-8'), key, 'text/csv');
 
       // Create export record
       const exportRecord = {
         typeId: 3, // CLAIMS_EXPORT
         createdBy: adminId,
-        filePath: filePath,
+        filePath: key,
         recordCount: defaultedLoans.length,
         metadata: JSON.stringify({
           loanIds: request.loanIds,
@@ -285,10 +274,13 @@ export class AdminExportsService {
       throw new Error(`Cannot delete export created ${Math.floor(agesDays)} days ago (min 90 days). Use force=true to override.`);
     }
 
-    // Hard delete the file (since it's no longer needed)
     try {
-      if (exp.filePath && existsSync(exp.filePath)) {
-        unlinkSync(exp.filePath);
+      if (exp.filePath) {
+        if (existsSync(exp.filePath)) {
+          unlinkSync(exp.filePath);
+        } else {
+          await s3Service.deleteFile(exp.filePath);
+        }
       }
     } catch (err) {
       console.error(`Failed to delete export file: ${err}`);

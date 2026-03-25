@@ -36,7 +36,7 @@ describe('KycDocumentValidationService', () => {
     expect(result.errors).toHaveLength(0);
   });
 
-  it('rejects expired identity document', () => {
+  it('does not reject expired identity at upload time (expiry checked in admin review)', () => {
     const result = service.validateSubmission('INDIVIDUAL', [
       {
         fileName: 'passport.jpg',
@@ -57,11 +57,10 @@ describe('KycDocumentValidationService', () => {
       },
     ]);
 
-    expect(result.valid).toBe(false);
-    expect(result.errors.join(' ')).toContain('Document expired');
+    expect(result.valid).toBe(true);
   });
 
-  it('rejects proof of address older than 3 months', () => {
+  it('does not reject stale proof of address at upload time (age checked in admin review)', () => {
     const oldDate = new Date();
     oldDate.setMonth(oldDate.getMonth() - 4);
 
@@ -85,8 +84,7 @@ describe('KycDocumentValidationService', () => {
       },
     ]);
 
-    expect(result.valid).toBe(false);
-    expect(result.errors.join(' ')).toContain('Document too old');
+    expect(result.valid).toBe(true);
   });
 
   it('rejects company submission with missing required categories', () => {

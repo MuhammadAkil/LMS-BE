@@ -35,7 +35,25 @@ jest.mock('../../../service/CompanyAuditService', () => ({
     })),
 }));
 
+jest.mock('../../../service/CompanyRankingService', () => ({
+    CompanyRankingService: jest.fn().mockImplementation(() => ({
+        recomputeAllRanks: jest.fn().mockResolvedValue(undefined),
+    })),
+}));
+
+jest.mock('../../../services/s3.service', () => ({
+    s3Service: {
+        generateKey: jest.fn((role: string, id: string, name: string) => `${role}/${id}/${name}`),
+        uploadFile: jest.fn().mockResolvedValue(undefined),
+    },
+}));
+
+jest.mock('../../../util/storedFileAccess', () => ({
+    resolveStoredRefForDownload: jest.fn(),
+}));
+
 import { CompanyAgreementService } from '../../../service/CompanyAgreementService';
+import { resolveStoredRefForDownload } from '../../../util/storedFileAccess';
 import { buildAgreementRow } from '../../helpers/companyTestHelpers';
 
 // ─────────────────────────────────────────────────────────────────
@@ -47,6 +65,8 @@ describe('CompanyAgreementService', () => {
 
     beforeEach(() => {
         jest.clearAllMocks();
+        mockQrQuery.mockReset();
+        (resolveStoredRefForDownload as jest.Mock).mockReset();
         service = new CompanyAgreementService();
     });
 
@@ -84,22 +104,29 @@ describe('CompanyAgreementService', () => {
 
     describe('signAgreement — happy path', () => {
         it('updates signedAt, creates contract record, sends notifications', async () => {
-            const unsignedRow = buildAgreementRow({ signedAt: null });
+            const unsignedRow = buildAgreementRow({
+                signedAt: null,
+                lenderSignedAt: new Date('2025-01-10T00:00:00Z'),
+            });
             const signedRow = buildAgreementRow({ signedAt: new Date() });
 
+            jest.spyOn(CompanyAgreementService.prototype as any, 'generateManagementAgreementPdf').mockResolvedValue(
+                Buffer.from('pdf-bytes')
+            );
+
             mockQrQuery
-                .mockResolvedValueOnce([unsignedRow])          // SELECT agreement
-                .mockResolvedValueOnce({ affectedRows: 1 })    // UPDATE signedAt
-                .mockResolvedValueOnce({ insertId: 300 })      // INSERT contract
-                .mockResolvedValueOnce([{ id: 1 }])            // SELECT admins
-                .mockResolvedValueOnce([signedRow]);            // getAgreement re-fetch
+                .mockResolvedValueOnce([unsignedRow])
+                .mockResolvedValueOnce({ affectedRows: 1 })
+                .mockResolvedValueOnce({ affectedRows: 1 })
+                .mockResolvedValueOnce({ insertId: 300 })
+                .mockResolvedValueOnce([{ id: 1 }])
+                .mockResolvedValueOnce([signedRow]);
 
             const request = { agreementId: 200, signatureData: 'base64sig' };
             const result = await service.signAgreement(COMPANY_ID, USER_ID, request as any);
 
-            expect(result.status).toBe('SIGNED');
+            expect(result!.status).toBe('SIGNED');
 
-            // Verify contract was inserted
             const insertCall = mockQrQuery.mock.calls.find(
                 (c: any[]) => String(c[0]).includes('INSERT') && String(c[0]).includes('contracts')
             );
@@ -122,23 +149,27 @@ describe('CompanyAgreementService', () => {
 
             await expect(
                 service.signAgreement(COMPANY_ID, USER_ID, { agreementId: 200 } as any)
-            ).rejects.toThrow('Agreement already signed');
+            ).rejects.toThrow('Agreement already fully signed');
         });
     });
 
     // ── downloadAgreement ─────────────────────────────────────────
 
     describe('downloadAgreement', () => {
-        it('returns PDF DTO for signed agreement', async () => {
-            const contractRow = { id: 300, filePath: '/generated_pdfs/contract_1.pdf', createdAt: new Date() };
+        it('returns presigned URL DTO when file is remote', async () => {
+            const contractRow = { id: 300, filePath: 'company/1/agreement.pdf', createdAt: new Date() };
             mockQrQuery.mockResolvedValueOnce([contractRow]);
+            (resolveStoredRefForDownload as jest.Mock).mockResolvedValueOnce({
+                mode: 'remote',
+                url: 'https://example.com/presigned',
+            });
 
             const result = await service.downloadAgreement(COMPANY_ID);
 
             expect(result.contractId).toBe(300);
             expect(result.contentType).toBe('application/pdf');
-            expect(result.fileName).toContain(`management_agreement_${COMPANY_ID}`);
-            expect(result.data).toBeInstanceOf(Buffer);
+            expect(result.url).toBe('https://example.com/presigned');
+            expect(result.expiresIn).toBe(3600);
         });
 
         it('throws when no signed agreement contract exists', async () => {

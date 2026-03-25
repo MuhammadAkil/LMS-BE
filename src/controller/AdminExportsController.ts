@@ -2,8 +2,9 @@ import { Controller, Get, Post, Delete, Body, Param, QueryParam, UseBefore, Req,
 import { Request, Response } from 'express';
 import { AdminExportsService } from '../service/AdminExportsService';
 import { AdminGuard, SuperAdminGuard, CriticalOperationGuard } from '../middleware/AdminGuards';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, createReadStream } from 'node:fs';
 import { basename, isAbsolute, join, normalize, resolve } from 'node:path';
+import { resolveStoredRefForDownload } from '../util/storedFileAccess';
 import {
   ExportListItemDto,
   GenerateXMLExportRequest,
@@ -61,21 +62,43 @@ export class AdminExportsController {
   async downloadExport(@Param('id') exportId: number, @Res() res: Response): Promise<any> {
     const exp = await this.exportsService.getExportById(exportId);
     const rawFilePath: string = (exp as any).filePath || '';
-    const filePath = this.resolveExportPath(rawFilePath);
 
-    if (!filePath || !existsSync(filePath)) {
-      res.status(404).json({ message: 'Export file not found on disk' });
+    try {
+      const resolved = await resolveStoredRefForDownload(rawFilePath, 3600);
+      if (resolved.mode === 'local') {
+        const filePath = resolved.path;
+        if (!existsSync(filePath)) {
+          res.status(404).json({ message: 'Export file not found on disk' });
+          return res;
+        }
+        const fileName = basename(filePath);
+        const isXml = fileName.endsWith('.xml');
+        res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+        res.setHeader('Content-Type', isXml ? 'application/xml' : 'text/csv');
+        res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
+        createReadStream(filePath).pipe(res);
+        return res;
+      }
+      res.status(200).json({
+        statusCode: '200',
+        statusMessage: 'Presigned URL generated successfully',
+        data: { url: resolved.url, expiresIn: 3600, key: rawFilePath },
+        timestamp: new Date().toISOString(),
+      });
+      return res;
+    } catch {
+      const filePath = this.resolveExportPath(rawFilePath);
+      if (!filePath || !existsSync(filePath)) {
+        res.status(404).json({ message: 'Export file not found' });
+        return res;
+      }
+      const fileName = basename(filePath);
+      const isXml = fileName.endsWith('.xml');
+      res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+      res.setHeader('Content-Type', isXml ? 'application/xml' : 'text/csv');
+      res.send(readFileSync(filePath));
       return res;
     }
-
-    const fileName = basename(filePath);
-    const isXml = fileName.endsWith('.xml');
-    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
-    res.setHeader('Content-Type', isXml ? 'application/xml' : 'text/csv');
-    res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
-    const fileContent = readFileSync(filePath);
-    res.send(fileContent);
-    return res;
   }
 
   private resolveExportPath(rawPath: string): string {

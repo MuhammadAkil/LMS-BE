@@ -13,6 +13,7 @@ import { AuthenticationMiddleware } from '../middleware/AuthenticationMiddleware
 import { LenderRoleGuard } from '../middleware/LenderGuards';
 import { withLenderStatusGuard, withLenderVerificationGuard } from '../middleware/LenderGuardWrappers';
 import { ExportRepository } from '../repository/ExportRepository';
+import { resolveStoredRefForDownload } from '../util/storedFileAccess';
 
 /**
  * L-05: LENDER REMINDERS CONTROLLER
@@ -252,7 +253,28 @@ export class LenderExportsController {
             const mimeType = isXml ? 'application/xml' : 'text/csv';
             const downloadName = isXml ? `export-${exportId}.xml` : `export-${exportId}.csv`;
 
-            // Try to stream the file from disk
+            try {
+                const resolved = await resolveStoredRefForDownload(storedPath, 3600);
+                if (resolved.mode === 'local') {
+                    if (fs.existsSync(resolved.path)) {
+                        res.setHeader('Content-Disposition', `attachment; filename="${downloadName}"`);
+                        res.setHeader('Content-Type', mimeType);
+                        fs.createReadStream(resolved.path).pipe(res);
+                        return;
+                    }
+                } else {
+                    res.status(200).json({
+                        statusCode: '200',
+                        statusMessage: 'Presigned URL generated successfully',
+                        data: { url: resolved.url, expiresIn: 3600, key: storedPath },
+                        timestamp: new Date().toISOString(),
+                    });
+                    return;
+                }
+            } catch {
+                // fall through to legacy disk path / placeholder
+            }
+
             const absolutePath = storedPath
                 ? path.join(process.cwd(), storedPath.startsWith('/') ? storedPath.slice(1) : storedPath)
                 : null;

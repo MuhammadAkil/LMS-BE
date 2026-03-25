@@ -1,6 +1,8 @@
 import { Request, Response } from 'express';
-import { Controller, Get, Post, Req, Res } from 'routing-controllers';
+import { Body, Controller, Get, Param, Post, Req, Res, UseBefore } from 'routing-controllers';
 import { BorrowerVerificationService } from '../service/BorrowerVerificationService';
+import { uploadMultiple } from '../middleware/upload.middleware';
+import { s3Service } from '../services/s3.service';
 import {
     VerificationStatusDto,
     VerificationRequirementsDto,
@@ -87,15 +89,38 @@ export class BorrowerVerificationController {
 
     /**
      * POST /api/borrower/verification/upload
-     * Submit verification documents
-     * Body (JSON): { verificationType, documents: [{ fileName, filePath, ...metadata }] }
+     * Multipart: verificationType + documents[] → S3; or JSON with filePath keys (legacy).
      */
     @Post('/upload')
-    async uploadVerification(@Req() req: Request, @Res() res: Response): Promise<void> {
+    @UseBefore(uploadMultiple('documents', 10))
+    async uploadVerification(
+        @Req() req: Request,
+        @Res() res: Response,
+        @Body() body?: UploadVerificationRequest
+    ): Promise<void> {
         try {
             const user = (req as any).user;
             const borrowerId = user.id.toString();
-            const request: UploadVerificationRequest = req.body;
+            const files = (((req as any).files || []) as Express.Multer.File[]);
+            let request: UploadVerificationRequest = body || req.body;
+
+            if (files.length > 0) {
+                const verificationType = req.body?.verificationType || request?.verificationType;
+                const uploadedDocuments = await Promise.all(
+                    files.map(async (file) => {
+                        const key = s3Service.generateKey('borrower', String(borrowerId), file.originalname);
+                        await s3Service.uploadFile(file.buffer, key, file.mimetype);
+                        return {
+                            fileName: file.originalname,
+                            filePath: key,
+                        };
+                    })
+                );
+                request = {
+                    verificationType,
+                    documents: uploadedDocuments,
+                };
+            }
 
             if (!request.verificationType || !request.documents || request.documents.length === 0) {
                 res.status(400).json({
@@ -120,6 +145,36 @@ export class BorrowerVerificationController {
             res.status(500).json({
                 statusCode: '500',
                 statusMessage: 'Internal server error',
+                errors: [error.message],
+                timestamp: new Date().toISOString(),
+            });
+        }
+    }
+
+    @Get('/:verificationId/documents/:documentId/download')
+    async downloadVerificationDocument(
+        @Req() req: Request,
+        @Res() res: Response,
+        @Param('verificationId') verificationId: string,
+        @Param('documentId') documentId: string
+    ): Promise<void> {
+        try {
+            const borrowerId = (req as any).user.id.toString();
+            const result = await this.verificationService.getDocumentPresignedUrl(
+                borrowerId,
+                verificationId,
+                documentId
+            );
+            res.status(200).json({
+                statusCode: '200',
+                statusMessage: 'Presigned URL generated successfully',
+                data: result,
+                timestamp: new Date().toISOString(),
+            });
+        } catch (error: any) {
+            res.status(404).json({
+                statusCode: '404',
+                statusMessage: 'Failed to fetch document',
                 errors: [error.message],
                 timestamp: new Date().toISOString(),
             });

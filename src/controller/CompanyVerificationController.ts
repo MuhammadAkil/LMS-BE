@@ -3,6 +3,8 @@ import { Body, Controller, Get, Post, Req, Res, UseBefore } from 'routing-contro
 import { CompanyGuard, CompanyReadonlyGuard } from '../middleware/CompanyGuards';
 import { BorrowerVerificationService } from '../service/BorrowerVerificationService';
 import { UploadVerificationRequest } from '../dto/BorrowerDtos';
+import { uploadMultiple } from '../middleware/upload.middleware';
+import { s3Service } from '../services/s3.service';
 
 @Controller('/company/verification')
 @UseBefore(CompanyGuard, CompanyReadonlyGuard)
@@ -56,6 +58,7 @@ export class CompanyVerificationController {
   }
 
   @Post('/upload')
+  @UseBefore(uploadMultiple('documents', 10))
   async uploadVerification(
     @Req() req: Request,
     @Res() res: Response,
@@ -63,7 +66,26 @@ export class CompanyVerificationController {
   ): Promise<void> {
     try {
       const user = (req as any).user;
-      const request: UploadVerificationRequest = body || req.body;
+      const files = (((req as any).files || []) as Express.Multer.File[]);
+      let request: UploadVerificationRequest = body || req.body;
+
+      if (files.length > 0) {
+        const verificationType = req.body?.verificationType || request?.verificationType;
+        const uploadedDocuments = await Promise.all(
+          files.map(async (file) => {
+            const key = s3Service.generateKey('company', String(user.id), file.originalname);
+            await s3Service.uploadFile(file.buffer, key, file.mimetype);
+            return {
+              fileName: file.originalname,
+              filePath: key,
+            };
+          })
+        );
+        request = {
+          verificationType,
+          documents: uploadedDocuments,
+        };
+      }
 
       const response = await this.verificationService.submitVerification(user.id.toString(), request);
       res.status(201).json({

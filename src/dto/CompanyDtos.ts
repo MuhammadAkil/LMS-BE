@@ -160,8 +160,11 @@ export class AgreementDownloadResponse {
     contractId!: number;
     fileName!: string;
     contentType!: string;
-    data!: Buffer; // Binary PDF data
+    /** @deprecated Prefer url — binary inline responses are not used with S3 */
+    data?: Buffer;
     createdAt!: Date;
+    url?: string;
+    expiresIn?: number;
 }
 
 // ==================== LINKED LENDERS DTOs ====================
@@ -425,8 +428,11 @@ export class DocumentDownloadResponse {
     id!: string | number;
     fileName!: string;
     contentType!: string;
-    data!: Buffer;
+    /** Present for legacy disk-backed rows only */
+    data?: Buffer;
     createdAt!: Date;
+    url?: string;
+    expiresIn?: number;
 }
 
 // ==================== NOTIFICATIONS DTOs ====================

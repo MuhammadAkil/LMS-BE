@@ -1,11 +1,13 @@
 import { Request, Response } from 'express';
-import { Body, Controller, Get, Patch, Post, Req, Res, UseBefore } from 'routing-controllers';
+import { Body, Controller, Get, Param, Patch, Post, Req, Res, UseBefore } from 'routing-controllers';
 import { LenderVerificationService, LenderProfileService } from '../service/LenderVerificationService';
 import { SubmitVerificationRequest, UpdateLenderProfileRequest } from '../dto/LenderDtos';
 import { AuthenticationMiddleware } from '../middleware/AuthenticationMiddleware';
 import { LenderRoleGuard } from '../middleware/LenderGuards';
 import { withLenderStatusGuard, withLenderVerificationGuard } from '../middleware/LenderGuardWrappers';
 import { AuditLogRepository } from '../repository/AuditLogRepository';
+import { uploadMultiple } from '../middleware/upload.middleware';
+import { s3Service } from '../services/s3.service';
 
 /**
  * L-08: LENDER VERIFICATION CONTROLLER
@@ -59,6 +61,7 @@ export class LenderVerificationController {
      */
     @Post('/')
     @UseBefore(withLenderStatusGuard(false), withLenderVerificationGuard(0))
+    @UseBefore(uploadMultiple('documents', 10))
     async submitVerification(
         @Req() req: Request,
         @Res() res: Response,
@@ -66,7 +69,38 @@ export class LenderVerificationController {
     ): Promise<void> {
         try {
             const lenderId = (req as any).user.id;
-            const request: SubmitVerificationRequest = body || req.body;
+            const fileValidationError = (req as any).fileValidationError;
+            if (fileValidationError) {
+                res.status(400).json({
+                    statusCode: '400',
+                    statusMessage: 'Invalid verification request',
+                    errors: [fileValidationError],
+                    timestamp: new Date().toISOString(),
+                });
+                return;
+            }
+
+            const files = (((req as any).files || []) as Express.Multer.File[]);
+            let request: SubmitVerificationRequest = body || req.body;
+
+            if (files.length > 0) {
+                const verificationType = req.body?.verificationType || request?.verificationType;
+                const uploadedDocuments = await Promise.all(
+                    files.map(async (file) => {
+                        const key = s3Service.generateKey('lender', String(lenderId), file.originalname);
+                        await s3Service.uploadFile(file.buffer, key, file.mimetype);
+                        return {
+                            fileName: file.originalname,
+                            filePath: key,
+                        };
+                    })
+                );
+
+                request = {
+                    verificationType,
+                    documents: uploadedDocuments,
+                };
+            }
 
             // Validate request
             const validation = this.validateVerificationRequest(request);
@@ -82,8 +116,8 @@ export class LenderVerificationController {
 
             const verification = await this.verificationService.submitVerification(lenderId, request);
 
-            res.status(201).json({
-                statusCode: '201',
+            res.status(200).json({
+                statusCode: '200',
                 statusMessage: 'Verification submitted successfully',
                 data: verification,
                 timestamp: new Date().toISOString(),
@@ -93,6 +127,37 @@ export class LenderVerificationController {
             res.status(500).json({
                 statusCode: '500',
                 statusMessage: 'Failed to submit verification',
+                errors: [error.message],
+                timestamp: new Date().toISOString(),
+            });
+        }
+    }
+
+    @Get('/:verificationId/documents/:documentId/download')
+    @UseBefore(withLenderStatusGuard(true), withLenderVerificationGuard(0))
+    async downloadVerificationDocument(
+        @Req() req: Request,
+        @Res() res: Response,
+        @Param('verificationId') verificationId: string,
+        @Param('documentId') documentId: string
+    ): Promise<void> {
+        try {
+            const lenderId = (req as any).user.id;
+            const result = await this.verificationService.getDocumentPresignedUrl(
+                lenderId,
+                verificationId,
+                documentId
+            );
+            res.status(200).json({
+                statusCode: '200',
+                statusMessage: 'Presigned URL generated successfully',
+                data: result,
+                timestamp: new Date().toISOString(),
+            });
+        } catch (error: any) {
+            res.status(404).json({
+                statusCode: '404',
+                statusMessage: 'Failed to fetch document',
                 errors: [error.message],
                 timestamp: new Date().toISOString(),
             });

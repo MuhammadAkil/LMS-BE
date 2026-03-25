@@ -150,6 +150,8 @@ export class UploadVerificationResponse {
     status!: string; // PENDING
     submittedAt!: string;
     message!: string;
+    document_key?: string;
+    document_id?: string;
 }
 
 // ==================== B-03: LOAN APPLICATION DTOs ====================

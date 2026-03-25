@@ -37,6 +37,13 @@ jest.mock('../../../config/database', () => {
     };
 });
 
+jest.mock('../../../service/VerificationAccessService', () => ({
+    VerificationAccessService: jest.fn().mockImplementation(() => ({
+        isVerificationBypassPath: jest.fn().mockReturnValue(false),
+        getVerificationGate: jest.fn().mockResolvedValue({ isVerified: true, missingCategories: [] }),
+    })),
+}));
+
 import {
     CompanyGuard,
     CompanyStatusGuard,
@@ -55,12 +62,14 @@ describe('Company Role Guards (Integration)', () => {
     // ──────────────────────────────────────────────────────────────
 
     describe('CompanyGuard', () => {
-        it('calls next() for a valid company user (roleId=4)', () => {
+        it('calls next() for a valid company user (roleId=4)', async () => {
             const req = buildMockRequest({ roleId: 4 });
             const res = buildMockResponse();
             const next = jest.fn();
 
             CompanyGuard(req, res, next);
+
+            await new Promise<void>((resolve) => setImmediate(resolve));
 
             expect(next).toHaveBeenCalledTimes(1);
             expect(res.status).not.toHaveBeenCalled();

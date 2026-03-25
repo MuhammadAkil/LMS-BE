@@ -43,6 +43,35 @@ jest.mock('../../../service/CompanyAuditService', () => ({
     })),
 }));
 
+jest.mock('../../../services/s3.service', () => ({
+    s3Service: {
+        generateKey: jest.fn((_role: string, entityId: string, fileName: string) => `company/${entityId}/mock-${fileName}`),
+        uploadFile: jest.fn().mockResolvedValue(undefined),
+    },
+}));
+
+jest.mock('../../../service/CompanyReportsService', () => ({
+    CompanyReportsService: jest.fn().mockImplementation(() => ({
+        getLoanRowsForExport: jest.fn().mockResolvedValue({
+            rows: [{ id: 1001 }, { id: 1002 }, { id: 1003 }],
+            commissionRate: 5,
+        }),
+        buildPortfolioXml: jest.fn().mockReturnValue('<?xml version="1.0"?><PortfolioReport/>'),
+    })),
+}));
+
+jest.mock('../../../service/CompanyExportTemplateService', () => ({
+    CompanyExportTemplateService: jest.fn().mockImplementation(() => ({
+        resolveFieldKeys: jest.fn().mockResolvedValue(['id']),
+    })),
+}));
+
+jest.mock('../../../repository/ExportRepository', () => ({
+    ExportRepository: jest.fn().mockImplementation(() => ({
+        save: jest.fn().mockResolvedValue({ id: 77 }),
+    })),
+}));
+
 import { CompanyBulkService } from '../../../service/CompanyBulkService';
 import {
     buildBulkRemindersRequest,
@@ -173,10 +202,6 @@ describe('CompanyBulkService', () => {
     describe('exportXml', () => {
         it('creates XML export and returns BulkActionResponse', async () => {
             const loanIds = [1001, 1002, 1003];
-            mockQrQuery
-                .mockResolvedValueOnce([{ validCount: 3 }])
-                .mockResolvedValueOnce({ insertId: 77 });
-
             const request = { loanIds };
             const result = await service.exportXml(COMPANY_ID, USER_ID, request as any);
 

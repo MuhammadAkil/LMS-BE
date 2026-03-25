@@ -5,8 +5,8 @@ import {
     DocumentDownloadResponse,
     CompanyPaginationQuery,
 } from '../dto/CompanyDtos';
-import { existsSync, readFileSync } from 'node:fs';
 import { basename } from 'node:path';
+import { resolveStoredRefForDownload } from '../util/storedFileAccess';
 
 /**
  * Company Documents Service
@@ -184,13 +184,25 @@ export class CompanyDocumentsService {
                 const doc = exportDoc[0];
                 const fp: string = doc.filePath || '';
                 const isXml = fp.toLowerCase().endsWith('.xml');
-                const data = fp && existsSync(fp) ? readFileSync(fp) : Buffer.from('');
+                const resolved = await resolveStoredRefForDownload(fp, 3600);
+                if (resolved.mode === 'local') {
+                    const fs = await import('node:fs');
+                    const data = fs.readFileSync(resolved.path);
+                    return {
+                        id: `export_${doc.id}`,
+                        fileName: fp ? basename(fp) : `export_${doc.id}`,
+                        contentType: isXml ? 'application/xml' : 'text/csv',
+                        data,
+                        createdAt: doc.createdAt,
+                    };
+                }
                 return {
                     id: `export_${doc.id}`,
                     fileName: fp ? basename(fp) : `export_${doc.id}`,
                     contentType: isXml ? 'application/xml' : 'text/csv',
-                    data,
                     createdAt: doc.createdAt,
+                    url: resolved.url,
+                    expiresIn: 3600,
                 };
             }
 
@@ -230,13 +242,28 @@ export class CompanyDocumentsService {
 
                 const doc = contractRow;
                 const fp: string = doc.pdfPath || '';
-                const data = fp && existsSync(fp) ? readFileSync(fp) : Buffer.from('PDF_CONTENT_PLACEHOLDER');
+                if (!fp) {
+                    throw new Error('Document file reference missing');
+                }
+                const resolved = await resolveStoredRefForDownload(fp, 3600);
+                if (resolved.mode === 'local') {
+                    const fs = await import('node:fs');
+                    const data = fs.readFileSync(resolved.path);
+                    return {
+                        id: `contract_${doc.id}`,
+                        fileName: fp ? basename(fp) : `management_agreement_${companyId}.pdf`,
+                        contentType: 'application/pdf',
+                        data,
+                        createdAt: doc.createdAt,
+                    };
+                }
                 return {
                     id: `contract_${doc.id}`,
                     fileName: fp ? basename(fp) : `management_agreement_${companyId}.pdf`,
                     contentType: 'application/pdf',
-                    data,
                     createdAt: doc.createdAt,
+                    url: resolved.url,
+                    expiresIn: 3600,
                 };
             }
 
