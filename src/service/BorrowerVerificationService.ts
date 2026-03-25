@@ -20,6 +20,7 @@ import {
     VerificationWorkflowStatusCode,
 } from '../util/KycVerification';
 import { KycDocumentValidationService } from './KycDocumentValidationService';
+import { s3Service } from '../services/s3.service';
 
 /**
  * B-02: BORROWER VERIFICATION SERVICE
@@ -278,8 +279,9 @@ export class BorrowerVerificationService {
                 entity.addressLine = doc.addressLine;
                 return entity;
             });
+            let savedDocs: VerificationDocument[] = [];
             if (documentEntities.length > 0) {
-                await this.verificationDocumentRepo.saveMany(documentEntities);
+                savedDocs = await this.verificationDocumentRepo.saveMany(documentEntities);
             }
 
             // Audit log
@@ -305,10 +307,41 @@ export class BorrowerVerificationService {
                 status: VerificationWorkflowStatusCode.PENDING_VERIFICATION,
                 submittedAt: new Date().toISOString(),
                 message: 'Verification documents submitted successfully. Our team will review them soon.',
+                document_key: savedDocs[0]?.filePath,
+                document_id: savedDocs[0]?.id != null ? String(savedDocs[0].id) : undefined,
             };
         } catch (error: any) {
             console.error('Error submitting verification:', error);
             throw new Error('Failed to submit verification');
         }
+    }
+
+    async getDocumentPresignedUrl(
+        borrowerId: string,
+        verificationId: string,
+        documentId: string
+    ): Promise<{ documentId: string; document_key: string; presigned_url: string; expiresIn: number }> {
+        const borrowerIdNum = parseInt(borrowerId, 10);
+        const verificationIdNum = parseInt(verificationId, 10);
+        const documentIdNum = parseInt(documentId, 10);
+
+        const verification = await this.verificationRepo.findById(verificationIdNum);
+        if (!verification || verification.userId !== borrowerIdNum) {
+            throw new Error('Verification not found');
+        }
+
+        const document = await this.verificationDocumentRepo.findById(documentIdNum);
+        if (!document || document.verificationId !== verificationIdNum || !document.filePath) {
+            throw new Error('Document not found');
+        }
+
+        const expiresIn = 3600;
+        const presignedUrl = await s3Service.getPresignedUrl(document.filePath, expiresIn);
+        return {
+            documentId: String(document.id),
+            document_key: document.filePath,
+            presigned_url: presignedUrl,
+            expiresIn,
+        };
     }
 }

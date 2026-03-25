@@ -307,17 +307,15 @@ export class CompanyReportsService {
             const csv = header + rows;
 
             const fileName = `export_${Date.now()}_company${companyId}_portfolio.csv`;
-            const fileBuffer = Buffer.from(csv, 'utf-8');
             const key = s3Service.generateKey('company', String(companyId), fileName);
-            await s3Service.uploadFile(fileBuffer, key, 'text/csv');
+            await s3Service.uploadFile(Buffer.from(csv, 'utf-8'), key, 'text/csv');
 
             const saved = await this.exportRepo.save({
                 typeId: 2, // CSV_EXPORT
                 createdBy: userId,
-                filePath: null as any,
-                documentKey: key,
+                filePath: key,
                 recordCount: loans.length,
-                metadata: JSON.stringify({ companyId, filters: request, fileName, key }),
+                metadata: JSON.stringify({ companyId, filters: request, fileName }),
             } as any);
             const exportId = Number(saved.id);
 
@@ -331,7 +329,7 @@ export class CompanyReportsService {
                 type: 'CSV_REPORT',
                 itemCount: loans.length,
                 status: 'COMPLETED',
-                downloadUrl: `/api/company/documents/export_${exportId}/download`,
+                downloadUrl: `/company/documents/export_${exportId}/download`,
                 createdAt: new Date(),
             };
         } finally {
@@ -363,17 +361,15 @@ export class CompanyReportsService {
             const xml = this.buildPortfolioXml(loans, commissionRate, effectiveFields, companyId);
 
             const fileName = `export_${Date.now()}_company${companyId}_portfolio.xml`;
-            const fileBuffer = Buffer.from(xml, 'utf-8');
             const key = s3Service.generateKey('company', String(companyId), fileName);
-            await s3Service.uploadFile(fileBuffer, key, 'application/xml');
+            await s3Service.uploadFile(Buffer.from(xml, 'utf-8'), key, 'application/xml');
 
             const saved = await this.exportRepo.save({
                 typeId: 1, // XML_EXPORT
                 createdBy: userId,
-                filePath: null as any,
-                documentKey: key,
+                filePath: key,
                 recordCount: loans.length,
-                metadata: JSON.stringify({ companyId, filters: request, fileName, key }),
+                metadata: JSON.stringify({ companyId, filters: request, fileName }),
             } as any);
             const exportId = Number(saved.id);
 
@@ -387,7 +383,7 @@ export class CompanyReportsService {
                 type: 'XML_REPORT',
                 itemCount: loans.length,
                 status: 'COMPLETED',
-                downloadUrl: `/api/company/documents/export_${exportId}/download`,
+                downloadUrl: `/company/documents/export_${exportId}/download`,
                 createdAt: new Date(),
             };
         } finally {

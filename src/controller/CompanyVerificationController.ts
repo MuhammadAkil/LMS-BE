@@ -67,23 +67,25 @@ export class CompanyVerificationController {
     try {
       const user = (req as any).user;
       const files = (((req as any).files || []) as Express.Multer.File[]);
-      const verificationType = (body || req.body)?.verificationType;
-      const uploadedDocuments = await Promise.all(
-        files.map(async (file) => {
-          const key = s3Service.generateKey('company', String(user.id), file.originalname);
-          await s3Service.uploadFile(file.buffer, key, file.mimetype);
-          return {
-            fileName: file.originalname,
-            filePath: key,
-            mimeType: file.mimetype,
-            size: file.size,
-          };
-        })
-      );
-      const request: UploadVerificationRequest = {
-        verificationType,
-        documents: uploadedDocuments as any,
-      };
+      let request: UploadVerificationRequest = body || req.body;
+
+      if (files.length > 0) {
+        const verificationType = req.body?.verificationType || request?.verificationType;
+        const uploadedDocuments = await Promise.all(
+          files.map(async (file) => {
+            const key = s3Service.generateKey('company', String(user.id), file.originalname);
+            await s3Service.uploadFile(file.buffer, key, file.mimetype);
+            return {
+              fileName: file.originalname,
+              filePath: key,
+            };
+          })
+        );
+        request = {
+          verificationType,
+          documents: uploadedDocuments,
+        };
+      }
 
       const response = await this.verificationService.submitVerification(user.id.toString(), request);
       res.status(201).json({

@@ -1,7 +1,6 @@
 import { AppDataSource } from '../config/database';
-import { join } from 'node:path';
-import { writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { CompanyAuditService } from './CompanyAuditService';
+import { s3Service } from '../services/s3.service';
 import { CompanyReportsService } from './CompanyReportsService';
 import { CompanyExportTemplateService } from './CompanyExportTemplateService';
 import { ExportRepository } from '../repository/ExportRepository';
@@ -31,15 +30,12 @@ export class CompanyBulkService {
     private reportsService: CompanyReportsService;
     private templateService: CompanyExportTemplateService;
     private exportRepo: ExportRepository;
-    private readonly exportsDir: string;
 
     constructor() {
         this.auditService = new CompanyAuditService();
         this.reportsService = new CompanyReportsService();
         this.templateService = new CompanyExportTemplateService();
         this.exportRepo = new ExportRepository();
-        this.exportsDir = join(process.cwd(), 'exports');
-        if (!existsSync(this.exportsDir)) mkdirSync(this.exportsDir, { recursive: true });
     }
 
     /**
@@ -245,13 +241,13 @@ export class CompanyBulkService {
         const xml = this.reportsService.buildPortfolioXml(rows, commissionRate, effectiveFields, companyId);
 
         const fileName = `export_${Date.now()}_company${companyId}_bulk.xml`;
-        const filePath = join(this.exportsDir, fileName);
-        writeFileSync(filePath, xml, 'utf-8');
+        const key = s3Service.generateKey('company', String(companyId), fileName);
+        await s3Service.uploadFile(Buffer.from(xml, 'utf-8'), key, 'application/xml');
 
         const saved = await this.exportRepo.save({
             typeId: 2, // XML
             createdBy: userId,
-            filePath,
+            filePath: key,
             recordCount: rows.length,
             metadata: JSON.stringify({ companyId, fileName }),
         } as any);

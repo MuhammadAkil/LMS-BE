@@ -427,6 +427,8 @@ export interface SubmitVerificationResponse {
     statusCode: string;
     message: string;
     createdAt: string;
+    document_key?: string;
+    document_id?: string;
 }
 
 // ============================================

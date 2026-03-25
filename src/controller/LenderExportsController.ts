@@ -1,4 +1,6 @@
 import { Request, Response } from 'express';
+import * as fs from 'fs';
+import * as path from 'path';
 import { Body, Controller, Get, Post, Req, Res, UseBefore } from 'routing-controllers';
 import { LenderRemindersService, LenderExportsService } from '../service/LenderExportsService';
 import {
@@ -11,7 +13,7 @@ import { AuthenticationMiddleware } from '../middleware/AuthenticationMiddleware
 import { LenderRoleGuard } from '../middleware/LenderGuards';
 import { withLenderStatusGuard, withLenderVerificationGuard } from '../middleware/LenderGuardWrappers';
 import { ExportRepository } from '../repository/ExportRepository';
-import { s3Service } from '../services/s3.service';
+import { resolveStoredRefForDownload } from '../util/storedFileAccess';
 
 /**
  * L-05: LENDER REMINDERS CONTROLLER
@@ -220,7 +222,8 @@ export class LenderExportsController {
 
     /**
      * GET /lender/exports/download/:exportId
-     * Returns a presigned URL for the export file.
+     * Download an export file by ID (streams file or returns inline generated content)
+     * Verifies the export belongs to the requesting lender before serving.
      */
     @Get('/exports/download/:exportId')
     @UseBefore(withLenderStatusGuard(true))
@@ -244,20 +247,67 @@ export class LenderExportsController {
                 return;
             }
 
-            const key = exportRecord.documentKey || exportRecord.filePath;
-            if (!key) {
-                res.status(404).json({ statusCode: '404', statusMessage: 'Export file key not found' });
+            const storedPath = exportRecord.filePath || '';
+            const fileName = storedPath ? path.basename(storedPath) : `export-${exportId}.csv`;
+            const isXml = fileName.endsWith('.xml') || storedPath.includes('.xml');
+            const mimeType = isXml ? 'application/xml' : 'text/csv';
+            const downloadName = isXml ? `export-${exportId}.xml` : `export-${exportId}.csv`;
+
+            try {
+                const resolved = await resolveStoredRefForDownload(storedPath, 3600);
+                if (resolved.mode === 'local') {
+                    if (fs.existsSync(resolved.path)) {
+                        res.setHeader('Content-Disposition', `attachment; filename="${downloadName}"`);
+                        res.setHeader('Content-Type', mimeType);
+                        fs.createReadStream(resolved.path).pipe(res);
+                        return;
+                    }
+                } else {
+                    res.status(200).json({
+                        statusCode: '200',
+                        statusMessage: 'Presigned URL generated successfully',
+                        data: { url: resolved.url, expiresIn: 3600, key: storedPath },
+                        timestamp: new Date().toISOString(),
+                    });
+                    return;
+                }
+            } catch {
+                // fall through to legacy disk path / placeholder
+            }
+
+            const absolutePath = storedPath
+                ? path.join(process.cwd(), storedPath.startsWith('/') ? storedPath.slice(1) : storedPath)
+                : null;
+
+            if (absolutePath && fs.existsSync(absolutePath)) {
+                res.setHeader('Content-Disposition', `attachment; filename="${downloadName}"`);
+                res.setHeader('Content-Type', mimeType);
+                fs.createReadStream(absolutePath).pipe(res);
                 return;
             }
 
-            const expiresIn = 3600;
-            const url = await s3Service.getPresignedUrl(key, expiresIn);
-            res.status(200).json({
-                statusCode: '200',
-                statusMessage: 'Presigned URL generated',
-                data: { url, key, expiresIn },
-                timestamp: new Date().toISOString(),
-            });
+            // Fallback: generate minimal inline content
+            const meta = exportRecord.metadata ? JSON.parse(exportRecord.metadata) : {};
+            const period = meta.period || 'all';
+            const recordCount = exportRecord.recordCount ?? 0;
+            const generatedAt = new Date().toISOString();
+
+            if (isXml) {
+                const xml = [
+                    '<?xml version="1.0" encoding="UTF-8"?>',
+                    `<LMSExport exportId="${exportId}" lenderId="${lenderId}" period="${period}" generatedAt="${generatedAt}">`,
+                    `  <RecordCount>${recordCount}</RecordCount>`,
+                    '</LMSExport>',
+                ].join('\n');
+                res.setHeader('Content-Disposition', `attachment; filename="${downloadName}"`);
+                res.setHeader('Content-Type', 'application/xml');
+                res.send(xml);
+            } else {
+                const csv = `export_id,lender_id,period,record_count,generated_at\n${exportId},${lenderId},"${period}",${recordCount},${generatedAt}\n`;
+                res.setHeader('Content-Disposition', `attachment; filename="${downloadName}"`);
+                res.setHeader('Content-Type', 'text/csv');
+                res.send(csv);
+            }
         } catch (error: any) {
             console.error('Error in downloadExport:', error);
             res.status(500).json({

@@ -87,7 +87,8 @@ export class BorrowerDocumentsController {
 
     /**
      * GET /api/borrower/documents/:id/download
-     * Returns a short-lived presigned URL
+     * Download document
+     * Returns file stream for download
      */
     @Get('/:id/download')
     async downloadDocument(@Req() req: Request, @Res() res: Response): Promise<void> {
@@ -96,17 +97,38 @@ export class BorrowerDocumentsController {
             const borrowerId = user.id.toString();
             const documentId = req.params.id;
 
-            const data = await this.documentsService.downloadDocument(borrowerId, documentId);
-            res.status(200).json({
-                statusCode: '200',
-                statusMessage: 'Presigned URL generated successfully',
-                data,
-                timestamp: new Date().toISOString(),
+            const prep = await this.documentsService.prepareDocumentDownload(borrowerId, documentId);
+
+            if (prep.mode === 'url') {
+                res.status(200).json({
+                    statusCode: '200',
+                    statusMessage: 'Presigned URL generated successfully',
+                    data: { url: prep.url, expiresIn: prep.expiresIn },
+                    timestamp: new Date().toISOString(),
+                });
+                return;
+            }
+
+            const fs = require('fs');
+            res.setHeader('Content-Disposition', `attachment; filename="${prep.downloadName}"`);
+            res.setHeader('Content-Type', prep.contentType);
+            const fileStream = fs.createReadStream(prep.absolutePath);
+            fileStream.on('error', () => {
+                if (!res.headersSent) {
+                    res.status(404).json({
+                        statusCode: '404',
+                        statusMessage: 'File not found',
+                        errors: ['Document file not found on server'],
+                        timestamp: new Date().toISOString(),
+                    });
+                }
             });
+            fileStream.pipe(res);
         } catch (error: any) {
             console.error('Error in downloadDocument:', error);
-            res.status(500).json({
-                statusCode: '500',
+            const status = error.message?.includes('not available') ? 403 : 500;
+            res.status(status).json({
+                statusCode: String(status),
                 statusMessage: 'Internal server error',
                 errors: [error.message],
                 timestamp: new Date().toISOString(),

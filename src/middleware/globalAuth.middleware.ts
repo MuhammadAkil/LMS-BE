@@ -32,6 +32,7 @@ const getPublicRoutes = (): string[] => {
         '/api/user/logout',
         '/api/docs',
         '/api/docs/**',
+        '/api/s3/health',
         // Without /api prefix (fallback)
         '/users/login',
         '/users/signup',
@@ -42,6 +43,7 @@ const getPublicRoutes = (): string[] => {
         '/health',
         '/docs',
         '/docs/**',
+        '/s3/health',
     ];
 };
 

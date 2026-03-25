@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto';
+import { s3Service } from '../services/s3.service';
 import { AuditLogRepository } from '../repository/AuditLogRepository';
 import { LoanApplicationRepository } from '../repository/LoanApplicationRepository';
 import { LoanRepository } from '../repository/LoanRepository';
@@ -22,7 +23,6 @@ import {
   InitiateCommissionPaymentRequest,
   CommissionPaymentStatusDto,
 } from '../dto/BorrowerDtos';
-import { s3Service } from '../services/s3.service';
 
 const STATUS_PENDING = 1;
 const STATUS_PAID = 2;
@@ -61,6 +61,45 @@ export class BorrowerPaymentsService {
     this.pdfService = new PdfGenerationService();
     this.emailService = new EmailService();
     this.scheduleService = new RepaymentScheduleService();
+  }
+
+  private isE2EMockEnabled(): boolean {
+    return Boolean((config as any).e2e?.mockPayment);
+  }
+
+  private async finalizeE2EMockCommissionPayment(
+    paymentId: number,
+    sessionId: string,
+    step: 'PORTAL_COMMISSION' | 'VOLUNTARY_COMMISSION',
+    applicationId: number,
+    borrowerId: number,
+    frontendBaseUrl: string
+  ): Promise<{ redirectUrl: string; paymentId: number; step: string }> {
+    await this.paymentRepo.update(paymentId, {
+      statusId: STATUS_PAID,
+      paidAt: new Date(),
+      providerOrderId: `E2E-MOCK-${Date.now()}`,
+    });
+
+    const paymentStep = await this.paymentStepRepo.findByPaymentId(paymentId);
+    if (paymentStep) {
+      await this.paymentStepRepo.update(paymentStep.id, {
+        status: 'PAID',
+        paidAt: new Date(),
+      });
+    }
+
+    if (step === 'PORTAL_COMMISSION') {
+      await this.onPortalCommissionPaid(applicationId, borrowerId);
+    } else {
+      await this.onVoluntaryCommissionPaid(applicationId, borrowerId);
+    }
+
+    return {
+      redirectUrl: `${frontendBaseUrl}/payment/commission-success?sessionId=${sessionId}&step=${step}`,
+      paymentId,
+      step,
+    };
   }
 
   /**
@@ -136,6 +175,23 @@ export class BorrowerPaymentsService {
       step.status = 'PENDING';
       step.amount = commissionAmount;
       await this.paymentStepRepo.save(step);
+    }
+
+    if (this.isE2EMockEnabled()) {
+      const mocked = await this.finalizeE2EMockCommissionPayment(
+        savedPayment.id as number,
+        sessionId,
+        'PORTAL_COMMISSION',
+        appIdNum,
+        borrowerIdNum,
+        frontendBaseUrl
+      );
+      return {
+        redirectUrl: mocked.redirectUrl,
+        paymentId: mocked.paymentId,
+        amount: commissionAmount,
+        step: 'PORTAL_COMMISSION',
+      };
     }
 
     // Register with Przelewy24
@@ -236,6 +292,23 @@ export class BorrowerPaymentsService {
       step.status = 'PENDING';
       step.amount = voluntaryAmount;
       await this.paymentStepRepo.save(step);
+    }
+
+    if (this.isE2EMockEnabled()) {
+      const mocked = await this.finalizeE2EMockCommissionPayment(
+        savedPayment.id as number,
+        sessionId,
+        'VOLUNTARY_COMMISSION',
+        applicationId,
+        borrowerIdNum,
+        frontendBaseUrl
+      );
+      return {
+        redirectUrl: mocked.redirectUrl,
+        paymentId: mocked.paymentId,
+        amount: voluntaryAmount,
+        step: 'VOLUNTARY_COMMISSION',
+      };
     }
 
     const urlReturn = `${frontendBaseUrl}/payment/commission-success?sessionId=${sessionId}&step=VOLUNTARY_COMMISSION`;
@@ -461,12 +534,12 @@ export class BorrowerPaymentsService {
       const pdfBuffer = await this.pdfService.generateLoanAgreementBuffer(agreementData);
 
       const pdfFileName = `loan_agreement_${loan.id}.pdf`;
-      const documentKey = s3Service.generateKey('borrower', String(borrowerId), pdfFileName);
-      await s3Service.uploadFile(pdfBuffer, documentKey, 'application/pdf');
+      const s3Key = s3Service.generateKey('borrower', String(borrowerId), pdfFileName);
+      await s3Service.uploadFile(pdfBuffer, s3Key, 'application/pdf');
 
       await queryRunner.query(
-        `INSERT INTO contracts (loanId, pdfPath, document_key, generatedAt) VALUES (?, ?, ?, NOW())`,
-        [loan.id, documentKey, documentKey]
+        `INSERT INTO contracts (loanId, pdfPath, generatedAt) VALUES (?, ?, NOW())`,
+        [loan.id, s3Key]
       );
 
       await queryRunner.query(

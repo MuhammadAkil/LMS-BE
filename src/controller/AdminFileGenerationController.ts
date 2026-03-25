@@ -116,7 +116,7 @@ export class AdminFileGenerateController {
         data: {
           exportId: result.exportId,
           recordCount: result.recordCount,
-          downloadUrl: `/exports/${result.filePath.split('/').pop()}`,
+          downloadUrl: `/admin/exports/${result.exportId}/download`,
         },
         timestamp: new Date().toISOString(),
       });

@@ -1,10 +1,9 @@
-import { writeFileSync, existsSync, mkdirSync } from 'fs';
-import { join } from 'path';
 import { AppDataSource } from '../config/database';
 import { FileGenerationConfigRepository } from '../repository/FileGenerationConfigRepository';
 import { ApprovalWorkflowService } from './ApprovalWorkflowService';
 import { AdminAuditService } from './AdminAuditService';
 import { ExportRepository } from '../repository/ExportRepository';
+import { s3Service } from '../services/s3.service';
 
 export interface FieldDefinition {
   field: string;       // DB column name or dot-path
@@ -31,17 +30,12 @@ export class FileGenerationService {
   private approvalService: ApprovalWorkflowService;
   private auditService: AdminAuditService;
   private exportRepo: ExportRepository;
-  private outputDir: string;
 
   constructor() {
     this.configRepo = new FileGenerationConfigRepository();
     this.approvalService = new ApprovalWorkflowService();
     this.auditService = new AdminAuditService();
     this.exportRepo = new ExportRepository();
-    this.outputDir = join(process.cwd(), 'exports');
-    if (!existsSync(this.outputDir)) {
-      mkdirSync(this.outputDir, { recursive: true });
-    }
   }
 
   /**
@@ -70,7 +64,6 @@ export class FileGenerationService {
 
     const data = await this.fetchData(entityType, request.filters, request.limit ?? 500);
     const fileName = `export_${Date.now()}_${entityType.toLowerCase()}.${fileFormat.toLowerCase()}`;
-    const filePath = join(this.outputDir, fileName);
 
     let content: string;
     if (fileFormat === 'XML') {
@@ -79,13 +72,15 @@ export class FileGenerationService {
       content = this.buildCsv(data, fields);
     }
 
-    writeFileSync(filePath, content, 'utf-8');
+    const mime = fileFormat === 'XML' ? 'application/xml' : 'text/csv';
+    const key = s3Service.generateKey('admin', String(createdBy), fileName);
+    await s3Service.uploadFile(Buffer.from(content, 'utf-8'), key, mime);
 
     const typeId = fileFormat === 'XML' ? 1 : 2;
     const saved = await this.exportRepo.save({
       typeId,
       createdBy,
-      filePath,
+      filePath: key,
       recordCount: data.length,
       metadata: JSON.stringify({ entityType, fileFormat, fields: fields.map(f => f.field), filters: request.filters }),
     } as any);
@@ -94,7 +89,7 @@ export class FileGenerationService {
       fileName, entityType, fileFormat, recordCount: data.length,
     });
 
-    return { filePath, recordCount: data.length, exportId: saved.id };
+    return { filePath: key, recordCount: data.length, exportId: saved.id };
   }
 
   /**

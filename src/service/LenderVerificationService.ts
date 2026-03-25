@@ -19,6 +19,7 @@ import {
     getApplicantTypeFromRoleId,
     getStatusCodeById,
 } from '../util/KycVerification';
+import { s3Service } from '../services/s3.service';
 
 /**
  * L-08: LENDER VERIFICATION SERVICE
@@ -197,11 +198,42 @@ export class LenderVerificationService {
                 statusCode: VerificationWorkflowStatusCode.PENDING_VERIFICATION,
                 message: 'Verification submitted. Admin will review within 2 business days.',
                 createdAt: new Date().toISOString(),
+                document_key: docs[0]?.filePath,
+                document_id: docs[0]?.id ? String(docs[0].id) : undefined,
             };
         } catch (error: any) {
             console.error('Error submitting verification:', error);
             throw error;
         }
+    }
+
+    async getDocumentPresignedUrl(
+        lenderId: string,
+        verificationId: string,
+        documentId: string
+    ): Promise<{ documentId: string; document_key: string; presigned_url: string; expiresIn: number }> {
+        const lenderIdNum = parseInt(lenderId, 10);
+        const verificationIdNum = parseInt(verificationId, 10);
+        const documentIdNum = parseInt(documentId, 10);
+
+        const verification = await this.verificationRepository.findById(verificationIdNum);
+        if (!verification || verification.userId !== lenderIdNum) {
+            throw new Error('Verification not found');
+        }
+
+        const document = await this.verificationDocumentRepository.findById(documentIdNum);
+        if (!document || document.verificationId !== verificationIdNum || !document.filePath) {
+            throw new Error('Document not found');
+        }
+
+        const expiresIn = 3600;
+        const presignedUrl = await s3Service.getPresignedUrl(document.filePath, expiresIn);
+        return {
+            documentId: String(document.id),
+            document_key: document.filePath,
+            presigned_url: presignedUrl,
+            expiresIn,
+        };
     }
 }
 

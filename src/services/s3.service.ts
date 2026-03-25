@@ -4,7 +4,6 @@ import {
     PutObjectCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import config from "../config/Config";
 import { s3Client, S3_BUCKET_NAME } from "../config/s3.config";
 
 export class S3Service {
@@ -25,10 +24,7 @@ export class S3Service {
         return key;
     }
 
-    async getPresignedUrl(
-        key: string,
-        expiresInSeconds: number = config.s3.presignedUrlExpiry || 3600
-    ): Promise<string> {
+    async getPresignedUrl(key: string, expiresInSeconds: number = 3600): Promise<string> {
         if (!S3_BUCKET_NAME) {
             throw new Error("AWS_S3_BUCKET_NAME is not configured");
         }
@@ -37,7 +33,6 @@ export class S3Service {
             Bucket: S3_BUCKET_NAME,
             Key: key,
         });
-
         return getSignedUrl(s3Client, command, { expiresIn: expiresInSeconds });
     }
 

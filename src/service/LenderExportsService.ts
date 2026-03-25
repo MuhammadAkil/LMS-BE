@@ -11,6 +11,7 @@ import {
 import { AuditLogRepository } from '../repository/AuditLogRepository';
 import { ExportRepository } from '../repository/ExportRepository';
 import { AppDataSource } from '../config/database';
+import { existsSync, statSync } from 'node:fs';
 import { s3Service } from '../services/s3.service';
 
 /**
@@ -107,7 +108,7 @@ export class LenderExportsService {
     async exportCsv(
         lenderId: string,
         request: ExportCsvRequest
-    ): Promise<{ filePath: string; fileSize: number; key: string }> {
+    ): Promise<{ filePath: string; fileSize: number }> {
         const qr = AppDataSource.createQueryRunner();
         try {
             const lenderIdNum = parseInt(lenderId, 10);
@@ -142,18 +143,15 @@ export class LenderExportsService {
             }
 
             const fileName = `export_${Date.now()}_investments.csv`;
-            const fileBuffer = Buffer.from(csv, 'utf-8');
             const key = s3Service.generateKey('lender', String(lenderIdNum), fileName);
-            await s3Service.uploadFile(fileBuffer, key, 'text/csv');
-            const fileSize = fileBuffer.length;
+            await s3Service.uploadFile(Buffer.from(csv, 'utf-8'), key, 'text/csv');
 
             const saved = await this.exportRepo.save({
                 typeId: 2, // CSV_EXPORT
                 createdBy: lenderIdNum,
-                filePath: null as any,
-                documentKey: key,
+                filePath: key,
                 recordCount: rows.length,
-                metadata: JSON.stringify({ dateFrom: request.dateFrom, dateTo: request.dateTo, fileName, key }),
+                metadata: JSON.stringify({ dateFrom: request.dateFrom, dateTo: request.dateTo, fileName }),
             } as any);
 
             await this.auditLogRepository.create({
@@ -161,7 +159,7 @@ export class LenderExportsService {
                 entityId: Number(saved.id), createdAt: new Date(),
             } as any);
 
-            return { filePath: `/lender/exports/download/${saved.id}`, fileSize, key };
+            return { filePath: `/lender/exports/download/${saved.id}`, fileSize: Buffer.byteLength(csv, 'utf-8') };
         } finally {
             await qr.release();
         }
@@ -176,7 +174,7 @@ export class LenderExportsService {
     async exportXml(
         lenderId: string,
         request: ExportXmlRequest
-    ): Promise<{ filePath: string; fileSize: number; itemCount: number; key: string }> {
+    ): Promise<{ filePath: string; fileSize: number; itemCount: number }> {
         const qr = AppDataSource.createQueryRunner();
         try {
             const lenderIdNum = parseInt(lenderId, 10);
@@ -213,18 +211,15 @@ export class LenderExportsService {
             const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<InvestmentsExport lenderId="${lenderIdNum}" generatedAt="${new Date().toISOString()}">\n${items}\n</InvestmentsExport>`;
 
             const fileName = `export_${Date.now()}_investments.xml`;
-            const fileBuffer = Buffer.from(xml, 'utf-8');
             const key = s3Service.generateKey('lender', String(lenderIdNum), fileName);
-            await s3Service.uploadFile(fileBuffer, key, 'application/xml');
-            const fileSize = fileBuffer.length;
+            await s3Service.uploadFile(Buffer.from(xml, 'utf-8'), key, 'application/xml');
 
             const saved = await this.exportRepo.save({
                 typeId: 1, // XML_EXPORT
                 createdBy: lenderIdNum,
-                filePath: null as any,
-                documentKey: key,
+                filePath: key,
                 recordCount: rows.length,
-                metadata: JSON.stringify({ dateFrom: request.dateFrom, dateTo: request.dateTo, fileName, key }),
+                metadata: JSON.stringify({ dateFrom: request.dateFrom, dateTo: request.dateTo, fileName }),
             } as any);
 
             await this.auditLogRepository.create({
@@ -232,7 +227,11 @@ export class LenderExportsService {
                 entityId: Number(saved.id), createdAt: new Date(),
             } as any);
 
-            return { filePath: `/lender/exports/download/${saved.id}`, fileSize, itemCount: rows.length, key };
+            return {
+                filePath: `/lender/exports/download/${saved.id}`,
+                fileSize: Buffer.byteLength(xml, 'utf-8'),
+                itemCount: rows.length,
+            };
         } finally {
             await qr.release();
         }
@@ -269,6 +268,12 @@ export class LenderExportsService {
         const typeCodeMap: Record<number, string> = { 1: 'XML_EXPORT', 2: 'CSV_EXPORT', 3: 'CLAIMS_EXPORT' };
 
         const exports: ExportDto[] = records.map(e => {
+            let fileSize = 0;
+            try {
+                if (e.filePath && existsSync(e.filePath)) {
+                    fileSize = statSync(e.filePath).size;
+                }
+            } catch { }
             return {
                 id: String(e.id),
                 exportTypeCode: typeCodeMap[e.typeId] ?? 'UNKNOWN',
@@ -276,7 +281,7 @@ export class LenderExportsService {
                 filePath: `/lender/exports/download/${e.id}`,
                 createdAt: e.createdAt.toISOString(),
                 itemCount: e.recordCount ?? 0,
-                fileSize: 0,
+                fileSize,
             };
         });
 
@@ -353,8 +358,8 @@ export class LenderExportsService {
 
             // Insert into claims table
             const claimResult = await qr.query(
-                `INSERT INTO claims (loanId, xmlPath, document_key, generatedAt, createdAt) VALUES (?, ?, ?, NOW(), NOW())`,
-                [loanIdNum, key, key]
+                `INSERT INTO claims (loanId, xmlPath, generatedAt, createdAt) VALUES (?, ?, NOW(), NOW())`,
+                [loanIdNum, key]
             );
             const claimId = String(claimResult?.insertId ?? Date.now());
 
@@ -366,7 +371,7 @@ export class LenderExportsService {
             return {
                 claimId,
                 loanId: request.loanId,
-                xmlPath: key,
+                xmlPath: `/lender/claims/${claimId}/download`,
                 generatedAt: new Date().toISOString(),
                 message: 'Claim generated successfully',
             };

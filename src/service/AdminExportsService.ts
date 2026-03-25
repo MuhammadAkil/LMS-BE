@@ -2,6 +2,7 @@ import { AdminAuditService } from './AdminAuditService';
 import { ExportRepository } from '../repository/ExportRepository';
 import { AppDataSource } from '../config/database';
 import { ExportListItemDto, GenerateXMLExportRequest, GenerateCSVExportRequest, GenerateClaimsRequest } from '../dto/AdminDtos';
+import { existsSync, unlinkSync } from 'node:fs';
 import { s3Service } from '../services/s3.service';
 
 /**
@@ -49,15 +50,13 @@ export class AdminExportsService {
       const xml = this.generateXMLContent(loans);
       const fileName = `export_${Date.now()}_loans.xml`;
       const key = s3Service.generateKey('admin', String(adminId), fileName);
-
       await s3Service.uploadFile(Buffer.from(xml, 'utf-8'), key, 'application/xml');
 
       // Create export record (immutable)
       const exportRecord = {
         typeId: 1, // XML_EXPORT
         createdBy: adminId,
-        filePath: null as any,
-        documentKey: key,
+        filePath: key,
         recordCount: loans.length,
         metadata: JSON.stringify({
           loanStatus: request.loanStatus,
@@ -129,8 +128,7 @@ export class AdminExportsService {
       const exportRecord = {
         typeId: 2, // CSV_EXPORT
         createdBy: adminId,
-        filePath: null as any,
-        documentKey: key,
+        filePath: key,
         recordCount: loans.length,
         metadata: JSON.stringify({
           entityType: request.entityType,
@@ -197,8 +195,7 @@ export class AdminExportsService {
       const exportRecord = {
         typeId: 3, // CLAIMS_EXPORT
         createdBy: adminId,
-        filePath: null as any,
-        documentKey: key,
+        filePath: key,
         recordCount: defaultedLoans.length,
         metadata: JSON.stringify({
           loanIds: request.loanIds,
@@ -277,14 +274,16 @@ export class AdminExportsService {
       throw new Error(`Cannot delete export created ${Math.floor(agesDays)} days ago (min 90 days). Use force=true to override.`);
     }
 
-    // Delete object from S3 (best-effort)
     try {
-      const key = (exp as any).documentKey || exp.filePath;
-      if (key) {
-        await s3Service.deleteFile(key);
+      if (exp.filePath) {
+        if (existsSync(exp.filePath)) {
+          unlinkSync(exp.filePath);
+        } else {
+          await s3Service.deleteFile(exp.filePath);
+        }
       }
     } catch (err) {
-      console.error(`Failed to delete export object: ${err}`);
+      console.error(`Failed to delete export file: ${err}`);
     }
 
     // Delete the export record
@@ -385,7 +384,7 @@ export class AdminExportsService {
       type: typeName,
       records: exp.recordCount,
       status: 'Completed',
-      filePath: (exp as any).documentKey || exp.filePath || '',
+      filePath: exp.filePath || '',
     } as any;
   }
 

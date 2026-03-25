@@ -1,4 +1,7 @@
 import { Request, Response } from 'express';
+import { createReadStream, existsSync } from 'node:fs';
+import { basename } from 'node:path';
+import { resolveStoredRefForDownload } from '../util/storedFileAccess';
 import { Body, Controller, Delete, Get, Param, Post, Req, Res, UseBefore } from 'routing-controllers';
 import { LenderManagementService } from '../service/LenderManagementService';
 import { CreateManagementAgreementRequest, ManagementAgreementEligibilityResponse } from '../dto/LenderDtos';
@@ -215,15 +218,27 @@ export class LenderManagementController {
     async downloadAgreement(@Req() req: Request, @Res() res: Response, @Param('agreementId') agreementId: string): Promise<void> {
         try {
             const lenderId = (req as any).user.id;
-            const data = await this.managementService.getSignedDocumentPath(lenderId, agreementId);
-            if (!data) {
+            const stored = await this.managementService.getSignedDocumentPath(lenderId, agreementId);
+            if (!stored) {
                 res.status(404).json({ statusCode: '404', statusMessage: 'Signed document not found' });
+                return;
+            }
+            const resolved = await resolveStoredRefForDownload(stored, 3600);
+            if (resolved.mode === 'local') {
+                if (!existsSync(resolved.path)) {
+                    res.status(404).json({ statusCode: '404', statusMessage: 'Signed document not found' });
+                    return;
+                }
+                const fileName = basename(resolved.path);
+                res.setHeader('Content-Type', 'application/pdf');
+                res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+                createReadStream(resolved.path).pipe(res);
                 return;
             }
             res.status(200).json({
                 statusCode: '200',
-                statusMessage: 'Presigned URL generated',
-                data,
+                statusMessage: 'Presigned URL generated successfully',
+                data: { url: resolved.url, expiresIn: 3600, key: stored },
                 timestamp: new Date().toISOString(),
             });
         } catch (e: any) {

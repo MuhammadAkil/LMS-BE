@@ -1,4 +1,7 @@
 import { AppDataSource } from '../config/database';
+import { readFileSync } from 'node:fs';
+import { s3Service } from '../services/s3.service';
+import { resolveStoredRefForDownload } from '../util/storedFileAccess';
 import { CompanyAuditService } from './CompanyAuditService';
 import { CompanyRankingService } from './CompanyRankingService';
 import {
@@ -6,7 +9,6 @@ import {
     SignAgreementRequest,
     AgreementDownloadResponse,
 } from '../dto/CompanyDtos';
-import { s3Service } from '../services/s3.service';
 
 /**
  * Company Agreement Service
@@ -167,27 +169,25 @@ export class CompanyAgreementService {
 
             let contractId: number | undefined;
             let signedDocPath: string | null = null;
-            let signedDocKey: string | null = null;
 
             if (lenderAlreadySigned) {
-                // 2. Set fully signed timestamp and generate stored document
                 const fileName = `management_agreement_${agreementId}_${now.toISOString().replace(/[:.]/g, '-')}.pdf`;
                 const pdfBuffer = await this.generateManagementAgreementPdf(queryRunner, agreementId, companyId);
-                signedDocKey = s3Service.generateKey('company', String(companyId), fileName);
-                await s3Service.uploadFile(pdfBuffer, signedDocKey, 'application/pdf');
-                signedDocPath = signedDocKey;
+                const key = s3Service.generateKey('company', String(companyId), fileName);
+                await s3Service.uploadFile(pdfBuffer, key, 'application/pdf');
+                signedDocPath = key;
 
                 await queryRunner.query(
-                    `UPDATE management_agreements SET signedAt = ?, signed_document_path = ?, document_key = ? WHERE id = ? AND companyId = ?`,
-                    [now, signedDocPath, signedDocKey, agreementId, companyId]
+                    `UPDATE management_agreements SET signedAt = ?, signed_document_path = ? WHERE id = ? AND companyId = ?`,
+                    [now, key, agreementId, companyId]
                 );
 
                 const contractResult = await queryRunner.query(
                     `
-        INSERT INTO contracts (company_id, management_agreement_id, contract_type, signed_at, file_path, document_key, created_at)
-        VALUES (?, ?, 'MANAGEMENT_AGREEMENT', ?, ?, ?, NOW())
+        INSERT INTO contracts (company_id, management_agreement_id, contract_type, signed_at, file_path, created_at)
+        VALUES (?, ?, 'MANAGEMENT_AGREEMENT', ?, ?, NOW())
         `,
-                    [companyId, agreementId, now, signedDocPath, signedDocKey]
+                    [companyId, agreementId, now, key]
                 );
                 contractId = contractResult.insertId;
             }
@@ -245,7 +245,7 @@ export class CompanyAgreementService {
         const r = rows?.[0] || {};
         const PDFDocument = require('pdfkit');
         return new Promise<Buffer>((resolve, reject) => {
-            const doc = (PDFDocument as any)({ margin: 50, size: 'A4' });
+            const doc = new PDFDocument({ margin: 50, size: 'A4' });
             const chunks: Buffer[] = [];
             doc.on('data', (chunk: Buffer) => chunks.push(chunk));
             doc.on('end', () => resolve(Buffer.concat(chunks)));
@@ -263,7 +263,8 @@ export class CompanyAgreementService {
     }
 
     /**
-     * Download agreement (PDF contract) as presigned URL
+     * Download agreement (PDF contract)
+     * Returns binary PDF data from contracts table
      */
     async downloadAgreement(companyId: number): Promise<AgreementDownloadResponse> {
         const queryRunner = AppDataSource.createQueryRunner();
@@ -275,7 +276,6 @@ export class CompanyAgreementService {
         SELECT 
           c.id,
           c.file_path as filePath,
-          c.document_key as documentKey,
           c.created_at as createdAt
         FROM contracts c
         INNER JOIN management_agreements ma ON c.management_agreement_id = ma.id
@@ -290,21 +290,28 @@ export class CompanyAgreementService {
                 throw new Error('No signed agreement found');
             }
 
-            const key = contract[0].documentKey || contract[0].filePath;
-            if (!key) {
-                throw new Error('No agreement file key found');
+            const fp: string = contract[0].filePath || contract[0].file_path || '';
+            if (!fp) {
+                throw new Error('Agreement file reference missing');
             }
-            const expiresIn = 3600;
-            const url = await s3Service.getPresignedUrl(key, expiresIn);
-
+            const resolved = await resolveStoredRefForDownload(fp, 3600);
+            if (resolved.mode === 'local') {
+                const data = readFileSync(resolved.path);
+                return {
+                    contractId: contract[0].id,
+                    fileName: `management_agreement_${companyId}_${new Date().toISOString().split('T')[0]}.pdf`,
+                    contentType: 'application/pdf',
+                    data,
+                    createdAt: contract[0].createdAt,
+                };
+            }
             return {
                 contractId: contract[0].id,
                 fileName: `management_agreement_${companyId}_${new Date().toISOString().split('T')[0]}.pdf`,
                 contentType: 'application/pdf',
-                key,
-                url,
-                expiresIn,
                 createdAt: contract[0].createdAt,
+                url: resolved.url,
+                expiresIn: 3600,
             };
         } finally {
             await queryRunner.release();

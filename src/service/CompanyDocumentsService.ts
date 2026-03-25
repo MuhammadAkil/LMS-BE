@@ -5,7 +5,8 @@ import {
     DocumentDownloadResponse,
     CompanyPaginationQuery,
 } from '../dto/CompanyDtos';
-import { s3Service } from '../services/s3.service';
+import { basename } from 'node:path';
+import { resolveStoredRefForDownload } from '../util/storedFileAccess';
 
 /**
  * Company Documents Service
@@ -169,7 +170,6 @@ export class CompanyDocumentsService {
           SELECT 
             id,
             file_path as filePath,
-            document_key as documentKey,
             created_at as createdAt
           FROM exports
           WHERE id = ? AND metadata LIKE ?
@@ -182,21 +182,27 @@ export class CompanyDocumentsService {
                 }
 
                 const doc = exportDoc[0];
-                const key: string = doc.documentKey || doc.filePath || '';
-                if (!key) {
-                    throw new Error('Document key not found');
+                const fp: string = doc.filePath || '';
+                const isXml = fp.toLowerCase().endsWith('.xml');
+                const resolved = await resolveStoredRefForDownload(fp, 3600);
+                if (resolved.mode === 'local') {
+                    const fs = await import('node:fs');
+                    const data = fs.readFileSync(resolved.path);
+                    return {
+                        id: `export_${doc.id}`,
+                        fileName: fp ? basename(fp) : `export_${doc.id}`,
+                        contentType: isXml ? 'application/xml' : 'text/csv',
+                        data,
+                        createdAt: doc.createdAt,
+                    };
                 }
-                const isXml = key.toLowerCase().endsWith('.xml');
-                const expiresIn = 3600;
-                const url = await s3Service.getPresignedUrl(key, expiresIn);
                 return {
                     id: `export_${doc.id}`,
-                    fileName: key.split('/').pop() || `export_${doc.id}`,
+                    fileName: fp ? basename(fp) : `export_${doc.id}`,
                     contentType: isXml ? 'application/xml' : 'text/csv',
-                    key,
-                    url,
-                    expiresIn,
                     createdAt: doc.createdAt,
+                    url: resolved.url,
+                    expiresIn: 3600,
                 };
             }
 
@@ -206,8 +212,7 @@ export class CompanyDocumentsService {
           SELECT 
             c.id,
             c.createdAt,
-            c.pdf_path as pdfPath,
-            c.document_key as documentKey
+            c.pdf_path as pdfPath
           FROM contracts c
           INNER JOIN loan_offers lo ON lo.loanId = c.loanId
           INNER JOIN company_lenders cl ON cl.lenderId = lo.lenderId
@@ -224,8 +229,7 @@ export class CompanyDocumentsService {
             SELECT 
               c.id,
               c.created_at as createdAt,
-              c.file_path as pdfPath,
-              c.document_key as documentKey
+              c.file_path as pdfPath
             FROM contracts c
             WHERE c.id = ? AND c.company_id = ? AND c.contract_type = 'MANAGEMENT_AGREEMENT'
             LIMIT 1
@@ -237,20 +241,29 @@ export class CompanyDocumentsService {
                 if (!contractRow) throw new Error('Document not found or company does not have access');
 
                 const doc = contractRow;
-                const key: string = doc.documentKey || doc.pdfPath || '';
-                if (!key) {
-                    throw new Error('Document key not found');
+                const fp: string = doc.pdfPath || '';
+                if (!fp) {
+                    throw new Error('Document file reference missing');
                 }
-                const expiresIn = 3600;
-                const url = await s3Service.getPresignedUrl(key, expiresIn);
+                const resolved = await resolveStoredRefForDownload(fp, 3600);
+                if (resolved.mode === 'local') {
+                    const fs = await import('node:fs');
+                    const data = fs.readFileSync(resolved.path);
+                    return {
+                        id: `contract_${doc.id}`,
+                        fileName: fp ? basename(fp) : `management_agreement_${companyId}.pdf`,
+                        contentType: 'application/pdf',
+                        data,
+                        createdAt: doc.createdAt,
+                    };
+                }
                 return {
                     id: `contract_${doc.id}`,
-                    fileName: key.split('/').pop() || `management_agreement_${companyId}.pdf`,
+                    fileName: fp ? basename(fp) : `management_agreement_${companyId}.pdf`,
                     contentType: 'application/pdf',
-                    key,
-                    url,
-                    expiresIn,
                     createdAt: doc.createdAt,
+                    url: resolved.url,
+                    expiresIn: 3600,
                 };
             }
 

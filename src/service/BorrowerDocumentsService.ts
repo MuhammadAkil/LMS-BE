@@ -1,12 +1,13 @@
 import { AppDataSource } from '../config/database';
 import { AuditLogRepository } from '../repository/AuditLogRepository';
+import { resolveStoredRefForDownload } from '../util/storedFileAccess';
+import { basename } from 'node:path';
 import {
     DocumentListResponse,
     DocumentListItemDto,
     DocumentDetailDto,
 } from '../dto/BorrowerDtos';
 import { getStatusCodeById, VerificationWorkflowStatusCode } from '../util/KycVerification';
-import { s3Service } from '../services/s3.service';
 
 /**
  * B-07: BORROWER DOCUMENTS CENTER SERVICE
@@ -176,62 +177,69 @@ export class BorrowerDocumentsService {
     }
 
     /**
-     * Download document  returns file path/URL for the document
+     * Resolve how to serve a download: stream local file or return presigned / remote URL (JSON).
      */
-    async downloadDocument(
+    async prepareDocumentDownload(
         borrowerId: string,
         documentId: string
-    ): Promise<{ url: string; expiresIn: number; key: string }> {
-        try {
-            const borrowerIdNum = parseInt(borrowerId, 10);
-            const docIdNum = parseInt(documentId, 10);
-            const db = AppDataSource;
+    ): Promise<
+        | { mode: 'stream'; absolutePath: string; downloadName: string; contentType: string }
+        | { mode: 'url'; url: string; expiresIn: number }
+    > {
+        const borrowerIdNum = parseInt(borrowerId, 10);
+        const docIdNum = parseInt(documentId, 10);
+        const db = AppDataSource;
 
-            let documentKey = '';
+        let storedRef = '';
 
-            if (docIdNum >= this.CONTRACT_OFFSET) {
-                const contractId = docIdNum - this.CONTRACT_OFFSET;
-                const rows: any[] = await db.query(
-                    `SELECT c.pdfPath, c.document_key as documentKey FROM contracts c
+        if (docIdNum >= this.CONTRACT_OFFSET) {
+            const contractId = docIdNum - this.CONTRACT_OFFSET;
+            const rows: any[] = await db.query(
+                `SELECT c.pdfPath FROM contracts c
                      JOIN loans l ON l.id = c.loanId
                      JOIN loan_applications la ON la.id = l.application_id
                      WHERE c.id = ? AND l.borrowerId = ? AND la.commission_status = 'PAID'`,
-                    [contractId, borrowerIdNum]
+                [contractId, borrowerIdNum]
+            );
+            const row = Array.isArray(rows) ? rows[0] : null;
+            if (!row?.pdfPath) {
+                throw new Error(
+                    'Loan agreement is not available until portal commission has been paid via Przelewy24'
                 );
-                const row = Array.isArray(rows) ? rows[0] : null;
-                if (!row?.pdfPath && !row?.documentKey) {
-                    throw new Error('Loan agreement is not available until portal commission has been paid via Przelewy24');
-                }
-                documentKey = row.documentKey || row.pdfPath;
-            } else {
-                const rows: any[] = await db.query(
-                    `SELECT vd.filePath, vd.document_key as documentKey FROM verification_documents vd
+            }
+            storedRef = row.pdfPath;
+        } else {
+            const rows: any[] = await db.query(
+                `SELECT vd.filePath FROM verification_documents vd
                      JOIN user_verifications uv ON uv.id = vd.verificationId
                      WHERE vd.id = ? AND uv.user_id = ? AND vd.deletedAt IS NULL`,
-                    [docIdNum, borrowerIdNum]
-                );
-                const row = Array.isArray(rows) ? rows[0] : null;
-                documentKey = row?.documentKey || row?.filePath || '';
-            }
-
-            await this.auditRepo.create({
-                actorId: borrowerIdNum,
-                action: 'DOCUMENT_DOWNLOADED',
-                entity: 'DOCUMENT',
-                entityId: docIdNum,
-                createdAt: new Date(),
-            } as any);
-
-            if (!documentKey) {
-                throw new Error('Document key not found');
-            }
-
-            const expiresIn = 3600;
-            const url = await s3Service.getPresignedUrl(documentKey, expiresIn);
-            return { url, expiresIn, key: documentKey };
-        } catch (error: any) {
-            console.error('Error downloading document:', error);
-            throw new Error('Failed to download document');
+                [docIdNum, borrowerIdNum]
+            );
+            const row = Array.isArray(rows) ? rows[0] : null;
+            storedRef = row?.filePath ?? '';
         }
+
+        if (!storedRef?.trim()) {
+            throw new Error('Document not found');
+        }
+
+        await this.auditRepo.create({
+            actorId: borrowerIdNum,
+            action: 'DOCUMENT_DOWNLOADED',
+            entity: 'DOCUMENT',
+            entityId: docIdNum,
+            createdAt: new Date(),
+        } as any);
+
+        const resolved = await resolveStoredRefForDownload(storedRef, 3600);
+        if (resolved.mode === 'local') {
+            return {
+                mode: 'stream',
+                absolutePath: resolved.path,
+                downloadName: basename(resolved.path),
+                contentType: 'application/pdf',
+            };
+        }
+        return { mode: 'url', url: resolved.url, expiresIn: 3600 };
     }
 }

@@ -137,6 +137,14 @@ const conf = convict({
         },
     },
 
+    e2e: {
+        mockPayment: {
+            format: Boolean,
+            default: false,
+            env: "E2E_MOCK_PAYMENT",
+        },
+    },
+
     smtp: {
         host: {
             format: "*",
@@ -167,24 +175,6 @@ const conf = convict({
             format: "*",
             default: "noreply@lendingplatform.pl",
             env: "SMTP_FROM",
-        },
-    },
-
-    s3: {
-        bucketName: {
-            format: "*",
-            default: "",
-            env: "AWS_S3_BUCKET_NAME",
-        },
-        region: {
-            format: "*",
-            default: "us-east-1",
-            env: "AWS_REGION",
-        },
-        presignedUrlExpiry: {
-            format: "int",
-            default: 3600,
-            env: "PRESIGNED_URL_EXPIRY",
         },
     },
 });
