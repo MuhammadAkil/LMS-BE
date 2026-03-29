@@ -1,7 +1,8 @@
 import { Request, Response } from 'express';
-import { Controller, Get, Post, Put, Req, Res } from 'routing-controllers';
+import { Controller, Get, Post, Put, Req, Res, UseBefore } from 'routing-controllers';
 import { FileGenerationService } from '../service/FileGenerationService';
 import { existsSync } from 'fs';
+import { AdminGuard } from '../middleware/AdminGuards';
 
 /**
  * Admin File Generation Controller
@@ -15,6 +16,7 @@ import { existsSync } from 'fs';
  * GET  /api/admin/file-generate/:exportId/download
  */
 @Controller('/admin/file-configs')
+@UseBefore(AdminGuard)
 export class AdminFileConfigController {
   private service: FileGenerationService;
 
@@ -95,6 +97,7 @@ export class AdminFileConfigController {
 }
 
 @Controller('/admin/file-generate')
+@UseBefore(AdminGuard)
 export class AdminFileGenerateController {
   private service: FileGenerationService;
 
@@ -113,7 +116,7 @@ export class AdminFileGenerateController {
         data: {
           exportId: result.exportId,
           recordCount: result.recordCount,
-          downloadUrl: `/exports/${result.filePath.split('/').pop()}`,
+          downloadUrl: `/admin/exports/${result.exportId}/download`,
         },
         timestamp: new Date().toISOString(),
       });

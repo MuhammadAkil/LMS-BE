@@ -6,7 +6,7 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { useExpressServer } from 'routing-controllers';
 import config from './config/Config';
-import { AppDataSource } from './config/database';
+import { initializeDatabase } from './config/database';
 import { initializeSwagger } from './config/SwaggerConfig';
 import { GlobalAuthMiddleware } from './middleware/globalAuth.middleware';
 import { BorrowerGuardMiddleware } from './middleware/BorrowerGuardMiddleware';
@@ -14,30 +14,66 @@ import { errorHandler } from './middleware/errorHandler';
 import path from 'path';
 
 const PORT = config.server.port;
-
-const INTERNAL_API_PREFIX = "/api";
+const INTERNAL_API_PREFIX = config.server.routingPrefix || "/api";
+const DUPLICATE_API_PREFIX = `${INTERNAL_API_PREFIX}${INTERNAL_API_PREFIX}`;
 
 // Rate limit: 10 login attempts per 15 min per IP (per spec)
 const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 10,
-  message: { success: false, error: { code: 'RATE_LIMIT', message: 'Too many login attempts. Try again in 15 minutes.' } },
-  standardHeaders: true,
-  legacyHeaders: false,
+    windowMs: 15 * 60 * 1000,
+    max: 10,
+    message: { success: false, error: { code: 'RATE_LIMIT', message: 'Too many login attempts. Try again in 15 minutes.' } },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
+// Rate limit: 5 signup attempts per hour per IP
+const signupLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000,
+    max: 5,
+    message: { success: false, error: { code: 'RATE_LIMIT', message: 'Too many signup attempts. Try again in 1 hour.' } },
+    standardHeaders: true,
+    legacyHeaders: false,
 });
 
 // Create Express app
 const expressApp = express();
 
+// Build allowed origins: include localhost dev ports and FRONTEND_URL if configured
+const allowedOrigins: (string | RegExp)[] = [
+    /^https?:\/\/localhost(:\d+)?$/,
+];
+const configuredFrontendOrigin = (config.app.frontendCorsUrl || config.app.frontendUrl || '').trim();
+if (configuredFrontendOrigin) {
+    allowedOrigins.push(configuredFrontendOrigin);
+}
+
 // Middleware
 expressApp.use(helmet());
-expressApp.use(cors());
+expressApp.use(cors({
+    origin: allowedOrigins,
+    credentials: true,
+}));
 expressApp.use(express.json());
 expressApp.use(express.urlencoded({ extended: true }));
 
-// Apply rate limit to login routes only
-expressApp.use('/api/users/login', loginLimiter);
-expressApp.use('/api/auth/admin/login', loginLimiter);
+expressApp.use((req, _res, next) => {
+    if (req.url === DUPLICATE_API_PREFIX || req.url.startsWith(`${DUPLICATE_API_PREFIX}/`)) {
+        req.url = req.url.replace(DUPLICATE_API_PREFIX, INTERNAL_API_PREFIX);
+    }
+    next();
+});
+
+// Apply rate limits to auth routes
+const disableAuthRateLimit =
+    String(process.env.E2E_DISABLE_AUTH_RATE_LIMIT ?? '').toLowerCase() === 'true' ||
+    String(process.env.E2E_MOCK_PAYMENT ?? '').toLowerCase() === 'true';
+if (!disableAuthRateLimit) {
+    expressApp.use(`${INTERNAL_API_PREFIX}/users/login`, loginLimiter);
+    expressApp.use(`${INTERNAL_API_PREFIX}/auth/admin/login`, loginLimiter);
+} else {
+    console.log('[E2E] Auth rate limit disabled');
+}
+expressApp.use(`${INTERNAL_API_PREFIX}/users/signup`, signupLimiter);
 
 // Health check (before routing-controllers)
 expressApp.get('/health', (_req, res) => {
@@ -48,7 +84,7 @@ expressApp.get('/health', (_req, res) => {
 expressApp.post('/webhook/p24', async (req, res) => {
     try {
         const body = req.body;
-        const { sessionId, orderId, amount, sign } = body;
+        const { sessionId, orderId, amount, currency, sign } = body;
 
         // Determine payment type by looking up the payment record
         const { PaymentRepository } = await import('./repository/PaymentRepository');
@@ -59,7 +95,12 @@ expressApp.post('/webhook/p24', async (req, res) => {
             // Route to commission payment handler
             const { BorrowerPaymentsService } = await import('./service/BorrowerPaymentsService');
             const service = new BorrowerPaymentsService();
-            await service.handleCommissionWebhook(sessionId, orderId, amount, sign);
+            await service.handleCommissionWebhook(sessionId, orderId, amount, currency ?? 'PLN', sign);
+        } else if (payment && payment.paymentStep === 'DELEGATED_LENDER_MANAGEMENT_FEE') {
+            // Route to delegated lender payment handler
+            const { LenderOffersService } = await import('./service/LenderOffersService');
+            const service = new LenderOffersService();
+            await service.handleDelegatedPaymentWebhook(sessionId, orderId, amount, currency ?? 'PLN', sign);
         } else {
             // Route to generic payment handler (course payments, etc.)
             const { LmsPaymentsService } = await import('./service/LmsPaymentsService');
@@ -103,7 +144,7 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 });
 
 // Initialize database and start server
-AppDataSource.initialize()
+initializeDatabase()
     .then(() => {
         console.log('Database connection established');
         console.log('DB USER:', process.env.MYSQL_USER);

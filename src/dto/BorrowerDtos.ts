@@ -67,8 +67,8 @@ export class VerificationStatusDto {
 
 export class VerificationItemDto {
     id!: number;
-    type!: string; // EMAIL, PHONE, KYC, BANK
-    status!: string; // PENDING, APPROVED, REJECTED
+    type!: string; // Verification category code
+    status!: string; // PENDING_VERIFICATION, UNDER_REVIEW, APPROVED, REJECTED
     submittedAt?: string; // ISO date
     approvedAt?: string;
     rejectionReason?: string;
@@ -82,17 +82,23 @@ export class VerificationRequirementsDto {
 
 export class RequirementDto {
     id!: string;
-    type!: string; // EMAIL, PHONE, KYC, etc.
+    type!: string; // KYC category code
+    title?: string;
     description!: string;
     isRequired!: boolean;
     isCompleted!: boolean;
     expiresAt?: string; // ISO date
+    acceptedDocuments?: string[];
+    acceptedSubtypes?: string[];
+    requiresBothSidesFor?: string[];
+    maxAgeMonths?: number;
+    mustBeUnexpired?: boolean;
 }
 
 export class UploadVerificationRequest {
     @IsNotEmpty({ message: 'Verification type is required' })
     @IsString()
-    verificationType!: string; // EMAIL, PHONE, KYC, BANK
+    verificationType!: string; // KYC category code
 
     @IsArray({ message: 'Documents must be an array' })
     @ValidateNested({ each: true })
@@ -108,6 +114,34 @@ export class VerificationDocumentDto {
     @IsNotEmpty({ message: 'File path is required' })
     @IsString()
     filePath!: string; // S3 path or local path
+
+    @IsOptional()
+    @IsString()
+    category?: string;
+
+    @IsOptional()
+    @IsString()
+    subtype?: string;
+
+    @IsOptional()
+    @IsString()
+    side?: string;
+
+    @IsOptional()
+    @IsString()
+    issuedAt?: string;
+
+    @IsOptional()
+    @IsString()
+    expiresAt?: string;
+
+    @IsOptional()
+    @IsString()
+    fullName?: string;
+
+    @IsOptional()
+    @IsString()
+    addressLine?: string;
 }
 
 export class UploadVerificationResponse {
@@ -116,6 +150,8 @@ export class UploadVerificationResponse {
     status!: string; // PENDING
     submittedAt!: string;
     message!: string;
+    document_key?: string;
+    document_id?: string;
 }
 
 // ==================== B-03: LOAN APPLICATION DTOs ====================
@@ -258,6 +294,7 @@ export class CloseApplicationRequest {
 
 export class CloseApplicationResponse {
     applicationId!: number;
+    loanId!: number;
     status!: string; // CLOSED
     closedAt!: string;
     fundedAmount!: number;
@@ -313,6 +350,17 @@ export class ActiveLoanListResponse {
     totalOutstandingBalance!: number;
 }
 
+/** Off-platform disbursement record (manual bank transfer by lender or company). */
+export interface DisbursementDto {
+    id: number;
+    loanId: number;
+    senderType: 'LENDER' | 'COMPANY';
+    amount: number;
+    transferDate: string;
+    referenceNumber?: string;
+    confirmedAt: string;
+}
+
 export class LoanDetailDto {
     id!: number;
     applicationId!: number;
@@ -329,9 +377,12 @@ export class LoanDetailDto {
     nextRepaymentAmount?: number;
     delayedPaymentsCount!: number;
     repaymentSchedule!: RepaymentScheduleItemDto[];
+    /** Set when lender or company has confirmed off-platform disbursement. */
+    disbursement?: DisbursementDto;
 }
 
 export class RepaymentScheduleItemDto {
+    id!: number;
     dueDate!: string; // ISO date
     amount!: number;
     status!: string; // PENDING, PAID, OVERDUE
@@ -475,6 +526,7 @@ export class ProfileDto {
     firstName!: string;
     lastName!: string;
     phone!: string;
+    bankAccount?: string;
     dateOfBirth?: string; // ISO date
     roleId!: number;
     statusId!: number;
@@ -503,6 +555,10 @@ export class UpdateProfileRequest {
 
     @IsOptional()
     @IsString()
+    bankAccount?: string;
+
+    @IsOptional()
+    @IsString()
     dateOfBirth?: string; // ISO date
 }
 
@@ -512,6 +568,7 @@ export class UpdateProfileResponse {
     firstName!: string;
     lastName!: string;
     phone!: string;
+    bankAccount?: string;
     updatedAt!: string;
     message!: string;
 }

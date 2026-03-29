@@ -13,6 +13,7 @@ import { AuthenticationMiddleware } from '../middleware/AuthenticationMiddleware
 import { LenderRoleGuard } from '../middleware/LenderGuards';
 import { withLenderStatusGuard, withLenderVerificationGuard } from '../middleware/LenderGuardWrappers';
 import { ExportRepository } from '../repository/ExportRepository';
+import { resolveStoredRefForDownload } from '../util/storedFileAccess';
 
 /**
  * L-05: LENDER REMINDERS CONTROLLER
@@ -186,6 +187,40 @@ export class LenderExportsController {
     }
 
     /**
+     * GET /lender/exports/xml-template
+     * Download pre-defined XML borrowing template (lender loan data).
+     * PENDING: Template structure/fields to be finalized when data schema is confirmed.
+     * Lender has NO ability to edit, customize, or add variables — read/download only.
+     */
+    @Get('/exports/xml-template')
+    @UseBefore(withLenderStatusGuard(true), withLenderVerificationGuard(0))
+    async downloadXmlTemplate(@Req() req: Request, @Res() res: Response): Promise<void> {
+        try {
+            const lenderId = (req as any).user?.id;
+            // PENDING: Wire to actual schema when field list is finalized. Placeholder structure only.
+            const placeholderXml = [
+                '<?xml version="1.0" encoding="UTF-8"?>',
+                '<!-- PENDING: Lender XML borrowing template - schema/fields TBD when data schema is confirmed -->',
+                '<LenderLoanDataExport xmlns="https://lms.example/schema/lender-export" version="1.0" generatedAt="' + new Date().toISOString() + '" lenderId="' + lenderId + '">',
+                '  <Description>Pre-defined template. Read-only; structure will reflect your loan data when schema is finalized.</Description>',
+                '  <Loans />',
+                '</LenderLoanDataExport>',
+            ].join('\n');
+            res.setHeader('Content-Disposition', 'attachment; filename="lender-loan-data-template.xml"');
+            res.setHeader('Content-Type', 'application/xml');
+            res.send(placeholderXml);
+        } catch (error: any) {
+            console.error('Error in downloadXmlTemplate:', error);
+            res.status(500).json({
+                statusCode: '500',
+                statusMessage: 'Failed to download XML template',
+                errors: [error.message],
+                timestamp: new Date().toISOString(),
+            });
+        }
+    }
+
+    /**
      * GET /lender/exports/download/:exportId
      * Download an export file by ID (streams file or returns inline generated content)
      * Verifies the export belongs to the requesting lender before serving.
@@ -218,7 +253,28 @@ export class LenderExportsController {
             const mimeType = isXml ? 'application/xml' : 'text/csv';
             const downloadName = isXml ? `export-${exportId}.xml` : `export-${exportId}.csv`;
 
-            // Try to stream the file from disk
+            try {
+                const resolved = await resolveStoredRefForDownload(storedPath, 3600);
+                if (resolved.mode === 'local') {
+                    if (fs.existsSync(resolved.path)) {
+                        res.setHeader('Content-Disposition', `attachment; filename="${downloadName}"`);
+                        res.setHeader('Content-Type', mimeType);
+                        fs.createReadStream(resolved.path).pipe(res);
+                        return;
+                    }
+                } else {
+                    res.status(200).json({
+                        statusCode: '200',
+                        statusMessage: 'Presigned URL generated successfully',
+                        data: { url: resolved.url, expiresIn: 3600, key: storedPath },
+                        timestamp: new Date().toISOString(),
+                    });
+                    return;
+                }
+            } catch {
+                // fall through to legacy disk path / placeholder
+            }
+
             const absolutePath = storedPath
                 ? path.join(process.cwd(), storedPath.startsWith('/') ? storedPath.slice(1) : storedPath)
                 : null;

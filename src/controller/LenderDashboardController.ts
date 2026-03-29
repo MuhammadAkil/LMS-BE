@@ -1,7 +1,8 @@
 import { Request, Response } from 'express';
-import { Controller, Get, Patch, Req, Res, UseBefore } from 'routing-controllers';
+import { Controller, Get, Patch, Post, Req, Res, UseBefore, Body, Param } from 'routing-controllers';
 import { LenderDashboardService } from '../service/LenderDashboardService';
 import { LenderLoansService } from '../service/LenderLoansService';
+import { LoanDisbursementService, ConfirmDisbursementRequest } from '../service/LoanDisbursementService';
 import { AuthenticationMiddleware } from '../middleware/AuthenticationMiddleware';
 import { LenderRoleGuard } from '../middleware/LenderGuards';
 import { withLenderStatusGuard, withLenderVerificationGuard } from '../middleware/LenderGuardWrappers';
@@ -125,9 +126,11 @@ export class LenderDashboardController {
 @UseBefore(AuthenticationMiddleware.verifyToken, LenderRoleGuard)
 export class LenderLoansController {
     private loansService: LenderLoansService;
+    private disbursementService: LoanDisbursementService;
 
     constructor() {
         this.loansService = new LenderLoansService();
+        this.disbursementService = new LoanDisbursementService();
     }
 
     /**
@@ -227,6 +230,52 @@ export class LenderLoansController {
             res.status(parseInt(statusCode)).json({
                 statusCode,
                 statusMessage: 'Failed to retrieve loan details',
+                errors: [error.message],
+                timestamp: new Date().toISOString(),
+            });
+        }
+    }
+
+    /**
+     * POST /lender/loans/:loanId/disbursement
+     * Confirm off-platform disbursement (lender direct bank transfer to borrower).
+     * Body: { amount, transferDate, referenceNumber? }
+     */
+    @Post('/:loanId/disbursement')
+    @UseBefore(withLenderStatusGuard(false), withLenderVerificationGuard(0))
+    async confirmDisbursement(
+        @Req() req: Request,
+        @Res() res: Response,
+        @Param('loanId') loanId: number,
+        @Body() body: ConfirmDisbursementRequest
+    ): Promise<void> {
+        try {
+            const lenderId = (req as any).user.id;
+            if (!body?.amount || body.amount <= 0 || !body?.transferDate) {
+                res.status(400).json({
+                    statusCode: '400',
+                    statusMessage: 'amount and transferDate are required',
+                    errors: ['amount and transferDate are required'],
+                    timestamp: new Date().toISOString(),
+                });
+                return;
+            }
+            const data = await this.disbursementService.confirmByLender(lenderId, loanId, {
+                amount: Number(body.amount),
+                transferDate: String(body.transferDate),
+                referenceNumber: body.referenceNumber,
+            });
+            res.status(201).json({
+                statusCode: '201',
+                statusMessage: 'Disbursement confirmed. Borrower has been notified.',
+                data,
+                timestamp: new Date().toISOString(),
+            });
+        } catch (error: any) {
+            const code = error.message?.includes('not found') || error.message?.includes('already been recorded') ? 400 : 500;
+            res.status(code).json({
+                statusCode: String(code),
+                statusMessage: error.message || 'Failed to confirm disbursement',
                 errors: [error.message],
                 timestamp: new Date().toISOString(),
             });

@@ -1,4 +1,4 @@
-﻿import {
+import {
     PaginationParams,
     LenderDashboardStatsResponse,
     LenderDashboardAlertsResponse,
@@ -56,13 +56,6 @@ export class LenderDashboardService {
                 : { companyId: activeAgreement.companyId, companyName: 'Company' };
         }
 
-        // â”€â”€ wallet snapshot â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-        const walletRows = await db.query(
-            'SELECT balance, available, reserved FROM investor_wallets WHERE user_id = ?',
-            [lenderIdNum]
-        ) as any[];
-        const wallet = walletRows[0] ?? null;
-
         // â”€â”€ marketplace bids breakdown â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         const bidRows = await db.query(
             `SELECT status, COUNT(*) as cnt
@@ -115,11 +108,7 @@ export class LenderDashboardService {
             avgRepaymentRate: bidsTotal > 0 ? Math.round((bidsConfirmed / bidsTotal) * 100) : 0,
             nextRepaymentDate: null,
             managedBy,
-            earnings: 0,
-            walletBalance: wallet ? parseFloat(wallet.balance) : 0,
-            walletAvailable: wallet ? parseFloat(wallet.available) : 0,
-            walletReserved: wallet ? parseFloat(wallet.reserved ?? '0') : 0,
-            bidsTotal,
+            earnings: 0,            bidsTotal,
             bidsConfirmed,
             bidsPending,
             bidsRejected,

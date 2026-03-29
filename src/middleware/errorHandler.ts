@@ -4,6 +4,7 @@ import { HttpError } from 'routing-controllers';
 import { ModuleResponse } from '../dto/ModuleResponse';
 import { CustomResponseStatusException } from '../exception/CustomResponseStatusException';
 import { ExceptionCodes, ExceptionCodeDetails } from '../exception/ExceptionCodes';
+import multer from 'multer';
 
 export function errorHandler(
   err: Error | CustomResponseStatusException | ValidationError[] | HttpError,
@@ -11,6 +12,9 @@ export function errorHandler(
   res: Response,
   _next: NextFunction
 ): void {
+  if (res.headersSent) {
+    return;
+  }
   console.log('Error:', err);
 
   // Handle routing-controllers HttpError (includes AuthorizationRequiredError)
@@ -74,6 +78,29 @@ export function errorHandler(
       statusCode: ExceptionCodeDetails[ExceptionCodes.VALIDATION_FAILED].statusCode,
       statusMessage: ExceptionCodeDetails[ExceptionCodes.VALIDATION_FAILED].statusMessage,
       statusMessageDetail: messages.join('; '),
+    };
+    res.status(400).json(response);
+    return;
+  }
+
+  if (err instanceof multer.MulterError) {
+    const isSizeError = err.code === 'LIMIT_FILE_SIZE';
+    const response: ModuleResponse = {
+      statusCode: isSizeError ? '413' : '400',
+      statusMessage: isSizeError ? 'Payload Too Large' : 'Bad Request',
+      statusMessageDetail: isSizeError
+        ? 'File size limit exceeded (max 10MB)'
+        : err.message,
+    };
+    res.status(isSizeError ? 413 : 400).json(response);
+    return;
+  }
+
+  if (typeof (err as any)?.message === 'string' && (err as any).message.includes('Unsupported file type')) {
+    const response: ModuleResponse = {
+      statusCode: '400',
+      statusMessage: 'Bad Request',
+      statusMessageDetail: (err as any).message,
     };
     res.status(400).json(response);
     return;

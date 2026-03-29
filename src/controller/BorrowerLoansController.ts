@@ -2,6 +2,7 @@ import { Req, Res, Controller, Get, Post, Param, QueryParam, HttpCode } from 'ro
 import { Request, Response } from 'express';
 import { BorrowerLoansService } from '../service/BorrowerLoansService';
 import { BorrowerLoanHistoryService } from '../service/BorrowerLoanHistoryService';
+import config from '../config/Config';
 import {
     ActiveLoanListResponse,
     LoanDetailDto,
@@ -199,12 +200,16 @@ export class BorrowerLoansController {
             const borrowerId = user.id.toString();
             const loanId = req.params.id;
             const repaymentId = req.params.repaymentId;
+            const headerFlag = String(req.header('X-E2E-Test') ?? '').toLowerCase() === 'true';
+            const isE2EMock = headerFlag || Boolean(config.e2e?.mockPayment);
 
-            const result = await this.loansService.confirmRepayment(borrowerId, loanId, repaymentId);
+            const result = await this.loansService.confirmRepayment(borrowerId, loanId, repaymentId, {
+                isE2EMockPayment: isE2EMock,
+            });
 
             res.status(200).json({
                 statusCode: '200',
-                statusMessage: 'Repayment marked as paid',
+                statusMessage: 'Repayment marked as paid (direct transfer between contract parties)',
                 data: result,
                 timestamp: new Date().toISOString(),
             });

@@ -1,9 +1,12 @@
+import * as bcrypt from 'bcrypt';
+import * as crypto from 'crypto';
 import { AdminAuditService } from './AdminAuditService';
 import { CompanyRepository } from '../repository/CompanyRepository';
 import { UserRepository } from '../repository/UserRepository';
 import { LmsNotificationService } from './LmsNotificationService';
 import { CompanyDashboardService } from './CompanyDashboardService';
-import { CompanyListItemDto, CompanyDetailDto, ApproveCompanyRequest, RejectCompanyRequest, UpdateCompanyConditionsRequest } from '../dto/AdminDtos';
+import { CompanyRankingService } from './CompanyRankingService';
+import { CompanyListItemDto, CompanyDetailDto, ApproveCompanyRequest, RejectCompanyRequest, RequestCorrectionRequest, UpdateCompanyConditionsRequest, CreateCompanyRequest, CreateCompanyResponse } from '../dto/AdminDtos';
 
 /**
  * Admin Companies Service
@@ -16,6 +19,7 @@ export class AdminCompaniesService {
   private readonly auditService: AdminAuditService;
   private readonly notificationService: LmsNotificationService;
   private readonly dashboardService: CompanyDashboardService;
+  private readonly rankingService: CompanyRankingService;
 
   constructor() {
     this.companyRepo = new CompanyRepository();
@@ -23,6 +27,7 @@ export class AdminCompaniesService {
     this.auditService = new AdminAuditService();
     this.notificationService = new LmsNotificationService();
     this.dashboardService = new CompanyDashboardService();
+    this.rankingService = new CompanyRankingService();
   }
 
   /**
@@ -36,7 +41,8 @@ export class AdminCompaniesService {
       statusId: company.statusId,
       statusName: this.getStatusName(company.statusId),
       bankAccount: company.bankAccount,
-      createdAt: new Date(),  // Schema doesn't have created_at
+      createdAt: company.createdAt ?? new Date(),
+      rank: company.rank ?? null,
     }));
   }
 
@@ -51,7 +57,8 @@ export class AdminCompaniesService {
       statusId: company.statusId,
       statusName: this.getStatusName(company.statusId),
       bankAccount: company.bankAccount,
-      createdAt: new Date(),
+      createdAt: company.createdAt ?? new Date(),
+      rank: company.rank ?? null,
     }));
   }
 
@@ -84,6 +91,9 @@ export class AdminCompaniesService {
 
     const performanceScore = totalLoans > 0 ? Math.round(Math.max(0, Math.min(100, 100 - defaultRate))) : undefined;
 
+    const metadata = typeof company.metadata === 'string' ? JSON.parse(company.metadata || '{}') : company.metadata || {};
+    const correctionRequest = metadata.correctionRequest || null;
+
     return {
       id: company.id,
       name: company.name,
@@ -114,6 +124,8 @@ export class AdminCompaniesService {
       activeLoans,
       totalLoans,
       defaultRate,
+      rank: company.rank ?? null,
+      correctionRequest,
     };
   }
 
@@ -144,6 +156,8 @@ export class AdminCompaniesService {
     company.conditionsStatus = 'approved';
     await this.companyRepo.save(company);
 
+    await this.rankingService.recomputeAllRanks();
+
     await this.auditService.logAction(
       adminId,
       'COMPANY_APPROVED',
@@ -155,14 +169,15 @@ export class AdminCompaniesService {
       }
     );
 
-    const [adminUsers] = await this.userRepo.findByRole(1, 20, 0);
-    const adminIds = adminUsers.map((u) => u.id);
-    if (adminIds.length > 0) {
+    // Notify company users (not admins — they already performed the action)
+    const companyUsers = await this.userRepo.findByCompanyId(companyId);
+    const companyUserIds = companyUsers.map((u) => u.id);
+    if (companyUserIds.length > 0) {
       await this.notificationService.notifyMultiple(
-        adminIds,
+        companyUserIds,
         'COMPANY_APPROVED',
-        'Company approved',
-        `Company "${company.name}" has been approved.`,
+        'Company Approved',
+        `Your company "${company.name}" has been approved. You can now access all platform features.`,
         { companyId, companyName: company.name }
       );
     }
@@ -176,6 +191,61 @@ export class AdminCompaniesService {
       conditions: (typeof company.conditionsJson === 'string' ? JSON.parse(company.conditionsJson || '{}') : company.conditionsJson) || {},
       approvedAt: company.approvedAt,
     };
+  }
+
+  /**
+   * Request correction: flag specific fields for resubmission. Company stays PENDING.
+   * Stores correction in metadata; notifies company. Verification is data completeness only.
+   */
+  async requestCorrection(
+    companyId: number,
+    request: RequestCorrectionRequest,
+    adminId: number
+  ): Promise<CompanyDetailDto> {
+    const company = await this.companyRepo.findById(companyId);
+    if (!company) {
+      throw new Error(`Company ${companyId} not found`);
+    }
+
+    if (company.statusId !== 1) {
+      throw new Error(`Company status is ${this.getStatusName(company.statusId)}, can only request correction for PENDING`);
+    }
+
+    if (!request.fieldKeys?.length || !request.comment?.trim()) {
+      throw new Error('fieldKeys and comment are required');
+    }
+
+    const metadata = typeof company.metadata === 'string' ? JSON.parse(company.metadata || '{}') : { ...(company.metadata || {}) };
+    metadata.correctionRequest = {
+      requestedAt: new Date().toISOString(),
+      fieldKeys: request.fieldKeys,
+      comment: request.comment.trim(),
+    };
+    company.metadata = JSON.stringify(metadata);
+    await this.companyRepo.save(company);
+
+    await this.auditService.logAction(
+      adminId,
+      'COMPANY_CORRECTION_REQUESTED',
+      'COMPANY',
+      companyId,
+      { companyName: company.name, fieldKeys: request.fieldKeys, comment: request.comment }
+    );
+
+    const companyUsers = await this.userRepo.findByCompanyId(companyId);
+    const companyUserIds = companyUsers.map((u) => u.id);
+    if (companyUserIds.length > 0) {
+      const fieldList = request.fieldKeys.join(', ');
+      await this.notificationService.notifyMultiple(
+        companyUserIds,
+        'COMPANY_CORRECTION_REQUESTED',
+        'Correction requested',
+        `Your company "${company.name}" application needs corrections. Please review and update: ${fieldList}. Comment: ${request.comment}`,
+        { companyId, companyName: company.name, fieldKeys: request.fieldKeys, comment: request.comment }
+      );
+    }
+
+    return this.getCompanyById(companyId);
   }
 
   /**
@@ -218,14 +288,15 @@ export class AdminCompaniesService {
       }
     );
 
-    const [adminUsers] = await this.userRepo.findByRole(1, 20, 0);
-    const adminIds = adminUsers.map((u) => u.id);
-    if (adminIds.length > 0) {
+    // Notify company users (not admins — they already performed the action)
+    const companyUsers = await this.userRepo.findByCompanyId(companyId);
+    const companyUserIds = companyUsers.map((u) => u.id);
+    if (companyUserIds.length > 0) {
       await this.notificationService.notifyMultiple(
-        adminIds,
+        companyUserIds,
         'COMPANY_REJECTED',
-        'Company rejected',
-        `Company "${company.name}" has been rejected. Reason: ${request.comment}`,
+        'Company Application Rejected',
+        `Your company "${company.name}" application has been rejected. Reason: ${request.comment}`,
         { companyId, companyName: company.name, reason: request.comment }
       );
     }
@@ -303,6 +374,19 @@ export class AdminCompaniesService {
       }
     );
 
+    // Notify company users about the conditions change
+    const companyUsers = await this.userRepo.findByCompanyId(companyId);
+    const companyUserIds = companyUsers.map((u) => u.id);
+    if (companyUserIds.length > 0) {
+      await this.notificationService.notifyMultiple(
+        companyUserIds,
+        'COMPANY_CONDITIONS_UPDATED',
+        'Company Conditions Updated',
+        `The platform has updated the conditions for your company "${company.name}". Please review the changes in your dashboard.`,
+        { companyId, companyName: company.name }
+      );
+    }
+
     return {
       id: company.id,
       name: company.name,
@@ -353,27 +437,66 @@ export class AdminCompaniesService {
     return count;
   }
 
-  /** Create company (status PENDING). */
+  /** Create company + linked company user account (Option A: admin-initiated onboarding). */
   async createCompany(
-    body: { name: string; bankAccount?: string; conditions?: Record<string, unknown> },
+    request: CreateCompanyRequest,
     adminId: number
-  ): Promise<CompanyDetailDto> {
+  ): Promise<CreateCompanyResponse> {
     const { Company } = await import('../domain/Company');
-    if (await this.companyRepo.existsByName(body.name)) {
-      throw new Error('Company with this name already exists');
+    const { User } = await import('../domain/User');
+
+    const normalizedEmail = request.email.toLowerCase().trim();
+
+    if (await this.companyRepo.existsByName(request.name)) {
+      throw new Error('A company with this name already exists');
     }
+    if (await this.userRepo.existsByEmail(normalizedEmail)) {
+      throw new Error('A user with this email already exists');
+    }
+
+    // Generate a secure temporary password (12 hex chars + forced complexity suffix)
+    const temporaryPassword = crypto.randomBytes(6).toString('hex').toUpperCase() + '1a!';
+    const passwordHash = await bcrypt.hash(temporaryPassword, 12);
+
+    // Create company record (PENDING status)
     const company = new Company();
-    company.name = body.name;
-    company.bankAccount = body.bankAccount ?? undefined;
+    company.name = request.name;
+    company.bankAccount = request.bankAccount;
     company.statusId = 1; // PENDING
     company.commissionPct = 0;
     company.minManagedAmount = 0;
-    if (body.conditions && Object.keys(body.conditions).length > 0) {
-      company.conditionsJson = body.conditions;
-    }
-    const saved = await this.companyRepo.save(company);
-    await this.auditService.logAction(adminId, 'COMPANY_CREATED', 'COMPANY', saved.id, { companyName: saved.name });
-    return this.getCompanyById(saved.id);
+    const savedCompany = await this.companyRepo.save(company);
+
+    // Create the company user account
+    const user = new User();
+    user.email = normalizedEmail;
+    user.passwordHash = passwordHash;
+    user.roleId = 4; // COMPANY
+    user.statusId = 2; // ACTIVE
+    user.companyId = savedCompany.id;
+    user.firstName = request.firstName;
+    user.lastName = request.lastName;
+    user.phone = request.phone;
+    const savedUser = await this.userRepo.save(user);
+
+    await this.auditService.logAction(
+      adminId,
+      'COMPANY_CREATED',
+      'COMPANY',
+      savedCompany.id,
+      { companyName: savedCompany.name, userEmail: normalizedEmail }
+    );
+
+    return {
+      companyId: savedCompany.id,
+      userId: savedUser.id,
+      name: savedCompany.name,
+      email: savedUser.email,
+      temporaryPassword,
+      statusId: savedCompany.statusId,
+      statusName: this.getStatusName(savedCompany.statusId),
+      createdAt: savedCompany.createdAt,
+    };
   }
 
   /** Suspend company (statusId 4). */
@@ -383,6 +506,17 @@ export class AdminCompaniesService {
     company.statusId = 4; // SUSPENDED
     await this.companyRepo.save(company);
     await this.auditService.logAction(adminId, 'COMPANY_SUSPENDED', 'COMPANY', companyId, { companyName: company.name });
+    const companyUsers = await this.userRepo.findByCompanyId(companyId);
+    const companyUserIds = companyUsers.map((u) => u.id);
+    if (companyUserIds.length > 0) {
+      await this.notificationService.notifyMultiple(
+        companyUserIds,
+        'COMPANY_SUSPENDED',
+        'Company Suspended',
+        `Your company "${company.name}" has been suspended. Please contact platform support for details.`,
+        { companyId, companyName: company.name }
+      );
+    }
     return this.getCompanyById(companyId);
   }
 

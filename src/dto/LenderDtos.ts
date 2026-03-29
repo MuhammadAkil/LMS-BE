@@ -136,6 +136,31 @@ export interface MakeOfferResponse {
     message: string;
 }
 
+export interface DelegatedOfferActionResponse {
+    offerId: string;
+    status: string;
+    message: string;
+    approvalExpiresAt?: string;
+    paymentDueAt?: string;
+    commissionAmount?: number;
+    paymentId?: number;
+    sessionId?: string;
+    redirectUrl?: string;
+}
+
+export interface PendingDelegatedOfferDto {
+    offerId: string;
+    loanId: string;
+    companyId: number;
+    companyName: string;
+    amount: number;
+    commissionAmount: number;
+    status: string;
+    createdAt: string;
+    approvalExpiresAt?: string;
+    paymentDueAt?: string;
+}
+
 export interface OfferValidationResponse {
     isValid: boolean;
     errors: string[];
@@ -174,6 +199,11 @@ export interface LenderInvestmentDto {
     nextRepaymentDate: string | null;
     repaymentStatus: 'ON_TRACK' | 'OVERDUE' | 'COMPLETED';
     contractPdfUrl: string | null;
+    /** Set when the offer was placed / is managed by a company on the lender's behalf (read-only for lender). */
+    managedByCompanyId?: number;
+    managedByCompanyName?: string;
+    /** Loan created_at / activated for display. */
+    loanCreatedAt?: string;
 }
 
 export interface LenderInvestmentsPageResponse {
@@ -192,10 +222,23 @@ export interface LenderInvestmentsPageResponse {
     };
 }
 
+/** Off-platform disbursement record (manual bank transfer). */
+export interface DisbursementDto {
+    id: number;
+    loanId: number;
+    senderType: 'LENDER' | 'COMPANY';
+    amount: number;
+    transferDate: string;
+    referenceNumber?: string;
+    confirmedAt: string;
+}
+
 export interface LenderInvestmentDetailResponse extends LenderInvestmentDto {
     repayments: RepaymentDto[];
     estimatedROI: number;
     actualROI?: number;
+    /** Set when disbursement has been confirmed (by lender or company). */
+    disbursement?: DisbursementDto;
 }
 
 // ============================================
@@ -297,6 +340,22 @@ export interface CreateManagementAgreementRequest {
     amount: number;
 }
 
+/** Eligibility to select management company: account complete + verified */
+export interface ManagementAgreementEligibilityResponse {
+    eligible: boolean;
+    accountActive: boolean;
+    verificationComplete: boolean;
+    bankAccountVerified: boolean;
+    message?: string;
+}
+
+/** Lender or company signing: name, role, signature data */
+export interface AgreementSigningRequest {
+    signerName: string;
+    signerRole: string;
+    signatureData?: string; // Base64 signature image
+}
+
 export interface ManagementAgreementDto {
     id: string;
     lenderId: string;
@@ -306,6 +365,10 @@ export interface ManagementAgreementDto {
     signedAt: string;
     pdfPath: string | null;
     status: 'ACTIVE' | 'TERMINATED' | 'SUSPENDED';
+    signingStatus?: 'PENDING_LENDER' | 'PENDING_COMPANY' | 'SIGNED';
+    lenderSignedAt?: string;
+    companySignedAt?: string;
+    signedDocumentPath?: string | null;
 }
 
 export interface ManagementAgreementsResponse {
@@ -344,10 +407,17 @@ export interface VerificationListResponse {
 }
 
 export interface SubmitVerificationRequest {
-    verificationType: string; // KYC, BANK, INCOME, BUSINESS, etc.
+    verificationType: string; // KYC category code
     documents: {
         fileName: string;
         filePath: string;
+        category?: string;
+        subtype?: string;
+        side?: string;
+        issuedAt?: string;
+        expiresAt?: string;
+        fullName?: string;
+        addressLine?: string;
     }[];
 }
 
@@ -357,6 +427,8 @@ export interface SubmitVerificationResponse {
     statusCode: string;
     message: string;
     createdAt: string;
+    document_key?: string;
+    document_id?: string;
 }
 
 // ============================================

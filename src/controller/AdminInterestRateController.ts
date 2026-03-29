@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
-import { Controller, Get, Post, Put, Param, Req, Res } from 'routing-controllers';
+import { Controller, Get, Post, Put, Param, Req, Res, UseBefore } from 'routing-controllers';
 import { InterestRateService } from '../service/InterestRateService';
+import { AdminGuard, SuperAdminGuard } from '../middleware/AdminGuards';
 
 /**
  * Admin Interest Rate Controller
@@ -13,6 +14,7 @@ import { InterestRateService } from '../service/InterestRateService';
  * PUT  /api/admin/interest-rates/:id/deactivate
  */
 @Controller('/admin/interest-rates')
+@UseBefore(AdminGuard)
 export class AdminInterestRateController {
   private service: InterestRateService;
 
@@ -56,6 +58,7 @@ export class AdminInterestRateController {
   }
 
   @Post('/')
+  @UseBefore(SuperAdminGuard)
   async create(@Req() req: Request, @Res() res: Response): Promise<void> {
     try {
       const admin = (req as any).user;
@@ -67,6 +70,7 @@ export class AdminInterestRateController {
   }
 
   @Put('/:id')
+  @UseBefore(SuperAdminGuard)
   async update(@Req() req: Request, @Res() res: Response): Promise<void> {
     try {
       const admin = (req as any).user;
@@ -79,6 +83,7 @@ export class AdminInterestRateController {
   }
 
   @Put('/:id/deactivate')
+  @UseBefore(SuperAdminGuard)
   async deactivate(@Req() req: Request, @Res() res: Response): Promise<void> {
     try {
       const admin = (req as any).user;

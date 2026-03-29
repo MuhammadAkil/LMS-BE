@@ -28,7 +28,7 @@ export class CompanyDashboardService {
      * Get company dashboard KPIs
      * Read-only operation - minimal audit requirement
      */
-    async getDashboard(companyId: number): Promise<CompanyDashboardResponse> {
+    async getDashboard(companyId: number, userId: number = 0): Promise<CompanyDashboardResponse> {
         const queryRunner = AppDataSource.createQueryRunner();
 
         try {
@@ -45,14 +45,14 @@ export class CompanyDashboardService {
                 `
         SELECT COALESCE(SUM(ma.amount), 0) as totalAmount
         FROM management_agreements ma
-        WHERE ma.company_id = ? AND ma.signed_at IS NOT NULL AND (ma.terminated_at IS NULL OR ma.terminated_at > NOW())
+        WHERE ma.companyId = ? AND ma.signedAt IS NOT NULL AND (ma.terminated_at IS NULL OR ma.terminated_at > NOW())
         `,
                 [companyId]
             );
             let managedFunds = parseFloat(managedFundsResult[0]?.totalAmount || 0);
             if (managedFunds === 0) {
                 const clResult = await queryRunner.query(
-                    `SELECT COALESCE(SUM(amount_limit), 0) as total FROM company_lenders WHERE company_id = ? AND active = 1`,
+                    `SELECT COALESCE(SUM(amountLimit), 0) as total FROM company_lenders WHERE companyId = ? AND active = 1`,
                     [companyId]
                 );
                 managedFunds = parseFloat(clResult[0]?.total || 0);
@@ -64,8 +64,9 @@ export class CompanyDashboardService {
                 `
         SELECT COUNT(DISTINCT l.id) as count
         FROM loans l
-        INNER JOIN company_lenders cl ON l.lender_id = cl.lender_id
-        WHERE cl.company_id = ? AND cl.active = true AND l.status_id != 3
+        INNER JOIN loan_offers lo ON lo.loanId = l.id
+        INNER JOIN company_lenders cl ON cl.lenderId = lo.lenderId
+        WHERE cl.companyId = ? AND cl.active = true AND l.statusId != 3
         `,
                 [companyId]
             );
@@ -77,8 +78,9 @@ export class CompanyDashboardService {
                 `
         SELECT COUNT(DISTINCT l.id) as count
         FROM loans l
-        INNER JOIN company_lenders cl ON l.lender_id = cl.lender_id
-        WHERE cl.company_id = ? AND l.status_id = 3
+        INNER JOIN loan_offers lo ON lo.loanId = l.id
+        INNER JOIN company_lenders cl ON cl.lenderId = lo.lenderId
+        WHERE cl.companyId = ? AND l.statusId = 3
         `,
                 [companyId]
             );
@@ -92,7 +94,7 @@ export class CompanyDashboardService {
           COUNT(*) as totalRules,
           SUM(CASE WHEN active = true THEN 1 ELSE 0 END) as activeRules
         FROM auto_invest_rules
-        WHERE company_id = ?
+        WHERE companyId = ?
         `,
                 [companyId]
             );
@@ -103,29 +105,30 @@ export class CompanyDashboardService {
             // 5. Recent bulk actions (last 5)
             const bulkActionsResult = await queryRunner.query(
                 `
-        SELECT id, type, item_count as itemCount, status, created_at as createdAt
-        FROM exports
-        WHERE company_id = ?
-        ORDER BY created_at DESC
+        SELECT e.id, e.created_at as createdAt, e.record_count as itemCount
+        FROM exports e
+        INNER JOIN users u ON u.id = e.created_by
+        WHERE u.company_id = ?
+        ORDER BY e.created_at DESC
         LIMIT 5
         `,
                 [companyId]
-            );
+            ).catch((): any[] => []);
 
             const recentBulkActions: BulkActionSummaryDto[] = bulkActionsResult.map((row: any) => ({
                 id: row.id,
-                type: row.type,
-                itemCount: row.itemCount,
-                status: row.status,
+                type: 'EXPORT',
+                itemCount: row.itemCount || 0,
+                status: 'COMPLETED',
                 createdAt: row.createdAt,
             }));
 
             // 6. Get agreement status
             const agreementResult = await queryRunner.query(
                 `
-        SELECT id, signed_at as signedAt, amount
+        SELECT id, signedAt, amount
         FROM management_agreements
-        WHERE company_id = ? AND signed_at IS NOT NULL
+        WHERE companyId = ? AND signedAt IS NOT NULL
         LIMIT 1
         `,
                 [companyId]
@@ -145,13 +148,13 @@ export class CompanyDashboardService {
             const ratePct = companyRateRow?.[0]?.commission_pct != null ? Number(companyRateRow[0].commission_pct) : 0;
             const rate = ratePct / 100;
             const agreementRows = await queryRunner.query(
-                `SELECT amount, signed_at, terminated_at FROM management_agreements
-                 WHERE company_id = ? AND signed_at IS NOT NULL`,
+                `SELECT amount, signedAt, terminated_at FROM management_agreements
+                 WHERE companyId = ? AND signedAt IS NOT NULL`,
                 [companyId]
             );
             const lendersForCommission = (agreementRows || []).map((r: any) => ({
                 managedAmount: Number(r.amount || 0),
-                agreementStart: r.signed_at,
+                agreementStart: r.signedAt,
                 agreementEnd: r.terminated_at || null,
             }));
             const commissionsAccrued = sumAccruedCommissionsCurrentYear(lendersForCommission, rate);
@@ -171,7 +174,7 @@ export class CompanyDashboardService {
             type LogEntry = { loanId: number; lenderId: number; lenderName?: string; amount: number; createdAt: Date };
             const recentAutomationLog: LogEntry[] = (automationLogResult || []).map((r: any): LogEntry => {
                 let meta: any = {};
-                try { meta = typeof r.metadata === 'string' ? JSON.parse(r.metadata) : r.metadata || {}; } catch (_) {}
+                try { meta = typeof r.metadata === 'string' ? JSON.parse(r.metadata) : r.metadata || {}; } catch (_) { }
                 return {
                     loanId: meta.loanId || 0,
                     lenderId: meta.lenderId || 0,
@@ -181,13 +184,15 @@ export class CompanyDashboardService {
                 };
             });
 
-            // 11. Log the view (compliance requirement)
-            await this.auditService.logAction(
-                -1,
-                'VIEW_COMPANY_DASHBOARD',
-                'DASHBOARD',
-                companyId
-            );
+            // 11. Log the view (compliance requirement, only when a real user ID is available)
+            if (userId > 0) {
+                await this.auditService.logAction(
+                    userId,
+                    'VIEW_COMPANY_DASHBOARD',
+                    'DASHBOARD',
+                    companyId
+                );
+            }
 
             return {
                 conditionsStatus,

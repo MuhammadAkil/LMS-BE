@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto';
+import { s3Service } from '../services/s3.service';
 import { AuditLogRepository } from '../repository/AuditLogRepository';
 import { LoanApplicationRepository } from '../repository/LoanApplicationRepository';
 import { LoanRepository } from '../repository/LoanRepository';
@@ -62,6 +63,45 @@ export class BorrowerPaymentsService {
     this.scheduleService = new RepaymentScheduleService();
   }
 
+  private isE2EMockEnabled(): boolean {
+    return Boolean((config as any).e2e?.mockPayment);
+  }
+
+  private async finalizeE2EMockCommissionPayment(
+    paymentId: number,
+    sessionId: string,
+    step: 'PORTAL_COMMISSION' | 'VOLUNTARY_COMMISSION',
+    applicationId: number,
+    borrowerId: number,
+    frontendBaseUrl: string
+  ): Promise<{ redirectUrl: string; paymentId: number; step: string }> {
+    await this.paymentRepo.update(paymentId, {
+      statusId: STATUS_PAID,
+      paidAt: new Date(),
+      providerOrderId: `E2E-MOCK-${Date.now()}`,
+    });
+
+    const paymentStep = await this.paymentStepRepo.findByPaymentId(paymentId);
+    if (paymentStep) {
+      await this.paymentStepRepo.update(paymentStep.id, {
+        status: 'PAID',
+        paidAt: new Date(),
+      });
+    }
+
+    if (step === 'PORTAL_COMMISSION') {
+      await this.onPortalCommissionPaid(applicationId, borrowerId);
+    } else {
+      await this.onVoluntaryCommissionPaid(applicationId, borrowerId);
+    }
+
+    return {
+      redirectUrl: `${frontendBaseUrl}/payment/commission-success?sessionId=${sessionId}&step=${step}`,
+      paymentId,
+      step,
+    };
+  }
+
   /**
    * STEP 1: Initiate portal commission payment via Przelewy24.
    * Must be called before voluntary commission.
@@ -104,6 +144,8 @@ export class BorrowerPaymentsService {
 
     const sessionId = randomUUID();
     const appBaseUrl = (config as any).app?.baseUrl ?? 'http://localhost:3009';
+    // urlReturn goes to the user's browser — use frontend URL when on a separate domain.
+    const frontendBaseUrl = (config as any).app?.frontendUrl || appBaseUrl;
 
     // Create payment record
     const payment = new Payment();
@@ -135,8 +177,25 @@ export class BorrowerPaymentsService {
       await this.paymentStepRepo.save(step);
     }
 
+    if (this.isE2EMockEnabled()) {
+      const mocked = await this.finalizeE2EMockCommissionPayment(
+        savedPayment.id as number,
+        sessionId,
+        'PORTAL_COMMISSION',
+        appIdNum,
+        borrowerIdNum,
+        frontendBaseUrl
+      );
+      return {
+        redirectUrl: mocked.redirectUrl,
+        paymentId: mocked.paymentId,
+        amount: commissionAmount,
+        step: 'PORTAL_COMMISSION',
+      };
+    }
+
     // Register with Przelewy24
-    const urlReturn = `${appBaseUrl}/payment/commission-success?sessionId=${sessionId}&step=PORTAL_COMMISSION`;
+    const urlReturn = `${frontendBaseUrl}/payment/commission-success?sessionId=${sessionId}&step=PORTAL_COMMISSION`;
     const urlStatus = `${appBaseUrl.replace(/\/$/, '')}/webhook/p24`;
 
     const registered = await this.p24.registerTransaction({
@@ -205,6 +264,7 @@ export class BorrowerPaymentsService {
 
     const sessionId = randomUUID();
     const appBaseUrl = (config as any).app?.baseUrl ?? 'http://localhost:3009';
+    const frontendBaseUrl = (config as any).app?.frontendUrl || appBaseUrl;
 
     const payment = new Payment();
     payment.userId = borrowerIdNum;
@@ -234,7 +294,24 @@ export class BorrowerPaymentsService {
       await this.paymentStepRepo.save(step);
     }
 
-    const urlReturn = `${appBaseUrl}/payment/commission-success?sessionId=${sessionId}&step=VOLUNTARY_COMMISSION`;
+    if (this.isE2EMockEnabled()) {
+      const mocked = await this.finalizeE2EMockCommissionPayment(
+        savedPayment.id as number,
+        sessionId,
+        'VOLUNTARY_COMMISSION',
+        applicationId,
+        borrowerIdNum,
+        frontendBaseUrl
+      );
+      return {
+        redirectUrl: mocked.redirectUrl,
+        paymentId: mocked.paymentId,
+        amount: voluntaryAmount,
+        step: 'VOLUNTARY_COMMISSION',
+      };
+    }
+
+    const urlReturn = `${frontendBaseUrl}/payment/commission-success?sessionId=${sessionId}&step=VOLUNTARY_COMMISSION`;
     const urlStatus = `${appBaseUrl.replace(/\/$/, '')}/webhook/p24`;
 
     const registered = await this.p24.registerTransaction({
@@ -269,8 +346,9 @@ export class BorrowerPaymentsService {
   /**
    * Handle P24 webhook for commission payments.
    * Called from the main webhook handler when paymentStep is PORTAL_COMMISSION or VOLUNTARY_COMMISSION.
+   * Idempotent: duplicate webhooks for already-paid sessions are silently ignored.
    */
-  async handleCommissionWebhook(sessionId: string, orderId: number, amount: number, sign: string): Promise<void> {
+  async handleCommissionWebhook(sessionId: string, orderId: number, amount: number, currency: string, sign: string): Promise<void> {
     const payment = await this.paymentRepo.findBySessionId(sessionId);
     if (!payment) throw new Error(`Payment not found for sessionId: ${sessionId}`);
 
@@ -285,10 +363,10 @@ export class BorrowerPaymentsService {
       throw new Error(`Amount mismatch: expected ${expectedAmount}, got ${amountGrosz}`);
     }
 
-    const isValid = this.p24.verifyWebhookSign(sessionId, orderId, amountGrosz, sign);
+    const isValid = this.p24.verifyWebhookSign(sessionId, orderId, amountGrosz, currency, sign);
     if (!isValid) throw new Error('Invalid webhook signature');
 
-    await this.p24.verifyTransaction({ sessionId, amount: amountGrosz, currency: 'PLN', orderId });
+    await this.p24.verifyTransaction({ sessionId, amount: amountGrosz, currency, orderId });
 
     // Mark payment as PAID
     await this.paymentRepo.update(payment.id as number, {
@@ -360,9 +438,15 @@ export class BorrowerPaymentsService {
 
   /**
    * Generate loan agreement PDF, persist repayment schedule, reveal borrower data to lenders.
-   * Called after portal commission paid when voluntary_fee === 0, or after voluntary commission paid.
+   * MUST only be called after portal commission is confirmed/settled via Przelewy24 (webhook).
+   * Called after portal commission paid when voluntary_fee === 0, after voluntary commission paid, or when borrower skips voluntary.
+   * @param options.voluntaryCommissionPaid - If false, agreement is generated with repayment obligation NOT arising (skip path).
    */
-  private async generateAgreementAndRevealData(applicationId: number, borrowerId: number): Promise<void> {
+  private async generateAgreementAndRevealData(
+    applicationId: number,
+    borrowerId: number,
+    options?: { voluntaryCommissionPaid?: boolean }
+  ): Promise<void> {
     const queryRunner = AppDataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
@@ -370,6 +454,9 @@ export class BorrowerPaymentsService {
     try {
       const application = await this.loanAppRepo.findById(applicationId);
       if (!application) throw new Error('Application not found');
+      if (application.commissionStatus !== 'PAID') {
+        throw new Error('Portal commission must be paid before loan agreement can be generated');
+      }
 
       const loan = await this.loanRepo.findByApplicationId(applicationId);
       if (!loan) throw new Error('Loan not found for application');
@@ -378,11 +465,11 @@ export class BorrowerPaymentsService {
       if (!borrower) throw new Error('Borrower not found');
 
       const lenderResult = await queryRunner.query(
-        `SELECT u.id, u.email, u.first_name, u.last_name
+        `SELECT u.id, u.email, u.first_name, u.last_name, u.bank_account
          FROM loan_offers lo
-         JOIN users u ON u.id = lo.lender_id
-         WHERE lo.loan_id = ?
-         ORDER BY lo.created_at ASC
+         JOIN users u ON u.id = lo.lenderId
+         WHERE lo.loanId = ?
+         ORDER BY lo.createdAt ASC
          LIMIT 1`,
         [loan.id]
       );
@@ -397,7 +484,7 @@ export class BorrowerPaymentsService {
         loan.interestRate ? Number(loan.interestRate) : undefined
       );
 
-      // Persist repayment schedule to DB (used by loan detail and history)
+      // Persist repayment schedule to DB (used by loan detail and history; when voluntary not paid, schedule is informational only)
       const repaymentRepo = queryRunner.manager.getRepository(Repayment);
       for (const i of schedule.installments) {
         const r = new Repayment();
@@ -406,6 +493,14 @@ export class BorrowerPaymentsService {
         r.amount = i.totalAmount;
         await repaymentRepo.save(r);
       }
+
+      // Voluntary commission paid: true when voluntary_fee === 0, or when voluntary step is PAID; false when borrower skipped
+      const voluntaryStep = await this.paymentStepRepo.findByApplicationAndStep(applicationId, 'VOLUNTARY_COMMISSION');
+      const voluntaryAmount = Number(application.voluntaryCommission ?? 0);
+      const voluntaryCommissionPaid =
+        options?.voluntaryCommissionPaid !== undefined
+          ? options.voluntaryCommissionPaid
+          : voluntaryAmount === 0 || voluntaryStep?.status === 'PAID';
 
       const agreementData = {
         loanId: loan.id,
@@ -417,11 +512,13 @@ export class BorrowerPaymentsService {
         borrowerAddress: borrower.address,
         lenderName: lender ? `${lender.first_name ?? ''} ${lender.last_name ?? ''}`.trim() || lender.email : 'Lender',
         lenderEmail: lender?.email ?? '',
+        lenderBankAccount: lender?.bank_account ?? undefined,
         loanAmount: Number(loan.totalAmount),
         durationMonths: Number(application.durationMonths),
         interestRate: loan.interestRate ? Number(loan.interestRate) : 0.075,
         repaymentType: loan.repaymentType ?? 'LUMP_SUM',
-        voluntaryCommission: Number(application.voluntaryCommission),
+        voluntaryCommission: voluntaryAmount,
+        voluntaryCommissionPaid,
         portalCommission: Number(application.amount) * 0.02,
         disbursementDate: new Date().toISOString().split('T')[0],
         dueDate: loan.dueDate instanceof Date
@@ -436,9 +533,13 @@ export class BorrowerPaymentsService {
 
       const pdfBuffer = await this.pdfService.generateLoanAgreementBuffer(agreementData);
 
+      const pdfFileName = `loan_agreement_${loan.id}.pdf`;
+      const s3Key = s3Service.generateKey('borrower', String(borrowerId), pdfFileName);
+      await s3Service.uploadFile(pdfBuffer, s3Key, 'application/pdf');
+
       await queryRunner.query(
-        `INSERT INTO contracts (loan_id, pdf_path, generated_at) VALUES (?, ?, NOW())`,
-        [loan.id, `generated_pdfs/loan_agreement_${loan.id}.pdf`]
+        `INSERT INTO contracts (loanId, pdfPath, generatedAt) VALUES (?, ?, NOW())`,
+        [loan.id, s3Key]
       );
 
       await queryRunner.query(
@@ -535,6 +636,48 @@ export class BorrowerPaymentsService {
       createdAt: payment.createdAt.toISOString(),
       completedAt: payment.paidAt?.toISOString(),
     };
+  }
+
+  /**
+   * Skip voluntary lender commission and generate the loan agreement without repayment obligation.
+   * Allowed when: portal commission is paid, voluntary amount > 0, voluntary not paid, and no agreement generated yet.
+   * The agreement will state that the repayment obligation does NOT arise.
+   */
+  async skipVoluntaryAndGenerateAgreement(borrowerId: string, applicationId: number): Promise<void> {
+    const borrowerIdNum = parseInt(borrowerId, 10);
+    const application = await this.loanAppRepo.findById(applicationId);
+    if (!application || Number(application.borrowerId) !== borrowerIdNum) {
+      throw new Error('Application not found');
+    }
+    if (application.statusId === 4) throw new Error('Application is cancelled');
+    if (application.commissionStatus !== 'PAID') {
+      throw new Error('Portal commission must be paid before you can generate the agreement');
+    }
+    const voluntaryAmount = Number(application.voluntaryCommission ?? 0);
+    if (voluntaryAmount <= 0) {
+      throw new Error('Voluntary commission is not set or is zero; no need to skip. Complete portal commission to generate the agreement.');
+    }
+    const voluntaryStep = await this.paymentStepRepo.findByApplicationAndStep(applicationId, 'VOLUNTARY_COMMISSION');
+    if (voluntaryStep?.status === 'PAID') {
+      throw new Error('Voluntary commission is already paid; agreement should already be available.');
+    }
+    const loan = await this.loanRepo.findByApplicationId(applicationId);
+    if (!loan) throw new Error('Loan not found for application');
+    const existingContract = await AppDataSource.query(
+      'SELECT id FROM contracts WHERE loanId = ? LIMIT 1',
+      [loan.id]
+    );
+    if (Array.isArray(existingContract) && existingContract.length > 0) {
+      throw new Error('Loan agreement has already been generated for this loan');
+    }
+    await this.generateAgreementAndRevealData(applicationId, borrowerIdNum, { voluntaryCommissionPaid: false });
+    await this.auditRepo.create({
+      actorId: borrowerIdNum,
+      action: 'VOLUNTARY_COMMISSION_SKIPPED_AGREEMENT_GENERATED',
+      entity: 'APPLICATION',
+      entityId: applicationId,
+      createdAt: new Date(),
+    } as any);
   }
 
   /**

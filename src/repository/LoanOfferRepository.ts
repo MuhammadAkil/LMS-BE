@@ -15,10 +15,11 @@ export class LoanOfferRepository {
     }
 
     async findByLoanId(loanId: number): Promise<LoanOffer[]> {
-        return await this.loanOfferRepository.find({
-            where: { loanId },
-            order: { createdAt: 'DESC' },
-        });
+        return await this.loanOfferRepository
+            .createQueryBuilder('offer')
+            .where('offer.loanId = :loanId', { loanId })
+            .orderBy('offer.createdAt', 'DESC')
+            .getMany();
     }
 
     async findByLenderId(lenderId: number): Promise<LoanOffer[]> {

@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsString, IsEmail, IsInt, IsOptional, Min, Max, IsEnum, IsJSON, IsDefined, IsNumber } from 'class-validator';
+import { IsNotEmpty, IsString, IsEmail, IsInt, IsOptional, Min, Max, IsEnum, IsJSON, IsDefined, IsNumber, IsArray } from 'class-validator';
 import { Type } from 'class-transformer';
 
 // ==================== DASHBOARD DTOs ====================
@@ -130,6 +130,19 @@ export class VerificationDetailDto {
   reviewedBy?: number;
   reviewerEmail?: string;
   reviewComment?: string;
+  rejectionReason?: string;
+  documents?: Array<{
+    id: number;
+    fileName?: string;
+    filePath?: string;
+    mimeType?: string;
+    category?: string;
+    subtype?: string;
+    side?: string;
+    issuedAt?: Date;
+    expiresAt?: Date;
+    uploadedAt?: Date;
+  }>;
   metadata?: Record<string, any>;
 }
 
@@ -336,6 +349,8 @@ export class TemplateDto {
   deprecatedAt?: Date;
   createdAt!: Date;
   updatedAt!: Date;
+  name?: string;
+  lastModified?: Date;
 }
 
 export class CreateTemplateRequest {
@@ -381,6 +396,8 @@ export class CompanyListItemDto {
   statusName!: string;
   bankAccount?: string;
   createdAt!: Date;
+  /** Auto-computed rank (1 = highest). Read-only. */
+  rank?: number | null;
 }
 
 /** Performance KPIs for admin company detail */
@@ -424,6 +441,10 @@ export class CompanyDetailDto {
   activeLoans?: number;
   totalLoans?: number;
   defaultRate?: number;
+  /** Auto-computed rank (1 = highest). Read-only. */
+  rank?: number | null;
+  /** Set when admin requested correction (data completeness); company stays PENDING. */
+  correctionRequest?: { requestedAt: string; fieldKeys: string[]; comment: string } | null;
 }
 
 export class ApproveCompanyRequest {
@@ -438,6 +459,17 @@ export class RejectCompanyRequest {
   comment!: string;
 }
 
+/** Request correction: flag specific fields for resubmission (company stays PENDING). */
+export class RequestCorrectionRequest {
+  @IsArray()
+  @IsString({ each: true })
+  fieldKeys!: string[];
+
+  @IsNotEmpty({ message: 'Comment is required' })
+  @IsString()
+  comment!: string;
+}
+
 export class UpdateCompanyConditionsRequest {
   @IsOptional()
   commissionPct?: number;
@@ -447,6 +479,43 @@ export class UpdateCompanyConditionsRequest {
 
   @IsOptional()
   metadata?: Record<string, any>;
+}
+
+export class CreateCompanyRequest {
+  @IsNotEmpty({ message: 'Company name is required' })
+  @IsString()
+  name!: string;
+
+  @IsNotEmpty({ message: 'Email is required' })
+  @IsEmail({}, { message: 'Valid email address is required' })
+  email!: string;
+
+  @IsOptional()
+  @IsString()
+  bankAccount?: string;
+
+  @IsOptional()
+  @IsString()
+  firstName?: string;
+
+  @IsOptional()
+  @IsString()
+  lastName?: string;
+
+  @IsOptional()
+  @IsString()
+  phone?: string;
+}
+
+export class CreateCompanyResponse {
+  companyId!: number;
+  userId!: number;
+  name!: string;
+  email!: string;
+  temporaryPassword!: string;
+  statusId!: number;
+  statusName!: string;
+  createdAt!: Date;
 }
 
 // ==================== EXPORT DTOs ====================

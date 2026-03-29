@@ -3,6 +3,8 @@ import { VerificationRepositoryBase } from '../repository/VerificationRepository
 import { LmsNotificationService } from './LmsNotificationService';
 import { UserRepository } from '../repository/UserRepository';
 import { Verification } from '../domain/Verification';
+import { VerificationDocument } from '../domain/VerificationDocument';
+import { VerificationDocumentRepository } from '../repository/VerificationDocumentRepository';
 import {
     VerificationStatusDto,
     VerificationItemDto,
@@ -11,6 +13,14 @@ import {
     UploadVerificationRequest,
     UploadVerificationResponse,
 } from '../dto/BorrowerDtos';
+import {
+    getApplicantTypeFromRoleId,
+    getStatusCodeById,
+    VERIFICATION_STATUS_IDS,
+    VerificationWorkflowStatusCode,
+} from '../util/KycVerification';
+import { KycDocumentValidationService } from './KycDocumentValidationService';
+import { s3Service } from '../services/s3.service';
 
 /**
  * B-02: BORROWER VERIFICATION SERVICE
@@ -22,12 +32,16 @@ export class BorrowerVerificationService {
     private notificationService: LmsNotificationService;
     private verificationRepo: VerificationRepositoryBase;
     private userRepo: UserRepository;
+    private verificationDocumentRepo: VerificationDocumentRepository;
+    private kycValidationService: KycDocumentValidationService;
 
     constructor() {
         this.auditRepo = new AuditLogRepository();
         this.notificationService = new LmsNotificationService();
         this.verificationRepo = new VerificationRepositoryBase();
         this.userRepo = new UserRepository();
+        this.verificationDocumentRepo = new VerificationDocumentRepository();
+        this.kycValidationService = new KycDocumentValidationService();
     }
 
     /**
@@ -61,25 +75,22 @@ export class BorrowerVerificationService {
             const verifications = await this.verificationRepo.findByUserId(borrowerIdNum);
 
             const verificationDtos: VerificationItemDto[] = verifications.map((v) => {
-                const statusMap: { [key: number]: string } = {
-                    1: 'PENDING',
-                    2: 'APPROVED',
-                    3: 'REJECTED',
-                };
-
                 const typeMap: { [key: number]: string } = {
-                    1: 'ID',
-                    2: 'ADDRESS',
+                    1: 'INDIVIDUAL_IDENTITY',
+                    2: 'INDIVIDUAL_PROOF_OF_ADDRESS',
                     3: 'INCOME',
                     4: 'BIK',
                     5: 'PHONE',
                     6: 'EMAIL',
+                    7: 'COMPANY_REGISTRATION',
+                    8: 'COMPANY_DIRECTOR_IDENTITY',
+                    9: 'COMPANY_PROOF_OF_ADDRESS',
                 };
 
                 return {
                     id: v.id,
                     type: typeMap[v.typeId] || `TYPE_${v.typeId}`,
-                    status: statusMap[v.statusId] || 'UNKNOWN',
+                    status: getStatusCodeById(v.statusId),
                     submittedAt: v.submittedAt?.toISOString(),
                     approvedAt: v.reviewedAt?.toISOString(),
                     rejectionReason: v.reviewComment,
@@ -141,70 +152,7 @@ export class BorrowerVerificationService {
                 throw new Error('User not found');
             }
 
-            const nextLevel = user.level + 1;
-            if (nextLevel > 3) {
-                // User has maximum verification level
-                return {
-                    currentLevel: user.level,
-                    nextLevel: user.level,
-                    requirements: [],
-                };
-            }
-
-            // Define verification requirements per level
-            const requirementsByLevel: { [key: number]: RequirementDto[] } = {
-                1: [
-                    {
-                        id: 'REQ_001',
-                        type: 'EMAIL',
-                        description: 'Verify your email address',
-                        isRequired: true,
-                        isCompleted: true,
-                    },
-                    {
-                        id: 'REQ_002',
-                        type: 'PHONE',
-                        description: 'Verify your phone number',
-                        isRequired: true,
-                        isCompleted: true,
-                    },
-                ],
-                2: [
-                    {
-                        id: 'REQ_003',
-                        type: 'ID',
-                        description: 'Government-issued ID verification',
-                        isRequired: true,
-                        isCompleted: false,
-                        expiresAt: '2026-03-01',
-                    },
-                    {
-                        id: 'REQ_004',
-                        type: 'ADDRESS',
-                        description: 'Proof of address (utility bill, lease, etc.)',
-                        isRequired: true,
-                        isCompleted: false,
-                    },
-                ],
-                3: [
-                    {
-                        id: 'REQ_005',
-                        type: 'INCOME',
-                        description: 'Income verification (tax return, pay stub)',
-                        isRequired: true,
-                        isCompleted: false,
-                    },
-                    {
-                        id: 'REQ_006',
-                        type: 'BIK',
-                        description: 'Credit bureau check',
-                        isRequired: false,
-                        isCompleted: false,
-                    },
-                ],
-            };
-
-            const requirements = requirementsByLevel[nextLevel] || [];
+            const nextLevel = Math.min(user.level + 1, 3);
 
             // Check completion status for each requirement
             const completedVerifications = await this.verificationRepo.findApprovedByUser(borrowerIdNum);
@@ -213,16 +161,21 @@ export class BorrowerVerificationService {
             const typeMap: { [key: string]: number } = {
                 EMAIL: 6,
                 PHONE: 5,
-                ID: 1,
-                ADDRESS: 2,
+                INDIVIDUAL_IDENTITY: 1,
+                INDIVIDUAL_PROOF_OF_ADDRESS: 2,
                 INCOME: 3,
                 BIK: 4,
+                COMPANY_REGISTRATION: 7,
+                COMPANY_DIRECTOR_IDENTITY: 8,
+                COMPANY_PROOF_OF_ADDRESS: 9,
             };
 
-            requirements.forEach((req) => {
-                const typeId = typeMap[req.type];
-                req.isCompleted = typeId ? completedTypes.has(typeId) : false;
-            });
+            const applicantType = getApplicantTypeFromRoleId(user.roleId);
+            const requirements = this.kycValidationService.buildRequirementCards(
+                applicantType,
+                completedTypes,
+                typeMap
+            ) as RequirementDto[];
 
             const dto: VerificationRequirementsDto = {
                 currentLevel: user.level,
@@ -274,10 +227,13 @@ export class BorrowerVerificationService {
             const typeMap: { [key: string]: number } = {
                 EMAIL: 6,
                 PHONE: 5,
-                ID: 1,
-                ADDRESS: 2,
+                INDIVIDUAL_IDENTITY: 1,
+                INDIVIDUAL_PROOF_OF_ADDRESS: 2,
                 INCOME: 3,
                 BIK: 4,
+                COMPANY_REGISTRATION: 7,
+                COMPANY_DIRECTOR_IDENTITY: 8,
+                COMPANY_PROOF_OF_ADDRESS: 9,
             };
 
             const typeId = typeMap[request.verificationType];
@@ -285,15 +241,48 @@ export class BorrowerVerificationService {
                 throw new Error('Invalid verification type');
             }
 
-            // Create verification record with PENDING status (statusId = 1)
+            const user = await this.userRepo.findById(borrowerIdNum);
+            if (!user) {
+                throw new Error('User not found');
+            }
+
+            const applicantType = getApplicantTypeFromRoleId(user.roleId);
+            const validation = this.kycValidationService.validateSubmission(applicantType, request.documents || [], {
+                requireAllCategories: false,
+                targetCategory: request.verificationType as any,
+            });
+            if (!validation.valid) {
+                throw new Error(validation.errors.join('; '));
+            }
+
+            // Create verification record with PENDING_VERIFICATION status (statusId = 1)
             const verification = new Verification();
             verification.userId = borrowerIdNum;
             verification.typeId = typeId;
-            verification.statusId = 1; // PENDING
+            verification.statusId = VERIFICATION_STATUS_IDS.PENDING_VERIFICATION;
             verification.submittedAt = new Date();
             verification.metadata = { documents: request.documents || [] } as Record<string, any>;
 
             const savedVerification = await this.verificationRepo.save(verification);
+
+            const documentEntities = (request.documents || []).map((doc) => {
+                const entity = new VerificationDocument();
+                entity.verificationId = savedVerification.id;
+                entity.fileName = doc.fileName;
+                entity.filePath = doc.filePath;
+                entity.category = doc.category || request.verificationType;
+                entity.subtype = doc.subtype;
+                entity.side = doc.side;
+                entity.issuedAt = doc.issuedAt ? new Date(doc.issuedAt) : undefined;
+                entity.expiresAt = doc.expiresAt ? new Date(doc.expiresAt) : undefined;
+                entity.fullName = doc.fullName;
+                entity.addressLine = doc.addressLine;
+                return entity;
+            });
+            let savedDocs: VerificationDocument[] = [];
+            if (documentEntities.length > 0) {
+                savedDocs = await this.verificationDocumentRepo.saveMany(documentEntities);
+            }
 
             // Audit log
             await this.auditRepo.create({
@@ -315,13 +304,44 @@ export class BorrowerVerificationService {
             return {
                 verificationId: savedVerification.id,
                 type: request.verificationType,
-                status: 'PENDING',
+                status: VerificationWorkflowStatusCode.PENDING_VERIFICATION,
                 submittedAt: new Date().toISOString(),
                 message: 'Verification documents submitted successfully. Our team will review them soon.',
+                document_key: savedDocs[0]?.filePath,
+                document_id: savedDocs[0]?.id != null ? String(savedDocs[0].id) : undefined,
             };
         } catch (error: any) {
             console.error('Error submitting verification:', error);
             throw new Error('Failed to submit verification');
         }
+    }
+
+    async getDocumentPresignedUrl(
+        borrowerId: string,
+        verificationId: string,
+        documentId: string
+    ): Promise<{ documentId: string; document_key: string; presigned_url: string; expiresIn: number }> {
+        const borrowerIdNum = parseInt(borrowerId, 10);
+        const verificationIdNum = parseInt(verificationId, 10);
+        const documentIdNum = parseInt(documentId, 10);
+
+        const verification = await this.verificationRepo.findById(verificationIdNum);
+        if (!verification || verification.userId !== borrowerIdNum) {
+            throw new Error('Verification not found');
+        }
+
+        const document = await this.verificationDocumentRepo.findById(documentIdNum);
+        if (!document || document.verificationId !== verificationIdNum || !document.filePath) {
+            throw new Error('Document not found');
+        }
+
+        const expiresIn = 3600;
+        const presignedUrl = await s3Service.getPresignedUrl(document.filePath, expiresIn);
+        return {
+            documentId: String(document.id),
+            document_key: document.filePath,
+            presigned_url: presignedUrl,
+            expiresIn,
+        };
     }
 }

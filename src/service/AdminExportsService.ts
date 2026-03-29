@@ -2,8 +2,8 @@ import { AdminAuditService } from './AdminAuditService';
 import { ExportRepository } from '../repository/ExportRepository';
 import { AppDataSource } from '../config/database';
 import { ExportListItemDto, GenerateXMLExportRequest, GenerateCSVExportRequest, GenerateClaimsRequest } from '../dto/AdminDtos';
-import { writeFileSync, existsSync, unlinkSync, mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, unlinkSync } from 'node:fs';
+import { s3Service } from '../services/s3.service';
 
 /**
  * Admin Exports Service
@@ -14,16 +14,10 @@ import { join } from 'node:path';
 export class AdminExportsService {
   private readonly exportRepo: ExportRepository;
   private readonly auditService: AdminAuditService;
-  private readonly exportsDir: string;
 
   constructor() {
     this.exportRepo = new ExportRepository();
     this.auditService = new AdminAuditService();
-    // Create exports directory if it doesn't exist
-    this.exportsDir = join(process.cwd(), 'exports');
-    if (!existsSync(this.exportsDir)) {
-      mkdirSync(this.exportsDir, { recursive: true });
-    }
   }
 
   /**
@@ -46,8 +40,8 @@ export class AdminExportsService {
         LEFT JOIN users u ON l.borrowerId = u.id
         WHERE 1=1
         ${request.loanStatus && Array.isArray(request.loanStatus) ? `AND l.statusId IN (${request.loanStatus.join(',')})` : ''}
-        ${request.dateFrom ? `AND l.createdAt >= '${request.dateFrom.toISOString()}'` : ''}
-        ${request.dateTo ? `AND l.createdAt <= '${request.dateTo.toISOString()}'` : ''}
+        ${request.dateFrom ? `AND l.createdAt >= '${new Date(request.dateFrom as any).toISOString()}'` : ''}
+        ${request.dateTo ? `AND l.createdAt <= '${new Date(request.dateTo as any).toISOString()}'` : ''}
         ORDER BY l.createdAt DESC
         LIMIT ${limit}
       `);
@@ -55,16 +49,14 @@ export class AdminExportsService {
       // Generate XML
       const xml = this.generateXMLContent(loans);
       const fileName = `export_${Date.now()}_loans.xml`;
-      const filePath = join(this.exportsDir, fileName);
-
-      // Write to disk
-      writeFileSync(filePath, xml, 'utf-8');
+      const key = s3Service.generateKey('admin', String(adminId), fileName);
+      await s3Service.uploadFile(Buffer.from(xml, 'utf-8'), key, 'application/xml');
 
       // Create export record (immutable)
       const exportRecord = {
         typeId: 1, // XML_EXPORT
         createdBy: adminId,
-        filePath: filePath,
+        filePath: key,
         recordCount: loans.length,
         metadata: JSON.stringify({
           loanStatus: request.loanStatus,
@@ -115,13 +107,13 @@ export class AdminExportsService {
       } else {
         // Default to LOANS
         const dateFrom = (request as any).filters?.dateFrom || (request as any).dateFrom;
-        const dateTo   = (request as any).filters?.dateTo   || (request as any).dateTo;
+        const dateTo = (request as any).filters?.dateTo || (request as any).dateTo;
         loans = await queryRunner.query(`SELECT l.*, u.email as borrower_email
           FROM loans l
           LEFT JOIN users u ON l.borrowerId = u.id
           WHERE 1=1
           ${dateFrom ? `AND l.createdAt >= '${new Date(dateFrom).toISOString()}'` : ''}
-          ${dateTo   ? `AND l.createdAt <= '${new Date(dateTo).toISOString()}'`   : ''}
+          ${dateTo ? `AND l.createdAt <= '${new Date(dateTo).toISOString()}'` : ''}
           ORDER BY l.createdAt DESC
           LIMIT ${Math.min((request as any).limit || 500, 500)}`);
       }
@@ -129,16 +121,14 @@ export class AdminExportsService {
       // Generate CSV
       const csv = this.generateCSVContent(loans);
       const fileName = `export_${Date.now()}_${(request.entityType || 'loans').toLowerCase()}.csv`;
-      const filePath = join(this.exportsDir, fileName);
-
-      // Write to disk
-      writeFileSync(filePath, csv, 'utf-8');
+      const key = s3Service.generateKey('admin', String(adminId), fileName);
+      await s3Service.uploadFile(Buffer.from(csv, 'utf-8'), key, 'text/csv');
 
       // Create export record
       const exportRecord = {
         typeId: 2, // CSV_EXPORT
         createdBy: adminId,
-        filePath: filePath,
+        filePath: key,
         recordCount: loans.length,
         metadata: JSON.stringify({
           entityType: request.entityType,
@@ -184,30 +174,28 @@ export class AdminExportsService {
       // Query specific loans by IDs from request
       const loanIds = request.loanIds.join(',');
       const defaultedLoans = await queryRunner.query(`
-        SELECT l.*, u.email, u.phone, c.name as company_name,
-               SUM(p.amount) as total_paid,
-               l.amount - COALESCE(SUM(p.amount), 0) as remaining_amount
+        SELECT l.*, u.email, u.phone,
+               COALESCE(SUM(p.amount), 0) as total_paid,
+               l.totalAmount - COALESCE(SUM(p.amount), 0) as remaining_amount
         FROM loans l
-        LEFT JOIN users u ON l.user_id = u.id
-        LEFT JOIN companies c ON l.company_id = c.id
-        LEFT JOIN payments p ON l.id = p.loan_id AND p.status_id = 1
+        LEFT JOIN users u ON l.borrowerId = u.id
+        LEFT JOIN payments p ON p.loanId = l.id AND p.statusId = 1
         WHERE l.id IN (${loanIds})
         GROUP BY l.id
-        ORDER BY l.due_date ASC
+        ORDER BY l.dueDate ASC
       `);
 
       // Generate claims CSV
       const claims = this.generateClaimsContent(defaultedLoans);
       const fileName = `export_${Date.now()}_claims.csv`;
-      const filePath = join(this.exportsDir, fileName);
-
-      writeFileSync(filePath, claims, 'utf-8');
+      const key = s3Service.generateKey('admin', String(adminId), fileName);
+      await s3Service.uploadFile(Buffer.from(claims, 'utf-8'), key, 'text/csv');
 
       // Create export record
       const exportRecord = {
         typeId: 3, // CLAIMS_EXPORT
         createdBy: adminId,
-        filePath: filePath,
+        filePath: key,
         recordCount: defaultedLoans.length,
         metadata: JSON.stringify({
           loanIds: request.loanIds,
@@ -286,10 +274,13 @@ export class AdminExportsService {
       throw new Error(`Cannot delete export created ${Math.floor(agesDays)} days ago (min 90 days). Use force=true to override.`);
     }
 
-    // Hard delete the file (since it's no longer needed)
     try {
-      if (exp.filePath && existsSync(exp.filePath)) {
-        unlinkSync(exp.filePath);
+      if (exp.filePath) {
+        if (existsSync(exp.filePath)) {
+          unlinkSync(exp.filePath);
+        } else {
+          await s3Service.deleteFile(exp.filePath);
+        }
       }
     } catch (err) {
       console.error(`Failed to delete export file: ${err}`);
@@ -314,19 +305,19 @@ export class AdminExportsService {
   // ==================== Helper Methods ====================
 
   private generateXMLContent(loans: any[]): string {
+    const toIso = (v: any): string => v ? new Date(v).toISOString() : 'N/A';
     let xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
     xml += '<loans>\n';
 
     for (const loan of loans) {
       xml += '  <loan>\n';
       xml += `    <id>${loan.id}</id>\n`;
-      xml += `    <userId>${loan.user_id}</userId>\n`;
-      xml += `    <userEmail>${loan.email || 'N/A'}</userEmail>\n`;
-      xml += `    <amount>${loan.amount}</amount>\n`;
-      xml += `    <status>${this.getLoanStatus(loan.status_id)}</status>\n`;
-      xml += `    <createdAt>${loan.created_at.toISOString()}</createdAt>\n`;
-      xml += `    <dueDate>${loan.due_date?.toISOString() || 'N/A'}</dueDate>\n`;
-      xml += `    <companyName>${loan.company_name || 'N/A'}</companyName>\n`;
+      xml += `    <userId>${loan.borrowerId ?? loan.borrower_id}</userId>\n`;
+      xml += `    <userEmail>${loan.borrower_email || loan.email || 'N/A'}</userEmail>\n`;
+      xml += `    <amount>${loan.totalAmount ?? loan.total_amount}</amount>\n`;
+      xml += `    <status>${this.getLoanStatus(loan.statusId ?? loan.status_id)}</status>\n`;
+      xml += `    <createdAt>${toIso(loan.createdAt ?? loan.created_at)}</createdAt>\n`;
+      xml += `    <dueDate>${toIso(loan.dueDate ?? loan.due_date)}</dueDate>\n`;
       xml += '  </loan>\n';
     }
 
@@ -335,34 +326,34 @@ export class AdminExportsService {
   }
 
   private generateCSVContent(loans: any[]): string {
-    let csv = 'ID,UserID,Email,Amount,Status,CreatedAt,DueDate,CompanyName\n';
+    const toIso = (v: any): string => v ? new Date(v).toISOString() : 'N/A';
+    let csv = 'ID,UserID,Email,Amount,Status,CreatedAt,DueDate\n';
 
     for (const loan of loans) {
       csv += `${loan.id},`;
-      csv += `${loan.user_id},`;
-      csv += `"${loan.email || 'N/A'}",`;
-      csv += `${loan.amount},`;
-      csv += `${this.getLoanStatus(loan.status_id)},`;
-      csv += `"${loan.created_at.toISOString()}",`;
-      csv += `"${loan.due_date?.toISOString() || 'N/A'}",`;
-      csv += `"${loan.company_name || 'N/A'}"\n`;
+      csv += `${loan.borrowerId ?? loan.borrower_id},`;
+      csv += `"${loan.borrower_email || loan.email || 'N/A'}",`;
+      csv += `${loan.totalAmount ?? loan.total_amount},`;
+      csv += `${this.getLoanStatus(loan.statusId ?? loan.status_id)},`;
+      csv += `"${toIso(loan.createdAt ?? loan.created_at)}",`;
+      csv += `"${toIso(loan.dueDate ?? loan.due_date)}"\n`;
     }
 
     return csv;
   }
 
   private generateClaimsContent(claims: any[]): string {
-    let csv = 'LoanID,UserID,Email,Phone,Amount,RemainingAmount,CompanyName,DueDate\n';
+    const toIso = (v: any): string => v ? new Date(v).toISOString() : 'N/A';
+    let csv = 'LoanID,UserID,Email,Phone,TotalAmount,RemainingAmount,DueDate\n';
 
     for (const claim of claims) {
       csv += `${claim.id},`;
-      csv += `${claim.user_id},`;
+      csv += `${claim.borrowerId ?? claim.borrower_id},`;
       csv += `"${claim.email || 'N/A'}",`;
       csv += `"${claim.phone || 'N/A'}",`;
-      csv += `${claim.amount},`;
+      csv += `${claim.totalAmount ?? claim.total_amount},`;
       csv += `${claim.remaining_amount},`;
-      csv += `"${claim.company_name || 'N/A'}",`;
-      csv += `"${claim.due_date?.toISOString() || 'N/A'}"\n`;
+      csv += `"${toIso(claim.dueDate ?? claim.due_date)}"\n`;
     }
 
     return csv;

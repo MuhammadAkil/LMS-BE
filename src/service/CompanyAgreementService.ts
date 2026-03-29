@@ -1,5 +1,9 @@
 import { AppDataSource } from '../config/database';
+import { readFileSync } from 'node:fs';
+import { s3Service } from '../services/s3.service';
+import { resolveStoredRefForDownload } from '../util/storedFileAccess';
 import { CompanyAuditService } from './CompanyAuditService';
+import { CompanyRankingService } from './CompanyRankingService';
 import {
     CompanyAgreementResponse,
     SignAgreementRequest,
@@ -18,14 +22,16 @@ import {
  */
 export class CompanyAgreementService {
     private auditService: CompanyAuditService;
+    private rankingService: CompanyRankingService;
 
     constructor() {
         this.auditService = new CompanyAuditService();
+        this.rankingService = new CompanyRankingService();
     }
 
     /**
-     * Get management agreement for company
-     * Returns current agreement status
+     * Get management agreement for company (first by creation order)
+     * Returns current agreement status and bilateral signing state
      */
     async getAgreement(companyId: number): Promise<CompanyAgreementResponse | null> {
         const queryRunner = AppDataSource.createQueryRunner();
@@ -34,32 +40,41 @@ export class CompanyAgreementService {
             const agreement = await queryRunner.query(
                 `
         SELECT 
-          id,
-          company_id as companyId,
-          amount,
-          signed_at as signedAt,
-          created_at as createdAt,
-          updated_at as updatedAt
+          id, companyId, amount, signedAt, createdAt,
+          lender_signed_at AS lenderSignedAt, company_signed_at AS companySignedAt,
+          signed_document_path AS signedDocumentPath
         FROM management_agreements
-        WHERE company_id = ?
+        WHERE companyId = ?
+        ORDER BY createdAt DESC
         LIMIT 1
         `,
                 [companyId]
             );
 
-            if (!agreement || agreement.length === 0) {
-                return null;
-            }
+            if (!agreement || agreement.length === 0) return null;
+
+            const row = agreement[0];
+            const signingStatus = row.signedAt
+                ? 'SIGNED'
+                : row.companySignedAt
+                    ? 'SIGNED'
+                    : row.lenderSignedAt
+                        ? 'PENDING_COMPANY'
+                        : 'PENDING_LENDER';
 
             return {
-                id: agreement[0].id,
-                companyId: agreement[0].companyId,
-                amount: parseFloat(agreement[0].amount || 0),
-                signedAt: agreement[0].signedAt,
-                contractId: undefined, // Would need separate query to contracts table
-                createdAt: agreement[0].createdAt,
-                updatedAt: agreement[0].updatedAt,
-                status: agreement[0].signedAt ? 'SIGNED' : 'UNSIGNED',
+                id: row.id,
+                companyId: row.companyId,
+                amount: parseFloat(row.amount || 0),
+                signedAt: row.signedAt,
+                contractId: undefined,
+                createdAt: row.createdAt,
+                updatedAt: row.createdAt,
+                status: row.signedAt ? 'SIGNED' : 'UNSIGNED',
+                signingStatus,
+                lenderSignedAt: row.lenderSignedAt,
+                companySignedAt: row.companySignedAt,
+                signedDocumentPath: row.signedDocumentPath,
             };
         } finally {
             await queryRunner.release();
@@ -67,13 +82,47 @@ export class CompanyAgreementService {
     }
 
     /**
-     * Sign management agreement
-     * Fintech compliance:
-     * 1. Updates signed_at timestamp (immutable)
-     * 2. Creates contract record (audit trail)
-     * 3. Logs action to audit_logs
-     * 4. Triggers notification to company and admin
-     * 5. Unlocks operational actions
+     * List agreements pending company signature (lender already signed)
+     */
+    async getAgreementsPendingCompanySign(companyId: number): Promise<CompanyAgreementResponse[]> {
+        const queryRunner = AppDataSource.createQueryRunner();
+        try {
+            const rows = await queryRunner.query(
+                `
+        SELECT ma.id, ma.companyId, ma.amount, ma.createdAt,
+               ma.lender_signed_at AS lenderSignedAt, ma.lender_signer_name AS lenderSignerName, ma.lender_signer_role AS lenderSignerRole,
+               u.email AS lenderEmail,
+               COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name,''),' ',COALESCE(u.last_name,''))),''), u.email) AS lenderName
+        FROM management_agreements ma
+        INNER JOIN users u ON u.id = ma.lenderId
+        WHERE ma.companyId = ? AND ma.terminated_at IS NULL
+          AND ma.lender_signed_at IS NOT NULL AND ma.company_signed_at IS NULL
+        ORDER BY ma.lender_signed_at DESC
+        `,
+                [companyId]
+            );
+            return (rows || []).map((r: any): CompanyAgreementResponse => ({
+                id: r.id,
+                companyId: r.companyId,
+                amount: parseFloat(r.amount || 0),
+                signedAt: undefined,
+                createdAt: r.createdAt,
+                updatedAt: r.createdAt,
+                status: 'UNSIGNED',
+                signingStatus: 'PENDING_COMPANY',
+                lenderSignedAt: r.lenderSignedAt,
+                lenderName: r.lenderName || r.lenderEmail,
+                lenderEmail: r.lenderEmail,
+            }));
+        } finally {
+            await queryRunner.release();
+        }
+    }
+
+    /**
+     * Company signs management agreement (bilateral flow).
+     * Saves company signer name, role, signature. When lender has already signed,
+     * sets signedAt, creates contract record, generates and stores signed PDF.
      */
     async signAgreement(
         companyId: number,
@@ -83,105 +132,134 @@ export class CompanyAgreementService {
         const queryRunner = AppDataSource.createQueryRunner();
 
         try {
-            // Check if agreement exists
-            const agreement = await queryRunner.query(
+            const agreementRows = await queryRunner.query(
                 `
-        SELECT id, signed_at FROM management_agreements
-        WHERE company_id = ? AND id = ?
+        SELECT id, signedAt, lender_signed_at AS lenderSignedAt, company_signed_at AS companySignedAt,
+               lender_signer_name AS lenderSignerName, lender_signer_role AS lenderSignerRole
+        FROM management_agreements
+        WHERE companyId = ? AND id = ?
         `,
                 [companyId, request.agreementId]
             );
 
-            if (!agreement || agreement.length === 0) {
-                throw new Error('Agreement not found');
-            }
-
-            if (agreement[0].signed_at) {
-                throw new Error('Agreement already signed');
-            }
+            if (!agreementRows?.length) throw new Error('Agreement not found');
+            if (agreementRows[0].signedAt) throw new Error('Agreement already fully signed');
+            if (agreementRows[0].companySignedAt) throw new Error('Company has already signed this agreement');
 
             const now = new Date();
+            const agreementId = request.agreementId;
+            const lenderAlreadySigned = !!agreementRows[0].lenderSignedAt;
 
-            // 1. Update agreement with signed_at timestamp
+            // 1. Update company signing fields
             await queryRunner.query(
                 `
         UPDATE management_agreements
-        SET signed_at = ?, updated_at = NOW()
-        WHERE id = ? AND company_id = ?
-        `,
-                [now, request.agreementId, companyId]
-            );
-
-            // 2. Create contract record (immutable proof)
-            const contractResult = await queryRunner.query(
-                `
-        INSERT INTO contracts (
-          company_id,
-          management_agreement_id,
-          contract_type,
-          signed_at,
-          created_at
-        ) VALUES (?, ?, ?, ?, NOW())
+        SET company_signed_at = ?, company_signer_name = ?, company_signer_role = ?, company_signature_data = ?
+        WHERE id = ? AND companyId = ?
         `,
                 [
-                    companyId,
-                    request.agreementId,
-                    'MANAGEMENT_AGREEMENT',
                     now,
+                    request.signerName?.trim() || null,
+                    request.signerRole?.trim() || null,
+                    request.signatureData || null,
+                    agreementId,
+                    companyId,
                 ]
             );
 
-            const contractId = contractResult.insertId;
+            let contractId: number | undefined;
+            let signedDocPath: string | null = null;
 
-            // 3. Create audit log
-            await this.auditService.logAction(
-                userId,
-                'AGREEMENT_SIGNED',
-                'MANAGEMENT_AGREEMENT',
-                request.agreementId,
-                {
-                    companyId,
-                    contractId,
-                    signedAt: now,
-                    signatureData: request.signatureData ? 'provided' : 'none',
-                }
-            );
+            if (lenderAlreadySigned) {
+                const fileName = `management_agreement_${agreementId}_${now.toISOString().replace(/[:.]/g, '-')}.pdf`;
+                const pdfBuffer = await this.generateManagementAgreementPdf(queryRunner, agreementId, companyId);
+                const key = s3Service.generateKey('company', String(companyId), fileName);
+                await s3Service.uploadFile(pdfBuffer, key, 'application/pdf');
+                signedDocPath = key;
+
+                await queryRunner.query(
+                    `UPDATE management_agreements SET signedAt = ?, signed_document_path = ? WHERE id = ? AND companyId = ?`,
+                    [now, key, agreementId, companyId]
+                );
+
+                const contractResult = await queryRunner.query(
+                    `
+        INSERT INTO contracts (company_id, management_agreement_id, contract_type, signed_at, file_path, created_at)
+        VALUES (?, ?, 'MANAGEMENT_AGREEMENT', ?, ?, NOW())
+        `,
+                    [companyId, agreementId, now, key]
+                );
+                contractId = contractResult.insertId;
+            }
+
+            await this.auditService.logAction(userId, 'AGREEMENT_SIGNED', 'MANAGEMENT_AGREEMENT', agreementId, {
+                companyId,
+                contractId,
+                signedAt: now,
+                signatureData: request.signatureData ? 'provided' : 'none',
+            });
 
             await this.auditService.notifyUser(userId, 'AGREEMENT_SIGNED', {
                 title: 'Agreement Signed',
-                message: 'Management agreement has been successfully signed. Operational actions are now enabled.',
-                agreementId: request.agreementId,
+                message: lenderAlreadySigned
+                    ? 'Management agreement has been fully signed. Document stored.'
+                    : 'Your signature has been recorded. Agreement is pending lender signature.',
+                agreementId,
                 contractId,
                 timestamp: now,
             });
 
-            const adminUsers = await queryRunner.query(
-                `
-        SELECT id FROM users WHERE role_id = 1 LIMIT 10
-        `
-            );
-            const adminIds = adminUsers.map((u: any) => u.id);
-
-            if (adminIds.length > 0) {
-                await this.auditService.notifyMultiple(
-                    adminIds,
-                    'COMPANY_AGREEMENT_SIGNED',
-                    {
+            if (lenderAlreadySigned && contractId) {
+                const adminUsers = await queryRunner.query('SELECT id FROM users WHERE role_id = 1 LIMIT 10');
+                const adminIds = (adminUsers || []).map((u: any) => u.id);
+                if (adminIds.length > 0) {
+                    await this.auditService.notifyMultiple(adminIds, 'COMPANY_AGREEMENT_SIGNED', {
                         title: 'Company agreement signed',
-                        message: `Company ${companyId} has signed their management agreement`,
+                        message: `Company ${companyId} has signed management agreement`,
                         companyId,
-                        agreementId: request.agreementId,
+                        agreementId,
                         contractId,
                         timestamp: now,
-                    }
-                );
+                    });
+                }
+                await this.rankingService.recomputeAllRanks();
             }
 
-            // Return updated agreement
-            return this.getAgreement(companyId) as Promise<CompanyAgreementResponse>;
+            const out = await this.getAgreement(companyId);
+            return out!;
         } finally {
             await queryRunner.release();
         }
+    }
+
+    private async generateManagementAgreementPdf(qr: any, agreementId: number, companyId: number): Promise<Buffer> {
+        const rows = await qr.query(
+            `SELECT ma.amount, ma.lender_signer_name AS ln, ma.lender_signer_role AS lr, ma.lender_signed_at AS ls,
+                    ma.company_signer_name AS cn, ma.company_signer_role AS cr, ma.company_signed_at AS cs,
+                    c.name AS companyName
+             FROM management_agreements ma
+             INNER JOIN companies c ON c.id = ma.companyId
+             WHERE ma.id = ? AND ma.companyId = ?`,
+            [agreementId, companyId]
+        );
+        const r = rows?.[0] || {};
+        const PDFDocument = require('pdfkit');
+        return new Promise<Buffer>((resolve, reject) => {
+            const doc = new PDFDocument({ margin: 50, size: 'A4' });
+            const chunks: Buffer[] = [];
+            doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+            doc.on('end', () => resolve(Buffer.concat(chunks)));
+            doc.on('error', reject);
+            doc.fontSize(16).text('Management Agreement', { align: 'center' });
+            doc.moveDown();
+            doc.fontSize(10).text(`Agreement ID: ${agreementId}  |  Company: ${r.companyName || companyId}`);
+            doc.text(`Amount: ${Number(r.amount || 0).toFixed(2)} PLN`);
+            doc.moveDown();
+            doc.text('Lender:', { continued: false }).text(`  ${r.ln || '—'} (${r.lr || '—'})  Signed: ${r.ls ? new Date(r.ls).toISOString() : '—'}`);
+            doc.text('Company:', { continued: false }).text(`  ${r.cn || '—'} (${r.cr || '—'})  Signed: ${r.cs ? new Date(r.cs).toISOString() : '—'}`);
+            doc.moveDown(2).fontSize(8).text('This document was generated upon bilateral signing and is stored for record.', { align: 'center' });
+            doc.end();
+        });
     }
 
     /**
@@ -201,7 +279,7 @@ export class CompanyAgreementService {
           c.created_at as createdAt
         FROM contracts c
         INNER JOIN management_agreements ma ON c.management_agreement_id = ma.id
-        WHERE ma.company_id = ? AND ma.signed_at IS NOT NULL
+        WHERE ma.companyId = ? AND ma.signedAt IS NOT NULL
         ORDER BY c.created_at DESC
         LIMIT 1
         `,
@@ -212,16 +290,28 @@ export class CompanyAgreementService {
                 throw new Error('No signed agreement found');
             }
 
-            // In production, read PDF from file_path
-            // For now, return placeholder
-            const pdfData = Buffer.from('PDF_CONTENT_PLACEHOLDER');
-
+            const fp: string = contract[0].filePath || contract[0].file_path || '';
+            if (!fp) {
+                throw new Error('Agreement file reference missing');
+            }
+            const resolved = await resolveStoredRefForDownload(fp, 3600);
+            if (resolved.mode === 'local') {
+                const data = readFileSync(resolved.path);
+                return {
+                    contractId: contract[0].id,
+                    fileName: `management_agreement_${companyId}_${new Date().toISOString().split('T')[0]}.pdf`,
+                    contentType: 'application/pdf',
+                    data,
+                    createdAt: contract[0].createdAt,
+                };
+            }
             return {
                 contractId: contract[0].id,
                 fileName: `management_agreement_${companyId}_${new Date().toISOString().split('T')[0]}.pdf`,
                 contentType: 'application/pdf',
-                data: pdfData,
                 createdAt: contract[0].createdAt,
+                url: resolved.url,
+                expiresIn: 3600,
             };
         } finally {
             await queryRunner.release();

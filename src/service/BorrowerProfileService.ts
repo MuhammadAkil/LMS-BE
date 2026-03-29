@@ -46,6 +46,7 @@ export class BorrowerProfileService {
                 firstName: user.firstName ?? '',
                 lastName: user.lastName ?? '',
                 phone: user.phone ?? '',
+                bankAccount: user.bankAccount ?? '',
                 dateOfBirth: undefined,
                 roleId: user.roleId,
                 statusId: user.statusId,
@@ -76,7 +77,7 @@ export class BorrowerProfileService {
 
     /**
      * Update borrower profile
-     * Only allows: firstName, lastName, phone, dateOfBirth
+     * Only allows: firstName, lastName, phone, bankAccount, dateOfBirth
      *
      * ATOMIC TRANSACTION:
      * BEGIN
@@ -99,7 +100,11 @@ export class BorrowerProfileService {
             const borrowerIdNum = parseInt(borrowerId, 10);
 
             // Validate request - only editable fields
-            if (!request.firstName && !request.lastName && !request.phone) {
+            const hasUpdatableField = request.firstName !== undefined ||
+                request.lastName !== undefined ||
+                request.phone !== undefined ||
+                request.bankAccount !== undefined;
+            if (!hasUpdatableField) {
                 throw new Error('No fields to update');
             }
 
@@ -112,6 +117,7 @@ export class BorrowerProfileService {
             if (request.firstName !== undefined) updatePayload.firstName = request.firstName;
             if (request.lastName !== undefined) updatePayload.lastName = request.lastName;
             if (request.phone !== undefined) updatePayload.phone = request.phone;
+            if (request.bankAccount !== undefined) updatePayload.bankAccount = request.bankAccount;
             // dateOfBirth is not a column in the users table — ignore it
 
             // Apply update
@@ -133,6 +139,7 @@ export class BorrowerProfileService {
                 firstName: updated.firstName ?? '',
                 lastName: updated.lastName ?? '',
                 phone: updated.phone ?? '',
+                bankAccount: updated.bankAccount ?? '',
                 updatedAt: new Date().toISOString(),
                 message: 'Profile updated successfully',
             };

@@ -1,5 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import { AppDataSource } from '../config/database';
+import { VerificationAccessService } from '../service/VerificationAccessService';
+
+const verificationAccessService = new VerificationAccessService();
 
 /**
  * Company Guard - Ensures user has COMPANY role
@@ -26,7 +29,35 @@ export function CompanyGuard(req: Request, res: Response, next: NextFunction): v
         return;
     }
 
-    next();
+    const path = (req as any).path ?? req.path ?? req.url;
+    if (verificationAccessService.isVerificationBypassPath(String(path))) {
+        next();
+        return;
+    }
+
+    verificationAccessService
+        .getVerificationGate(Number(user.id), Number(user.roleId))
+        .then((gate) => {
+            if (!gate.isVerified) {
+                res.status(403).json({
+                    statusCode: '403',
+                    statusMessage: 'Verification required',
+                    detail: 'Complete and get admin approval for all required verification documents to use company platform features.',
+                    missingRequirements: gate.missingCategories,
+                    redirectTo: '/api/company/verification/requirements',
+                    errorCode: 'VERIFICATION_INCOMPLETE',
+                });
+                return;
+            }
+            next();
+        })
+        .catch(() => {
+            res.status(500).json({
+                statusCode: '500',
+                statusMessage: 'Internal Server Error',
+                detail: 'Failed to validate verification status',
+            });
+        });
 }
 
 /**
@@ -171,9 +202,9 @@ export async function AgreementSignatureGuard(
         // Check if signed agreement exists
         const agreement = await queryRunner.query(
             `
-      SELECT id, signed_at, amount
+      SELECT id, signedAt, amount
       FROM management_agreements
-      WHERE company_id = ? AND signed_at IS NOT NULL
+      WHERE companyId = ? AND signedAt IS NOT NULL
       LIMIT 1
       `,
             [user.companyId]

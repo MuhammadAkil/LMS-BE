@@ -6,6 +6,7 @@ import {
     CompanyPaginationQuery,
     RepaymentDetailDto,
 } from '../dto/CompanyDtos';
+import { LoanDisbursementService } from './LoanDisbursementService';
 
 /**
  * Company Loans Service
@@ -37,26 +38,31 @@ export class CompanyLoansService {
             const pageSize = Math.min(query.pageSize || 20, 100);
             const offset = (page - 1) * pageSize;
 
-            // Get loans managed by this company's linked lenders
+            // Get loans managed by this company's linked lenders, with lender info (on whose behalf company acts).
             const loans = await queryRunner.query(
                 `
         SELECT 
           l.id,
-          l.borrower_id as borrowerId,
+          l.borrowerId,
           u.email as borrowerEmail,
-          u.name as borrowerName,
-          l.amount as loanAmount,
-          l.outstanding_balance as outstandingBalance,
-          l.status_id as statusId,
+          CONCAT(COALESCE(u.first_name,''), ' ', COALESCE(u.last_name,'')) as borrowerName,
+          l.totalAmount as loanAmount,
+          l.fundedAmount as outstandingBalance,
+          l.statusId,
           ls.code as status,
-          l.created_at as createdAt,
-          l.next_payment_due as nextPaymentDueDate
+          l.createdAt,
+          l.dueDate as nextPaymentDueDate,
+          MIN(lo.lenderId) as lenderId,
+          GROUP_CONCAT(DISTINCT COALESCE(NULLIF(TRIM(CONCAT(COALESCE(ul.first_name,''), ' ', COALESCE(ul.last_name,''))), ''), ul.email) ORDER BY lo.lenderId) as lenderName,
+          (SELECT ul2.email FROM users ul2 WHERE ul2.id = MIN(lo.lenderId) LIMIT 1) as lenderEmail
         FROM loans l
-        INNER JOIN company_lenders cl ON l.lender_id = cl.lender_id
-        INNER JOIN users u ON l.borrower_id = u.id
-        LEFT JOIN loan_statuses ls ON l.status_id = ls.id
-        WHERE cl.company_id = ? AND cl.active = true
-        ORDER BY l.created_at DESC
+        INNER JOIN loan_offers lo ON lo.loanId = l.id
+        INNER JOIN company_lenders cl ON cl.lenderId = lo.lenderId AND cl.companyId = ? AND cl.active = true
+        INNER JOIN users u ON l.borrowerId = u.id
+        LEFT JOIN loan_statuses ls ON l.statusId = ls.id
+        LEFT JOIN users ul ON ul.id = lo.lenderId
+        GROUP BY l.id, l.borrowerId, u.email, u.first_name, u.last_name, l.totalAmount, l.fundedAmount, l.statusId, ls.code, l.createdAt, l.dueDate
+        ORDER BY l.createdAt DESC
         LIMIT ? OFFSET ?
         `,
                 [companyId, pageSize, offset]
@@ -67,8 +73,9 @@ export class CompanyLoansService {
                 `
         SELECT COUNT(DISTINCT l.id) as total
         FROM loans l
-        INNER JOIN company_lenders cl ON l.lender_id = cl.lender_id
-        WHERE cl.company_id = ? AND cl.active = true
+        INNER JOIN loan_offers lo ON lo.loanId = l.id
+        INNER JOIN company_lenders cl ON cl.lenderId = lo.lenderId
+        WHERE cl.companyId = ? AND cl.active = true
         `,
                 [companyId]
             );
@@ -83,15 +90,12 @@ export class CompanyLoansService {
                         `
             SELECT 
               r.id,
-              r.due_date as dueDate,
+              r.dueDate,
               r.amount,
-              r.status_id as statusId,
-              rs.code as status,
-              r.paid_date as paidDate
+              r.paidAt as paidDate
             FROM repayments r
-            LEFT JOIN payment_statuses rs ON r.status_id = rs.id
-            WHERE r.loan_id = ?
-            ORDER BY r.due_date ASC
+            WHERE r.loanId = ?
+            ORDER BY r.dueDate ASC
             `,
                         [loan.id]
                     );
@@ -107,11 +111,14 @@ export class CompanyLoansService {
                         statusId: loan.statusId,
                         createdAt: loan.createdAt,
                         nextPaymentDueDate: loan.nextPaymentDueDate,
+                        lenderId: loan.lenderId,
+                        lenderName: loan.lenderName || loan.lenderEmail || 'Lender',
+                        lenderEmail: loan.lenderEmail,
                         repaymentDetails: repayments.map((r: any) => ({
                             id: r.id,
                             dueDate: r.dueDate,
                             amount: parseFloat(r.amount || 0),
-                            status: r.status,
+                            status: r.paidDate ? 'PAID' : 'PENDING',
                             paidDate: r.paidDate,
                         })),
                     };
@@ -146,29 +153,34 @@ export class CompanyLoansService {
         const queryRunner = AppDataSource.createQueryRunner();
 
         try {
-            // Verify company's lender manages this loan
+            // Verify company's lender manages this loan (one lender row via company_lenders)
             const loan = await queryRunner.query(
                 `
         SELECT 
           l.id,
-          l.borrower_id as borrowerId,
+          l.borrowerId,
           u.email as borrowerEmail,
-          u.name as borrowerName,
-          l.amount as loanAmount,
-          l.outstanding_balance as outstandingBalance,
+          CONCAT(COALESCE(u.first_name,''), ' ', COALESCE(u.last_name,'')) as borrowerName,
+          l.totalAmount as loanAmount,
+          l.fundedAmount as outstandingBalance,
           l.interest_rate as interestRate,
-          l.status_id as statusId,
+          l.statusId,
           ls.code as status,
-          l.created_at as createdAt,
-          l.next_payment_due as nextPaymentDueDate,
-          l.contract_terms as contractTerms,
-          l.lender_id as lenderId
+          l.createdAt,
+          l.dueDate as nextPaymentDueDate,
+          lo.lenderId,
+          COALESCE(NULLIF(TRIM(CONCAT(COALESCE(ul.first_name,''), ' ', COALESCE(ul.last_name,''))), ''), ul.email) as lenderName,
+          ul.email as lenderEmail
         FROM loans l
-        INNER JOIN users u ON l.borrower_id = u.id
-        LEFT JOIN loan_statuses ls ON l.status_id = ls.id
+        INNER JOIN loan_offers lo ON lo.loanId = l.id
+        INNER JOIN company_lenders cl ON cl.lenderId = lo.lenderId AND cl.companyId = ? AND cl.active = true
+        INNER JOIN users u ON l.borrowerId = u.id
+        LEFT JOIN loan_statuses ls ON l.statusId = ls.id
+        LEFT JOIN users ul ON ul.id = lo.lenderId
         WHERE l.id = ?
+        LIMIT 1
         `,
-                [loanId]
+                [companyId, loanId]
             );
 
             if (!loan || loan.length === 0) {
@@ -177,10 +189,7 @@ export class CompanyLoansService {
 
             // Verify company has access via company_lenders
             const access = await queryRunner.query(
-                `
-        SELECT id FROM company_lenders
-        WHERE company_id = ? AND lender_id = ? AND active = true
-        `,
+                `SELECT id FROM company_lenders WHERE companyId = ? AND lenderId = ? AND active = true`,
                 [companyId, loan[0].lenderId]
             );
 
@@ -193,15 +202,12 @@ export class CompanyLoansService {
                 `
         SELECT 
           r.id,
-          r.due_date as dueDate,
+          r.dueDate,
           r.amount,
-          r.status_id as statusId,
-          rs.code as status,
-          r.paid_date as paidDate
+          r.paidAt as paidDate
         FROM repayments r
-        LEFT JOIN payment_statuses rs ON r.status_id = rs.id
-        WHERE r.loan_id = ?
-        ORDER BY r.due_date ASC
+        WHERE r.loanId = ?
+        ORDER BY r.dueDate ASC
         `,
                 [loanId]
             );
@@ -209,9 +215,12 @@ export class CompanyLoansService {
             // Calculate repayment statistics
             const totalRepayments = repayments.length;
             const paidRepayments = repayments.filter(
-                (r: any) => r.status === 'PAID' || r.status === 'COMPLETED'
+                (r: any) => r.paidDate != null
             ).length;
-            const overdueRepayments = repayments.filter((r: any) => r.status === 'OVERDUE').length;
+            const overdueRepayments = repayments.filter((r: any) => !r.paidDate && new Date(r.dueDate) < new Date()).length;
+
+            const disbursementService = new LoanDisbursementService();
+            const disbursement = await disbursementService.getByLoanId(loanId);
 
             return {
                 id: loan[0].id,
@@ -224,18 +233,22 @@ export class CompanyLoansService {
                 statusId: loan[0].statusId,
                 createdAt: loan[0].createdAt,
                 nextPaymentDueDate: loan[0].nextPaymentDueDate,
+                lenderId: loan[0].lenderId,
+                lenderName: loan[0].lenderName || loan[0].lenderEmail || 'Lender',
+                lenderEmail: loan[0].lenderEmail,
                 repaymentDetails: repayments.map((r: any) => ({
                     id: r.id,
                     dueDate: r.dueDate,
                     amount: parseFloat(r.amount || 0),
-                    status: r.status,
+                    status: r.paidDate ? 'PAID' : 'PENDING',
                     paidDate: r.paidDate,
                 })),
-                contractTerms: loan[0].contractTerms || '',
+                contractTerms: '',
                 interestRate: parseFloat(loan[0].interestRate || 0),
                 totalRepayments,
                 paidRepayments,
                 overdueRepayments,
+                disbursement: disbursement ?? undefined,
             };
         } finally {
             await queryRunner.release();

@@ -1,10 +1,13 @@
-﻿import { AppDataSource } from '../config/database';
+import { AppDataSource } from '../config/database';
 import { AuditLogRepository } from '../repository/AuditLogRepository';
+import { resolveStoredRefForDownload } from '../util/storedFileAccess';
+import { basename } from 'node:path';
 import {
     DocumentListResponse,
     DocumentListItemDto,
     DocumentDetailDto,
 } from '../dto/BorrowerDtos';
+import { getStatusCodeById, VerificationWorkflowStatusCode } from '../util/KycVerification';
 
 /**
  * B-07: BORROWER DOCUMENTS CENTER SERVICE
@@ -68,23 +71,22 @@ export class BorrowerDocumentsService {
                     relatedEntityId: Number(c.loanId),
                     createdAt: c.createdAt ? new Date(c.createdAt).toISOString().split('T')[0] : '',
                     downloadUrl: `/api/borrower/documents/${this.CONTRACT_OFFSET + Number(c.id)}/download`,
-                    status: 'verified',
+                    status: VerificationWorkflowStatusCode.APPROVED,
                 });
             }
 
             // Map verification documents
             const verDocs = Array.isArray(verRows) ? verRows : [];
             for (const v of verDocs) {
-                const statusMap: Record<number, string> = { 1: 'PENDING', 2: 'APPROVED', 3: 'REJECTED' };
                 documents.push({
                     id: Number(v.id),
                     type: 'VERIFICATION',
-                    name: `${String(v.vtCode || 'ID')} Document`,
+                    name: `${String(v.vtCode || 'DOCUMENT')} Document`,
                     relatedEntity: 'VERIFICATION',
                     relatedEntityId: Number(v.verificationId),
                     createdAt: v.uploadedAt ? new Date(v.uploadedAt).toISOString().split('T')[0] : '',
                     downloadUrl: `/api/borrower/documents/${v.id}/download`,
-                    status: statusMap[v.uvStatus] ?? 'PENDING',
+                    status: getStatusCodeById(Number(v.uvStatus)),
                     filePath: v.filePath,
                 });
             }
@@ -175,47 +177,69 @@ export class BorrowerDocumentsService {
     }
 
     /**
-     * Download document  returns file path/URL for the document
+     * Resolve how to serve a download: stream local file or return presigned / remote URL (JSON).
      */
-    async downloadDocument(borrowerId: string, documentId: string): Promise<string> {
-        try {
-            const borrowerIdNum = parseInt(borrowerId, 10);
-            const docIdNum = parseInt(documentId, 10);
-            const db = AppDataSource;
+    async prepareDocumentDownload(
+        borrowerId: string,
+        documentId: string
+    ): Promise<
+        | { mode: 'stream'; absolutePath: string; downloadName: string; contentType: string }
+        | { mode: 'url'; url: string; expiresIn: number }
+    > {
+        const borrowerIdNum = parseInt(borrowerId, 10);
+        const docIdNum = parseInt(documentId, 10);
+        const db = AppDataSource;
 
-            let filePath = '';
+        let storedRef = '';
 
-            if (docIdNum >= this.CONTRACT_OFFSET) {
-                const contractId = docIdNum - this.CONTRACT_OFFSET;
-                const rows: any[] = await db.query(
-                    'SELECT c.pdfPath FROM contracts c JOIN loans l ON l.id = c.loanId WHERE c.id = ? AND l.borrowerId = ?',
-                    [contractId, borrowerIdNum]
+        if (docIdNum >= this.CONTRACT_OFFSET) {
+            const contractId = docIdNum - this.CONTRACT_OFFSET;
+            const rows: any[] = await db.query(
+                `SELECT c.pdfPath FROM contracts c
+                     JOIN loans l ON l.id = c.loanId
+                     JOIN loan_applications la ON la.id = l.application_id
+                     WHERE c.id = ? AND l.borrowerId = ? AND la.commission_status = 'PAID'`,
+                [contractId, borrowerIdNum]
+            );
+            const row = Array.isArray(rows) ? rows[0] : null;
+            if (!row?.pdfPath) {
+                throw new Error(
+                    'Loan agreement is not available until portal commission has been paid via Przelewy24'
                 );
-                const row = Array.isArray(rows) ? rows[0] : null;
-                filePath = row?.pdfPath ?? '';
-            } else {
-                const rows: any[] = await db.query(
-                    `SELECT vd.filePath FROM verification_documents vd
+            }
+            storedRef = row.pdfPath;
+        } else {
+            const rows: any[] = await db.query(
+                `SELECT vd.filePath FROM verification_documents vd
                      JOIN user_verifications uv ON uv.id = vd.verificationId
                      WHERE vd.id = ? AND uv.user_id = ? AND vd.deletedAt IS NULL`,
-                    [docIdNum, borrowerIdNum]
-                );
-                const row = Array.isArray(rows) ? rows[0] : null;
-                filePath = row?.filePath ?? '';
-            }
-
-            await this.auditRepo.create({
-                actorId: borrowerIdNum,
-                action: 'DOCUMENT_DOWNLOADED',
-                entity: 'DOCUMENT',
-                entityId: docIdNum,
-                createdAt: new Date(),
-            } as any);
-
-            return filePath || `/documents/borrower/${borrowerIdNum}/doc_${docIdNum}.pdf`;
-        } catch (error: any) {
-            console.error('Error downloading document:', error);
-            throw new Error('Failed to download document');
+                [docIdNum, borrowerIdNum]
+            );
+            const row = Array.isArray(rows) ? rows[0] : null;
+            storedRef = row?.filePath ?? '';
         }
+
+        if (!storedRef?.trim()) {
+            throw new Error('Document not found');
+        }
+
+        await this.auditRepo.create({
+            actorId: borrowerIdNum,
+            action: 'DOCUMENT_DOWNLOADED',
+            entity: 'DOCUMENT',
+            entityId: docIdNum,
+            createdAt: new Date(),
+        } as any);
+
+        const resolved = await resolveStoredRefForDownload(storedRef, 3600);
+        if (resolved.mode === 'local') {
+            return {
+                mode: 'stream',
+                absolutePath: resolved.path,
+                downloadName: basename(resolved.path),
+                contentType: 'application/pdf',
+            };
+        }
+        return { mode: 'url', url: resolved.url, expiresIn: 3600 };
     }
 }

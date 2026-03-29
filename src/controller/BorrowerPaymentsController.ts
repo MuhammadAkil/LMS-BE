@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { Controller, Post, Get, Param, Req, Res } from 'routing-controllers';
+import { Controller, Post, Get, Put, Param, Req, Res } from 'routing-controllers';
 import { BorrowerPaymentsService } from '../service/BorrowerPaymentsService';
 import {
     InitiateCommissionPaymentRequest,
@@ -95,11 +95,41 @@ export class BorrowerPaymentsController {
     }
 
     /**
+     * POST /api/borrower/payments/skip-voluntary/:applicationId
+     * Skip voluntary lender commission and generate the loan agreement without repayment obligation.
+     * The agreement will state that the borrower's repayment obligation does NOT arise.
+     */
+    @Post('/skip-voluntary/:applicationId')
+    async skipVoluntaryAndGenerateAgreement(@Req() req: Request, @Res() res: Response): Promise<void> {
+        try {
+            const user = (req as any).user;
+            const borrowerId = user.id.toString();
+            const applicationId = parseInt(req.params.applicationId, 10);
+
+            await this.paymentsService.skipVoluntaryAndGenerateAgreement(borrowerId, applicationId);
+
+            res.status(200).json({
+                statusCode: '200',
+                statusMessage: 'Agreement generated without repayment obligation. Voluntary commission was not paid.',
+                data: { applicationId },
+                timestamp: new Date().toISOString(),
+            } as BorrowerApiResponse<{ applicationId: number }>);
+        } catch (error: any) {
+            res.status(400).json({
+                statusCode: '400',
+                statusMessage: error.message,
+                errors: [error.message],
+                timestamp: new Date().toISOString(),
+            });
+        }
+    }
+
+    /**
      * PUT /api/borrower/payments/voluntary/:applicationId/amount
      * Set the voluntary commission amount for a loan application.
      * Body: { amount: number }
      */
-    @Post('/voluntary/:applicationId/amount')
+    @Put('/voluntary/:applicationId/amount')
     async setVoluntaryCommissionAmount(@Req() req: Request, @Res() res: Response): Promise<void> {
         try {
             const user = (req as any).user;

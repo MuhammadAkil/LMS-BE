@@ -269,6 +269,8 @@ export class AdminTemplatesService {
       deprecatedAt: template.deprecatedAt,
       createdAt: template.createdAt,
       updatedAt: template.updatedAt,
+      name: `${template.type} (${template.language})`,
+      lastModified: template.updatedAt,
     };
   }
 }

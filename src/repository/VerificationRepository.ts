@@ -41,9 +41,18 @@ export class VerificationRepository {
   }
 
   async findPending(limit: number = 50, offset: number = 0): Promise<[Verification[], number]> {
-    // statusId = 1 for PENDING
+    // statusId = 1 for PENDING_VERIFICATION
     return await this.repo.findAndCount({
       where: { statusId: 1 },
+      take: limit,
+      skip: offset,
+      order: { submittedAt: 'ASC' },
+    });
+  }
+
+  async findReviewQueue(limit: number = 50, offset: number = 0): Promise<[Verification[], number]> {
+    return await this.repo.findAndCount({
+      where: { statusId: In([1, 2]) }, // PENDING_VERIFICATION + UNDER_REVIEW
       take: limit,
       skip: offset,
       order: { submittedAt: 'ASC' },
@@ -84,6 +93,6 @@ export class VerificationRepository {
   }
 
   async countPending(): Promise<number> {
-    return await this.countByStatus(1); // PENDING status
+    return await this.countByStatus(1); // PENDING_VERIFICATION status
   }
 }

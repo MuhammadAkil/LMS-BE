@@ -165,6 +165,23 @@ export function registerLenderRoutes(app: Express): void {
         async (req: Request, res: Response) => loansController.getLoanDetail(req, res)
     );
 
+    /**
+     * POST /lender/loans/:loanId/disbursement
+     * Confirm off-platform disbursement (lender direct bank transfer to borrower).
+     * Body: { amount, transferDate, referenceNumber? }
+     */
+    app.post(
+        '/lender/loans/:loanId/disbursement',
+        ...lenderGuardChain(false, 0),
+        async (req: Request, res: Response) =>
+            loansController.confirmDisbursement(
+                req,
+                res,
+                Number(req.params.loanId),
+                req.body
+            )
+    );
+
     // ============================================
     // L-03: MAKE OFFER (CRITICAL)
     // ============================================
@@ -277,6 +294,17 @@ export function registerLenderRoutes(app: Express): void {
     );
 
     /**
+     * GET /lender/exports/xml-template
+     * Download pre-defined XML borrowing template (read-only; no customization). PENDING: schema TBD.
+     * Guards: Role, Status (read-only), Verification (level 0)
+     */
+    app.get(
+        '/lender/exports/xml-template',
+        ...lenderGuardChain(true, 0),
+        async (req: Request, res: Response) => exportsController.downloadXmlTemplate(req, res)
+    );
+
+    /**
      * GET /lender/exports/history
      * Get export history
      * Query params: page, pageSize
@@ -327,6 +355,17 @@ export function registerLenderRoutes(app: Express): void {
         '/lender/management-agreements',
         ...lenderInvestmentGuardChain(2),
         async (req: Request, res: Response) => managementController.createManagementAgreement(req, res)
+    );
+
+    /**
+     * GET /lender/management-agreements/eligibility
+     * Whether lender can select a management company (account active, verified, bank account). Unlocks automatically when met.
+     * Guards: Role, Status (read-only), Verification (level 0)
+     */
+    app.get(
+        '/lender/management-agreements/eligibility',
+        ...lenderGuardChain(true, 0),
+        async (req: Request, res: Response) => managementController.getManagementAgreementEligibility(req, res)
     );
 
     /**

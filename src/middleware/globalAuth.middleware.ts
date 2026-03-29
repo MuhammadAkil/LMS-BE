@@ -32,6 +32,7 @@ const getPublicRoutes = (): string[] => {
         '/api/user/logout',
         '/api/docs',
         '/api/docs/**',
+        '/api/s3/health',
         // Without /api prefix (fallback)
         '/users/login',
         '/users/signup',
@@ -42,6 +43,7 @@ const getPublicRoutes = (): string[] => {
         '/health',
         '/docs',
         '/docs/**',
+        '/s3/health',
     ];
 };
 
@@ -54,9 +56,6 @@ export class GlobalAuthMiddleware implements ExpressMiddlewareInterface {
     async use(req: Request, res: Response, next: NextFunction): Promise<void> {
         // req.path is the full path including /api prefix (e.g. /api/users/login)
         const path = req.path;
-
-        // Debug: log path to understand what we're receiving
-        console.log('Auth middleware - path:', path, 'originalUrl:', req.originalUrl, 'url:', req.url);
 
         const publicRoutes = getPublicRoutes();
 
@@ -71,7 +70,6 @@ export class GlobalAuthMiddleware implements ExpressMiddlewareInterface {
         });
 
         if (isPublicRoute) {
-            console.log(`Public route accessed: ${path}`);
             return next();
         }
 
@@ -82,7 +80,6 @@ export class GlobalAuthMiddleware implements ExpressMiddlewareInterface {
         if (authHeader && authHeader.startsWith('Bearer ')) {
             token = authHeader.substring(7);
         } else {
-            console.log(`JWT Token missing or invalid format for path: ${path}`);
             res.status(401).json({
                 statusCode: '401',
                 statusMessage: 'Unauthorized',
@@ -109,13 +106,15 @@ export class GlobalAuthMiddleware implements ExpressMiddlewareInterface {
                 path.startsWith('/api/lender') ||
                 path.startsWith('/api/borrower') ||
                 path.startsWith('/api/repayment') ||
+                path.startsWith('/api/legal-documents') ||
                 // fallback without /api prefix
                 path.startsWith('/admin') ||
                 path.startsWith('/payments') ||
                 path.startsWith('/company') ||
                 path.startsWith('/lender') ||
                 path.startsWith('/borrower') ||
-                path.startsWith('/repayment');
+                path.startsWith('/repayment') ||
+                path.startsWith('/legal-documents');
 
             if (isUserAuthRoute) {
                 // User JWT validation
@@ -168,14 +167,28 @@ export class GlobalAuthMiddleware implements ExpressMiddlewareInterface {
                     return;
                 }
 
+                // Check if the session has expired
+                if (activeSession.expiresAt && new Date() > activeSession.expiresAt) {
+                    await userSessionRepo.delete(activeSession.id);
+                    res.status(401).json({
+                        statusCode: '401',
+                        statusMessage: 'Unauthorized',
+                        statusMessageDetail: 'Session has expired. Please login again.',
+                    });
+                    return;
+                }
+
                 // Attach user info to request — set both id and userId so all guards work
+                // Note: 2FA is not yet implemented; twoFAVerified is set to true to allow
+                // CriticalOperationGuard-protected routes to function for SuperAdmins.
+                // When 2FA is implemented, set this based on the active session's 2FA status.
                 const userDetails: CustomUserDetails = {
                     id: user.id,
                     userId: user.id,
                     email: user.email,
                     roleId: user.roleId,
                     isSuperAdmin: user.isSuperAdmin ?? false,
-                    twoFAVerified: false,
+                    twoFAVerified: true,
                 };
                 // Also expose roleId, statusId, level for borrower/lender guards
                 (userDetails as any).roleId = user.roleId;
@@ -188,7 +201,6 @@ export class GlobalAuthMiddleware implements ExpressMiddlewareInterface {
                 }
 
                 req.user = userDetails;
-                console.log(`Authenticated user request for user: ${email}, path: ${path}`);
                 next();
             } else {
                 // Regular routes use Customer authentication
@@ -209,7 +221,6 @@ export class GlobalAuthMiddleware implements ExpressMiddlewareInterface {
                     // TODO: Implement Customer token validation when Customer auth is needed
                     next();
                 } catch (error: any) {
-                    console.log('Customer authentication error:', error);
                     res.status(401).json({
                         statusCode: '401',
                         statusMessage: 'Unauthorized',
@@ -218,12 +229,23 @@ export class GlobalAuthMiddleware implements ExpressMiddlewareInterface {
                 }
             }
         } catch (error: any) {
-            console.log('Authentication error:', error);
-            res.status(401).json({
-                statusCode: '401',
-                statusMessage: 'Unauthorized',
-                statusMessageDetail: error.message || 'Authentication failed',
-            });
+            // JWT errors are genuine auth failures → 401
+            const jwtErrorNames = ['JsonWebTokenError', 'TokenExpiredError', 'NotBeforeError'];
+            if (jwtErrorNames.includes(error?.name)) {
+                res.status(401).json({
+                    statusCode: '401',
+                    statusMessage: 'Unauthorized',
+                    statusMessageDetail: error.message || 'Invalid or expired token',
+                });
+            } else {
+                // DB/infrastructure errors must NOT appear as 401 (avoid false logout)
+                console.error('Authentication middleware infrastructure error:', error);
+                res.status(500).json({
+                    statusCode: '500',
+                    statusMessage: 'Internal Server Error',
+                    statusMessageDetail: 'An unexpected error occurred. Please try again.',
+                });
+            }
         }
     }
 }

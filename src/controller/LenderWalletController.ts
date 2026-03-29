@@ -6,7 +6,11 @@ import { LenderRoleGuard } from '../middleware/LenderGuards';
 
 /**
  * LENDER WALLET CONTROLLER
- * GET  /lender/wallet              - Get wallet balance
+ * Platform fund flow: the portal does NOT hold or manage lender investment funds.
+ * This wallet is for (a) service/platform fees owed to the portal and (b) commission
+ * fees payable to the lender (e.g. via Przelewy24). Investment capital is not held here.
+ *
+ * GET  /lender/wallet              - Get wallet balance (fees/commissions only)
  * POST /lender/wallet/topup        - Top-up wallet via card (simulated)
  * POST /lender/wallet/withdraw     - Withdraw to bank account
  * GET  /lender/wallet/transactions - Transaction history
@@ -73,6 +77,11 @@ export class LenderWalletController {
     }
 
     // ─── POST /lender/wallet/topup ───────────────────────────────────────────
+    // IMPORTANT: This endpoint simulates a top-up flow using a payment token.
+    // Raw card data (cardNumber, CVV, expiry) must NEVER be transmitted through
+    // or stored by the application server — doing so violates PCI DSS.
+    // In production, integrate a PCI-compliant payment gateway (e.g. Stripe, P24)
+    // and pass only a client-side payment token returned by the gateway's SDK.
     @Post('/wallet/topup')
     async topupWallet(@Req() req: Request, @Res() res: Response): Promise<void> {
         try {
@@ -82,7 +91,10 @@ export class LenderWalletController {
                 return;
             }
 
-            const { amount, cardNumber, cardHolder, expiryMonth, expiryYear, cvv } = req.body;
+            // Accept a payment token from a PCI-compliant gateway SDK (not raw card data).
+            // paymentToken: opaque string created by the client-side payment widget.
+            // cardLastFour: optional last-4 digits supplied by the gateway for display only.
+            const { amount, paymentToken, cardLastFour } = req.body;
 
             // Validate amount
             const amountNum = parseFloat(amount);
@@ -99,17 +111,9 @@ export class LenderWalletController {
                 return;
             }
 
-            // Validate card fields
-            if (!cardNumber || String(cardNumber).replace(/\s/g, '').length < 13) {
-                res.status(400).json({ statusCode: '400', statusMessage: 'Invalid card number.', timestamp: new Date().toISOString() });
-                return;
-            }
-            if (!expiryMonth || !expiryYear) {
-                res.status(400).json({ statusCode: '400', statusMessage: 'Card expiry is required.', timestamp: new Date().toISOString() });
-                return;
-            }
-            if (!cvv || String(cvv).length < 3) {
-                res.status(400).json({ statusCode: '400', statusMessage: 'CVV is required.', timestamp: new Date().toISOString() });
+            // A payment token must be provided (non-empty string).
+            if (!paymentToken || typeof paymentToken !== 'string' || !paymentToken.trim()) {
+                res.status(400).json({ statusCode: '400', statusMessage: 'A valid payment token is required.', timestamp: new Date().toISOString() });
                 return;
             }
 
@@ -137,7 +141,7 @@ export class LenderWalletController {
             const wallets = await db.query('SELECT * FROM investor_wallets WHERE user_id = ?', [lenderId]) as any[];
             const wallet = wallets[0];
 
-            const maskedCard = `**** **** **** ${String(cardNumber).replace(/\s/g, '').slice(-4)}`;
+            const maskedCard = cardLastFour ? `**** **** **** ${String(cardLastFour).slice(-4)}` : null;
 
             res.status(200).json({
                 statusCode: '200',

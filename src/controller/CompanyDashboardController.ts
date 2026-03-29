@@ -1,11 +1,13 @@
-import { Controller, Get, Post, Put, Delete, UseBefore, Req, Body, Param, QueryParams } from 'routing-controllers';
-import { Request } from 'express';
+import { Controller, Get, Post, Put, Delete, UseBefore, Req, Res, Body, Param, QueryParams } from 'routing-controllers';
+import { Request, Response } from 'express';
+import { AppDataSource } from '../config/database';
 import { CompanyDashboardService } from '../service/CompanyDashboardService';
 import { CompanyProfileService } from '../service/CompanyProfileService';
 import { CompanyAgreementService } from '../service/CompanyAgreementService';
 import { CompanyLendersService } from '../service/CompanyLendersService';
 import { CompanyAutomationService } from '../service/CompanyAutomationService';
 import { CompanyLoansService } from '../service/CompanyLoansService';
+import { LoanDisbursementService, ConfirmDisbursementRequest } from '../service/LoanDisbursementService';
 import { CompanyBulkService } from '../service/CompanyBulkService';
 import { CompanyDocumentsService } from '../service/CompanyDocumentsService';
 import { CompanyNotificationsService } from '../service/CompanyNotificationsService';
@@ -77,10 +79,11 @@ export class CompanyDashboardController {
     @Get('')
     async getDashboard(@Req() req: Request): Promise<CompanyDashboardResponse> {
         const companyId = (req.user as any)?.companyId;
+        const userId = (req.user as any)?.id;
         if (!companyId) {
             throw new Error('Company ID not found in request');
         }
-        return this.dashboardService.getDashboard(companyId);
+        return this.dashboardService.getDashboard(companyId, userId);
     }
 }
 
@@ -156,10 +159,16 @@ export class CompanyAgreementController {
     @Get('')
     async getAgreement(@Req() req: Request): Promise<CompanyAgreementResponse | null> {
         const companyId = (req.user as any)?.companyId;
-        if (!companyId) {
-            throw new Error('Company ID not found in request');
-        }
+        if (!companyId) throw new Error('Company ID not found in request');
         return this.agreementService.getAgreement(companyId);
+    }
+
+    /** Agreements pending company signature (lender already signed) — for bilateral flow */
+    @Get('/pending')
+    async getAgreementsPendingSign(@Req() req: Request): Promise<CompanyAgreementResponse[]> {
+        const companyId = (req.user as any)?.companyId;
+        if (!companyId) throw new Error('Company ID not found in request');
+        return this.agreementService.getAgreementsPendingCompanySign(companyId);
     }
 
     @Post('/sign')
@@ -355,12 +364,14 @@ export class CompanyAutomationController {
  * - read-only
  */
 @Controller('/company/loans')
-@UseBefore(CompanyGuard, CompanyStatusGuard, ConditionsApprovedGuard)
+@UseBefore(CompanyGuard, CompanyReadonlyGuard)
 export class CompanyLoansController {
     private readonly loansService: CompanyLoansService;
+    private readonly disbursementService: LoanDisbursementService;
 
     constructor() {
         this.loansService = new CompanyLoansService();
+        this.disbursementService = new LoanDisbursementService();
     }
 
     @Get('')
@@ -385,6 +396,59 @@ export class CompanyLoansController {
             throw new Error('Company ID not found in request');
         }
         return this.loansService.getManagedLoanDetail(companyId, loanId);
+    }
+
+    /**
+     * POST /api/company/loans/:id/disbursement
+     * Confirm off-platform disbursement (company sends on behalf of lender via bank transfer).
+     * Body: { amount, transferDate, referenceNumber? }
+     */
+    @Post('/:id/disbursement')
+    async confirmDisbursement(
+        @Req() req: Request,
+        @Res() res: Response,
+        @Param('id') loanId: number,
+        @Body() body: ConfirmDisbursementRequest
+    ): Promise<void> {
+        const companyId = (req.user as any)?.companyId;
+        if (!companyId) {
+            res.status(401).json({
+                statusCode: '401',
+                statusMessage: 'Company ID not found',
+                timestamp: new Date().toISOString(),
+            });
+            return;
+        }
+        if (!body?.amount || body.amount <= 0 || !body?.transferDate) {
+            res.status(400).json({
+                statusCode: '400',
+                statusMessage: 'amount and transferDate are required',
+                errors: ['amount and transferDate are required'],
+                timestamp: new Date().toISOString(),
+            });
+            return;
+        }
+        try {
+            const data = await this.disbursementService.confirmByCompany(companyId, loanId, {
+                amount: Number(body.amount),
+                transferDate: String(body.transferDate),
+                referenceNumber: body.referenceNumber,
+            });
+            res.status(201).json({
+                statusCode: '201',
+                statusMessage: 'Disbursement confirmed. Borrower has been notified.',
+                data,
+                timestamp: new Date().toISOString(),
+            });
+        } catch (error: any) {
+            const code = error.message?.includes('not found') || error.message?.includes('already been recorded') ? 400 : 500;
+            res.status(code).json({
+                statusCode: String(code),
+                statusMessage: error.message || 'Failed to confirm disbursement',
+                errors: [error.message],
+                timestamp: new Date().toISOString(),
+            });
+        }
     }
 }
 
@@ -505,13 +569,25 @@ export class CompanyDocumentsController {
     @Get('/:id/download')
     async downloadDocument(
         @Req() req: Request,
-        @Param('id') documentId: number
-    ): Promise<DocumentDownloadResponse> {
+        @Res() res: Response,
+        @Param('id') documentId: string
+    ): Promise<void> {
         const companyId = (req.user as any)?.companyId;
         if (!companyId) {
             throw new Error('Company ID not found in request');
         }
-        return this.documentsService.downloadDocument(companyId, documentId);
+        const result = await this.documentsService.downloadDocument(companyId, documentId);
+        if (result.url) {
+            res.redirect(302, result.url);
+            return;
+        }
+        const data = result.data ?? Buffer.alloc(0);
+        res.setHeader('Content-Type', result.contentType);
+        res.setHeader(
+            'Content-Disposition',
+            `attachment; filename="${String(result.fileName).replace(/"/g, '')}"`
+        );
+        res.send(data);
     }
 }
 
@@ -559,4 +635,32 @@ export class CompanyNotificationsController {
         }
         return this.notificationsService.markAsRead(userId, notificationId);
     }
+
+    @Put('/read')
+    @UseBefore(CompanyStatusGuard)
+    async markNotificationsAsRead(
+        @Req() req: Request,
+        @Body() body: { ids?: Array<number | string> }
+    ): Promise<{ updatedCount: number }> {
+        const userId = (req.user as any)?.id;
+        if (!userId) {
+            throw new Error('User ID not found in request');
+        }
+        return this.notificationsService.markMultipleAsRead(userId, body?.ids ?? []);
+    }
+
+    @Put('/mark-all-read')
+    @UseBefore(CompanyStatusGuard)
+    async markAllNotificationsAsRead(
+        @Req() req: Request
+    ): Promise<{ updatedCount: number }> {
+        const userId = (req.user as any)?.id;
+        if (!userId) {
+            throw new Error('User ID not found in request');
+        }
+        return this.notificationsService.markAllAsRead(userId);
+    }
 }
+
+// C-10: Marketplace automation routes are handled by CompanyMarketplaceController
+// in CompanyMarketplaceController.ts — see that file for GET/PUT /config and GET /activity.

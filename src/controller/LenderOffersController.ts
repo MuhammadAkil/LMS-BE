@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { Body, Controller, Delete, Get, Post, Req, Res, UseBefore } from 'routing-controllers';
 import { LenderOffersService } from '../service/LenderOffersService';
-import { MakeOfferRequest } from '../dto/LenderDtos';
+import { MakeOfferRequest, DelegatedOfferActionResponse } from '../dto/LenderDtos';
 import { AuthenticationMiddleware } from '../middleware/AuthenticationMiddleware';
 import { LenderBankAccountGuard, LenderManagedGuard, LenderRoleGuard } from '../middleware/LenderGuards';
 import { withLenderStatusGuard, withLenderVerificationGuard } from '../middleware/LenderGuardWrappers';
@@ -41,6 +41,114 @@ export class LenderOffersController {
             res.status(500).json({
                 statusCode: '500',
                 statusMessage: 'Failed to list offers',
+                errors: [error.message],
+                timestamp: new Date().toISOString(),
+            });
+        }
+    }
+
+    /**
+     * GET /lender/offers/delegated/pending
+     * List company-delegated offers awaiting lender approval/payment.
+     */
+    @Get('/delegated/pending')
+    @UseBefore(withLenderStatusGuard(true), withLenderVerificationGuard(0))
+    async listPendingDelegatedOffers(@Req() req: Request, @Res() res: Response): Promise<void> {
+        try {
+            const lenderId = (req as any).user.id;
+            const items = await this.offersService.listPendingDelegatedOffers(String(lenderId));
+            res.status(200).json({
+                statusCode: '200',
+                statusMessage: 'Pending delegated offers retrieved',
+                data: { offers: items },
+                timestamp: new Date().toISOString(),
+            });
+        } catch (error: any) {
+            res.status(500).json({
+                statusCode: '500',
+                statusMessage: 'Failed to load delegated offers',
+                errors: [error.message],
+                timestamp: new Date().toISOString(),
+            });
+        }
+    }
+
+    /**
+     * POST /lender/offers/:offerId/delegated/approve
+     * Approve delegated offer and start 2h payment window.
+     */
+    @Post('/:offerId/delegated/approve')
+    @UseBefore(withLenderStatusGuard(false), withLenderVerificationGuard(2), LenderBankAccountGuard)
+    async approveDelegatedOffer(@Req() req: Request, @Res() res: Response): Promise<void> {
+        try {
+            const lenderId = (req as any).user.id;
+            const { offerId } = req.params;
+            const data: DelegatedOfferActionResponse = await this.offersService.approveDelegatedOffer(String(lenderId), offerId);
+            res.status(200).json({
+                statusCode: '200',
+                statusMessage: data.message,
+                data,
+                timestamp: new Date().toISOString(),
+            });
+        } catch (error: any) {
+            res.status(400).json({
+                statusCode: '400',
+                statusMessage: error.message || 'Failed to approve delegated offer',
+                errors: [error.message],
+                timestamp: new Date().toISOString(),
+            });
+        }
+    }
+
+    /**
+     * POST /lender/offers/:offerId/delegated/reject
+     * Reject delegated offer and release lock.
+     */
+    @Post('/:offerId/delegated/reject')
+    @UseBefore(withLenderStatusGuard(false), withLenderVerificationGuard(0))
+    async rejectDelegatedOffer(@Req() req: Request, @Res() res: Response): Promise<void> {
+        try {
+            const lenderId = (req as any).user.id;
+            const { offerId } = req.params;
+            const data: DelegatedOfferActionResponse = await this.offersService.rejectDelegatedOffer(String(lenderId), offerId);
+            res.status(200).json({
+                statusCode: '200',
+                statusMessage: data.message,
+                data,
+                timestamp: new Date().toISOString(),
+            });
+        } catch (error: any) {
+            res.status(400).json({
+                statusCode: '400',
+                statusMessage: error.message || 'Failed to reject delegated offer',
+                errors: [error.message],
+                timestamp: new Date().toISOString(),
+            });
+        }
+    }
+
+    /**
+     * POST /lender/offers/:offerId/delegated/pay
+     * Initiate real Przelewy24 payment for delegated offer.
+     * Offer activates only after verified webhook confirmation.
+     */
+    @Post('/:offerId/delegated/pay')
+    @UseBefore(withLenderStatusGuard(false), withLenderVerificationGuard(2), LenderBankAccountGuard)
+    async payDelegatedOffer(@Req() req: Request, @Res() res: Response): Promise<void> {
+        try {
+            const lenderId = (req as any).user.id;
+            const { offerId } = req.params;
+            const data: DelegatedOfferActionResponse = await this.offersService.payDelegatedOffer(String(lenderId), offerId);
+            res.status(200).json({
+                statusCode: '200',
+                statusMessage: data.message,
+                data,
+                timestamp: new Date().toISOString(),
+            });
+        } catch (error: any) {
+            res.status(400).json({
+                statusCode: '400',
+                statusMessage: error.message || 'Failed to pay delegated offer',
                 errors: [error.message],
                 timestamp: new Date().toISOString(),
             });

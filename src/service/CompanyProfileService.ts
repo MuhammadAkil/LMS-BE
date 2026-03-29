@@ -32,7 +32,7 @@ export class CompanyProfileService {
         SELECT 
           c.id,
           c.name,
-          c.bank_account as bankAccount,
+          c.bankAccount,
           c.status_id as statusId,
           c.conditions_status as conditionsStatus,
           c.conditions_locked_at as conditionsLockedAt,
@@ -40,7 +40,8 @@ export class CompanyProfileService {
           c.conditions_json as conditionsJson,
           c.approved_at as approvedAt,
           c.created_at as createdAt,
-          c.updated_at as updatedAt
+          c.updated_at as updatedAt,
+          c.rank
         FROM companies c
         LEFT JOIN user_statuses us ON c.status_id = us.id
         WHERE c.id = ?
@@ -53,7 +54,7 @@ export class CompanyProfileService {
             }
 
             const hasSignedAgreement = await queryRunner.query(
-                `SELECT 1 FROM management_agreements WHERE company_id = ? AND signed_at IS NOT NULL LIMIT 1`,
+                `SELECT 1 FROM management_agreements WHERE companyId = ? AND signedAt IS NOT NULL LIMIT 1`,
                 [companyId]
             );
             const agreementSigned = hasSignedAgreement && hasSignedAgreement.length > 0;
@@ -70,6 +71,7 @@ export class CompanyProfileService {
                 approvedAt: company[0].approvedAt,
                 createdAt: company[0].createdAt,
                 updatedAt: company[0].updatedAt,
+                rank: company[0].rank ?? null,
             };
         } finally {
             await queryRunner.release();
@@ -98,7 +100,7 @@ export class CompanyProfileService {
             await queryRunner.query(
                 `
         UPDATE companies
-        SET bank_account = ?, updated_at = NOW()
+        SET bankAccount = ?, updated_at = NOW()
         WHERE id = ?
         `,
                 [bankAccount, companyId]

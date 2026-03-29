@@ -23,8 +23,8 @@ export class LenderInvestmentsController {
 
     /**
      * GET /lender/investments
-     * Get all investments for lender (paginated)
-     * Query params: page, pageSize
+     * Get all investments for lender (paginated). Includes direct and company-managed loans.
+     * Query params: page, pageSize, view (all | direct | company_managed)
      * Required guards: LenderRoleGuard, LenderStatusGuard(allowReadOnly=true)
      */
     @Get('/')
@@ -34,8 +34,10 @@ export class LenderInvestmentsController {
             const lenderId = (req as any).user.id;
             const page = parseInt((req.query.page as string) || '1');
             const pageSize = parseInt((req.query.pageSize as string) || '10');
+            const view = (req.query.view as string) || 'all';
+            const viewFilter = view === 'direct' ? 'direct' : view === 'company_managed' ? 'company_managed' : 'all';
 
-            const investments = await this.investmentsService.getInvestmentsPaginated(lenderId, page, pageSize);
+            const investments = await this.investmentsService.getInvestmentsPaginated(lenderId, page, pageSize, viewFilter);
 
             res.status(200).json({
                 statusCode: '200',

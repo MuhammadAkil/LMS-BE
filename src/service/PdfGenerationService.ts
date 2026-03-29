@@ -12,12 +12,15 @@ export interface LoanAgreementData {
   borrowerAddress?: string;
   lenderName: string;
   lenderEmail: string;
+  lenderBankAccount?: string;
   loanAmount: number;
   durationMonths?: number;
   durationDays?: number;
   interestRate: number;
   repaymentType: string;
   voluntaryCommission: number;
+  /** Whether the voluntary lender commission was paid. Determines if repayment obligation arises. */
+  voluntaryCommissionPaid: boolean;
   portalCommission: number;
   disbursementDate: string;
   dueDate: string;
@@ -101,11 +104,13 @@ export class PdfGenerationService {
     doc.fontSize(10).font('Helvetica');
     doc.text(`Pożyczkobiorca / Borrower: ${data.borrowerName}`);
     doc.text(`Email: ${data.borrowerEmail}`);
+    if (data.borrowerBankAccount) doc.text(`Rachunek bankowy / Bank Account: ${data.borrowerBankAccount}`);
     if (data.borrowerAddress) doc.text(`Adres / Address: ${data.borrowerAddress}`);
     if (data.borrowerPesel) doc.text(`PESEL: ${data.borrowerPesel}`);
     doc.moveDown(0.5);
     doc.text(`Pożyczkodawca / Lender: ${data.lenderName}`);
     doc.text(`Email: ${data.lenderEmail}`);
+    if (data.lenderBankAccount) doc.text(`Rachunek bankowy / Bank Account: ${data.lenderBankAccount}`);
     doc.moveDown(1);
 
     // Loan Details
@@ -127,6 +132,29 @@ export class PdfGenerationService {
     doc.fontSize(10).font('Helvetica');
     doc.text(`Prowizja portalu / Portal Commission: ${formatCurrency(data.portalCommission)}`);
     doc.text(`Dobrowolna prowizja pożyczkodawcy / Voluntary Lender Commission: ${formatCurrency(data.voluntaryCommission)}`);
+    doc.text(`Status dobrowolnej prowizji / Voluntary Commission Status: ${data.voluntaryCommissionPaid ? 'Opłacona / Paid' : 'Nie opłacona / Not paid'}`);
+    doc.moveDown(0.5);
+    if (data.voluntaryCommissionPaid) {
+      doc.font('Helvetica').fillColor('black');
+      doc.text(
+        'Dobrowolna prowizja została opłacona. Zobowiązanie do spłaty pożyczki wynikające z niniejszej umowy jest skuteczne.',
+        { align: 'justify' }
+      );
+      doc.text(
+        'The voluntary lender commission has been paid. The repayment obligation under this agreement is in force.',
+        { align: 'justify' }
+      );
+    } else {
+      doc.font('Helvetica').fillColor('black');
+      doc.text(
+        'Dobrowolna prowizja nie została opłacona. Niniejsza umowa pożyczki pozostaje w mocy, jednak zobowiązanie pożyczkobiorcy do spłaty pożyczki (kwota główna i odsetki) NIE POWSTAJE. Harmonogram spłat poniżej ma charakter wyłącznie informacyjny i nie tworzy wiążącego zobowiązania.',
+        { align: 'justify' }
+      );
+      doc.text(
+        'The voluntary lender commission has not been paid. This loan agreement remains in effect, but the borrower\'s obligation to repay the loan (principal and interest) does NOT arise. The repayment schedule below is for information only and does not create a binding obligation.',
+        { align: 'justify' }
+      );
+    }
     doc.moveDown(1);
 
     // Repayment Schedule
@@ -134,6 +162,12 @@ export class PdfGenerationService {
       doc.fontSize(13).font('Helvetica-Bold').text('4. HARMONOGRAM SPŁAT / REPAYMENT SCHEDULE');
       doc.moveDown(0.5);
       doc.fontSize(9).font('Helvetica');
+      if (!data.voluntaryCommissionPaid) {
+        doc.font('Helvetica-Oblique').fillColor('#666666');
+        doc.text('Poniższy harmonogram ma charakter wyłącznie informacyjny. Zobowiązanie do spłaty nie powstało. / The schedule below is for information only. The repayment obligation has not arisen.', { align: 'justify' });
+        doc.fillColor('black').font('Helvetica');
+        doc.moveDown(0.5);
+      }
 
       // Table header
       const tableTop = doc.y;
@@ -161,19 +195,39 @@ export class PdfGenerationService {
     doc.fontSize(13).font('Helvetica-Bold').text('5. POSTANOWIENIA OGÓLNE / GENERAL PROVISIONS');
     doc.moveDown(0.5);
     doc.fontSize(9).font('Helvetica');
-    doc.text(
-      'Pożyczkobiorca zobowiązuje się do terminowej spłaty pożyczki wraz z należnymi odsetkami. ' +
-      'W przypadku opóźnienia w spłacie, pożyczkodawca ma prawo do naliczenia odsetek za zwłokę. ' +
-      'Niniejsza umowa została zawarta za pośrednictwem platformy pożyczkowej i jest prawnie wiążąca.',
-      { align: 'justify' }
-    );
-    doc.moveDown(0.5);
-    doc.text(
-      'The borrower undertakes to repay the loan with applicable interest on time. ' +
-      'In case of payment delay, the lender is entitled to charge late payment interest. ' +
-      'This agreement has been concluded through the lending platform and is legally binding.',
-      { align: 'justify' }
-    );
+    if (data.voluntaryCommissionPaid) {
+      doc.text(
+        'Pożyczkobiorca zobowiązuje się do terminowej spłaty pożyczki wraz z należnymi odsetkami. ' +
+        'W przypadku opóźnienia w spłacie, pożyczkodawca ma prawo do naliczenia odsetek za zwłokę. ' +
+        'Wypłata pożyczki oraz spłaty rat/całości pożyczki następują bezpośrednio między stronami niniejszej umowy ' +
+        '(pożyczkobiorcą i pożyczkodawcą), bez pośrednictwa platformy. ' +
+        'Niniejsza umowa została zawarta za pośrednictwem platformy pożyczkowej i jest prawnie wiążąca.',
+        { align: 'justify' }
+      );
+      doc.moveDown(0.5);
+      doc.text(
+        'The borrower undertakes to repay the loan with applicable interest on time. ' +
+        'In case of payment delay, the lender is entitled to charge late payment interest. ' +
+        'Loan disbursement and repayments are executed directly between the contracting parties ' +
+        '(borrower and lender), without the platform acting as a payment intermediary. ' +
+        'This agreement has been concluded through the lending platform and is legally binding.',
+        { align: 'justify' }
+      );
+    } else {
+      doc.text(
+        'Zgodnie z sekcją 3 niniejszej umowy, zobowiązanie do spłaty pożyczki nie powstało z uwagi na nieopłacenie dobrowolnej prowizji pożyczkodawcy. ' +
+        'Wypłata pożyczki oraz ewentualne spłaty następują bezpośrednio między stronami, bez pośrednictwa platformy. ' +
+        'Niniejsza umowa została zawarta za pośrednictwem platformy pożyczkowej.',
+        { align: 'justify' }
+      );
+      doc.moveDown(0.5);
+      doc.text(
+        'As set out in Section 3 of this agreement, the repayment obligation has not arisen due to the voluntary lender commission not having been paid. ' +
+        'Loan disbursement and any repayments are executed directly between the parties, without the platform acting as intermediary. ' +
+        'This agreement has been concluded through the lending platform.',
+        { align: 'justify' }
+      );
+    }
     doc.moveDown(2);
 
     // Signatures

@@ -1,7 +1,10 @@
 import { Request, Response } from 'express';
-import { Body, Controller, Delete, Get, Post, Req, Res, UseBefore } from 'routing-controllers';
+import { createReadStream, existsSync } from 'node:fs';
+import { basename } from 'node:path';
+import { resolveStoredRefForDownload } from '../util/storedFileAccess';
+import { Body, Controller, Delete, Get, Param, Post, Req, Res, UseBefore } from 'routing-controllers';
 import { LenderManagementService } from '../service/LenderManagementService';
-import { CreateManagementAgreementRequest } from '../dto/LenderDtos';
+import { CreateManagementAgreementRequest, ManagementAgreementEligibilityResponse } from '../dto/LenderDtos';
 import { AuthenticationMiddleware } from '../middleware/AuthenticationMiddleware';
 import { LenderBankAccountGuard, LenderRoleGuard } from '../middleware/LenderGuards';
 import { withLenderStatusGuard, withLenderVerificationGuard } from '../middleware/LenderGuardWrappers';
@@ -49,6 +52,35 @@ export class LenderManagementController {
             res.status(500).json({
                 statusCode: '500',
                 statusMessage: 'Failed to retrieve management companies',
+                errors: [error.message],
+                timestamp: new Date().toISOString(),
+            });
+        }
+    }
+
+    /**
+     * GET /lender/management-agreements/eligibility
+     * Whether the lender can select a management company (account active, verified, bank account).
+     * No manual approval: unlocks automatically when conditions are met.
+     */
+    @Get('/management-agreements/eligibility')
+    @UseBefore(withLenderStatusGuard(true), withLenderVerificationGuard(0))
+    async getManagementAgreementEligibility(@Req() req: Request, @Res() res: Response): Promise<void> {
+        try {
+            const lenderId = (req as any).user.id;
+            const eligibility: ManagementAgreementEligibilityResponse =
+                await this.managementService.getManagementAgreementEligibility(lenderId);
+            res.status(200).json({
+                statusCode: '200',
+                statusMessage: 'Eligibility retrieved',
+                data: eligibility,
+                timestamp: new Date().toISOString(),
+            });
+        } catch (error: any) {
+            console.error('Error in getManagementAgreementEligibility:', error);
+            res.status(500).json({
+                statusCode: '500',
+                statusMessage: 'Failed to retrieve eligibility',
                 errors: [error.message],
                 timestamp: new Date().toISOString(),
             });
@@ -138,6 +170,79 @@ export class LenderManagementController {
                 errors: [error.message],
                 timestamp: new Date().toISOString(),
             });
+        }
+    }
+
+    /**
+     * POST /lender/management-agreements/:agreementId/sign
+     * Lender signs the agreement (name, role, signature). Required before company can complete.
+     */
+    @Post('/management-agreements/:agreementId/sign')
+    @UseBefore(withLenderStatusGuard(false), withLenderVerificationGuard(2))
+    async signAgreement(
+        @Req() req: Request,
+        @Res() res: Response,
+        @Param('agreementId') agreementId: string,
+        @Body() body: { signerName?: string; signerRole?: string; signatureData?: string }
+    ): Promise<void> {
+        try {
+            const lenderId = (req as any).user.id;
+            const agreement = await this.managementService.signAgreement(lenderId, agreementId, {
+                signerName: body.signerName ?? '',
+                signerRole: body.signerRole ?? '',
+                signatureData: body.signatureData,
+            });
+            res.status(200).json({
+                statusCode: '200',
+                statusMessage: 'Agreement signed successfully',
+                data: agreement,
+                timestamp: new Date().toISOString(),
+            });
+        } catch (error: any) {
+            console.error('Error in signAgreement:', error);
+            res.status(error.message?.includes('not found') ? 404 : 400).json({
+                statusCode: error.message?.includes('not found') ? '404' : '400',
+                statusMessage: 'Failed to sign agreement',
+                errors: [error.message],
+                timestamp: new Date().toISOString(),
+            });
+        }
+    }
+
+    /**
+     * GET /lender/management-agreements/:agreementId/download
+     * Download signed agreement PDF (when both parties have signed).
+     */
+    @Get('/management-agreements/:agreementId/download')
+    @UseBefore(withLenderStatusGuard(true))
+    async downloadAgreement(@Req() req: Request, @Res() res: Response, @Param('agreementId') agreementId: string): Promise<void> {
+        try {
+            const lenderId = (req as any).user.id;
+            const stored = await this.managementService.getSignedDocumentPath(lenderId, agreementId);
+            if (!stored) {
+                res.status(404).json({ statusCode: '404', statusMessage: 'Signed document not found' });
+                return;
+            }
+            const resolved = await resolveStoredRefForDownload(stored, 3600);
+            if (resolved.mode === 'local') {
+                if (!existsSync(resolved.path)) {
+                    res.status(404).json({ statusCode: '404', statusMessage: 'Signed document not found' });
+                    return;
+                }
+                const fileName = basename(resolved.path);
+                res.setHeader('Content-Type', 'application/pdf');
+                res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+                createReadStream(resolved.path).pipe(res);
+                return;
+            }
+            res.status(200).json({
+                statusCode: '200',
+                statusMessage: 'Presigned URL generated successfully',
+                data: { url: resolved.url, expiresIn: 3600, key: stored },
+                timestamp: new Date().toISOString(),
+            });
+        } catch (e: any) {
+            res.status(500).json({ statusCode: '500', statusMessage: e?.message || 'Download failed' });
         }
     }
 

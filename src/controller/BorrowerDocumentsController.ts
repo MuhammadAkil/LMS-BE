@@ -97,42 +97,38 @@ export class BorrowerDocumentsController {
             const borrowerId = user.id.toString();
             const documentId = req.params.id;
 
-            const filePath = await this.documentsService.downloadDocument(borrowerId, documentId);
+            const prep = await this.documentsService.prepareDocumentDownload(borrowerId, documentId);
 
-            // Stream the file if it exists on disk, otherwise return the URL
-            const fs = require('fs');
-            const path = require('path');
-            if (filePath && !filePath.startsWith('http') && fs.existsSync(filePath)) {
-                const fileName = path.basename(filePath);
-                res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
-                res.setHeader('Content-Type', 'application/pdf');
-                const fileStream = fs.createReadStream(filePath);
-                fileStream.on('error', () => {
-                    if (!res.headersSent) {
-                        res.status(404).json({
-                            statusCode: '404',
-                            statusMessage: 'File not found',
-                            errors: ['Document file not found on server'],
-                            timestamp: new Date().toISOString(),
-                        });
-                    }
-                });
-                fileStream.pipe(res);
-            } else if (filePath && filePath.startsWith('http')) {
-                // External URL (e.g. S3): redirect to it
-                res.redirect(302, filePath);
-            } else {
-                res.status(404).json({
-                    statusCode: '404',
-                    statusMessage: 'Document not available',
-                    errors: ['No file path associated with this document'],
+            if (prep.mode === 'url') {
+                res.status(200).json({
+                    statusCode: '200',
+                    statusMessage: 'Presigned URL generated successfully',
+                    data: { url: prep.url, expiresIn: prep.expiresIn },
                     timestamp: new Date().toISOString(),
                 });
+                return;
             }
+
+            const fs = require('fs');
+            res.setHeader('Content-Disposition', `attachment; filename="${prep.downloadName}"`);
+            res.setHeader('Content-Type', prep.contentType);
+            const fileStream = fs.createReadStream(prep.absolutePath);
+            fileStream.on('error', () => {
+                if (!res.headersSent) {
+                    res.status(404).json({
+                        statusCode: '404',
+                        statusMessage: 'File not found',
+                        errors: ['Document file not found on server'],
+                        timestamp: new Date().toISOString(),
+                    });
+                }
+            });
+            fileStream.pipe(res);
         } catch (error: any) {
             console.error('Error in downloadDocument:', error);
-            res.status(500).json({
-                statusCode: '500',
+            const status = error.message?.includes('not available') ? 403 : 500;
+            res.status(status).json({
+                statusCode: String(status),
                 statusMessage: 'Internal server error',
                 errors: [error.message],
                 timestamp: new Date().toISOString(),

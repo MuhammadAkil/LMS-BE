@@ -2,6 +2,7 @@ import { AuditLogRepository } from '../repository/AuditLogRepository';
 import { LoanRepository } from '../repository/LoanRepository';
 import { LoanApplicationRepository } from '../repository/LoanApplicationRepository';
 import { RepaymentRepository } from '../repository/RepaymentRepository';
+import { LoanDisbursementService } from './LoanDisbursementService';
 import {
     ActiveLoanListResponse,
     ActiveLoanListItemDto,
@@ -42,12 +43,14 @@ export class BorrowerLoansService {
     private loanRepo: LoanRepository;
     private loanAppRepo: LoanApplicationRepository;
     private repaymentRepo: RepaymentRepository;
+    private disbursementService: LoanDisbursementService;
 
     constructor() {
         this.auditRepo = new AuditLogRepository();
         this.loanRepo = new LoanRepository();
         this.loanAppRepo = new LoanApplicationRepository();
         this.repaymentRepo = new RepaymentRepository();
+        this.disbursementService = new LoanDisbursementService();
     }
 
     /**
@@ -221,6 +224,7 @@ export class BorrowerLoansService {
                 if (r.paidAt) {
                     paidAmount += Number(r.amount);
                     schedule.push({
+                        id: Number(r.id),
                         dueDate: toDateStr(r.dueDate)!,
                         amount: Number(r.amount),
                         status: 'PAID',
@@ -233,6 +237,7 @@ export class BorrowerLoansService {
                     const isPastDue = dueDateObj < today;
 
                     schedule.push({
+                        id: Number(r.id),
                         dueDate: toDateStr(r.dueDate)!,
                         amount: Number(r.amount),
                         status: isPastDue ? 'OVERDUE' : 'PENDING',
@@ -253,6 +258,7 @@ export class BorrowerLoansService {
             const expectedCompletionDate = new Date(loanCreatedAt);
             expectedCompletionDate.setMonth(expectedCompletionDate.getMonth() + app.durationMonths);
 
+            const disbursement = await this.disbursementService.getByLoanId(loanIdNum);
             const loanDetail: LoanDetailDto = {
                 id: loanIdNum,
                 applicationId: loan.applicationId,
@@ -268,6 +274,7 @@ export class BorrowerLoansService {
                 nextRepaymentAmount: nextRepaymentAmount,
                 delayedPaymentsCount: delayedPaymentsCount,
                 repaymentSchedule: schedule,
+                disbursement: disbursement ?? undefined,
             };
 
             // Audit log
@@ -323,6 +330,7 @@ export class BorrowerLoansService {
             const schedule: RepaymentScheduleItemDto[] = repayments.map((r) => {
                 if (r.paidAt) {
                     return {
+                        id: Number(r.id),
                         dueDate: toDateStr(r.dueDate)!,
                         amount: Number(r.amount),
                         status: 'PAID',
@@ -333,6 +341,7 @@ export class BorrowerLoansService {
                     const dueDateObj = toDateObj(r.dueDate)!;
                     const isPastDue = dueDateObj < today;
                     return {
+                        id: Number(r.id),
                         dueDate: toDateStr(r.dueDate)!,
                         amount: Number(r.amount),
                         status: isPastDue ? 'OVERDUE' : 'PENDING',
@@ -415,7 +424,7 @@ export class BorrowerLoansService {
                     id: Number(r.id),
                     amount: Number(r.amount),
                     status,
-                    paymentMethod: r.paidAt ? 'SELF_REPORTED' : '—',
+                    paymentMethod: r.paidAt ? 'DIRECT_PARTY_TRANSFER' : 'DIRECT_PARTY_TRANSFER_PENDING',
                     paidDate: r.paidAt ? new Date(r.paidAt).toISOString() : undefined,
                     reference: `REP-${r.id}`,
                 };
@@ -450,7 +459,12 @@ export class BorrowerLoansService {
      * Borrower marks an installment as paid (self-report).
      * Sets repayments.paid_at for the given repayment id.
      */
-    async confirmRepayment(borrowerId: string, loanId: string, repaymentId: string): Promise<{ success: boolean }> {
+    async confirmRepayment(
+        borrowerId: string,
+        loanId: string,
+        repaymentId: string,
+        options?: { isE2EMockPayment?: boolean }
+    ): Promise<{ success: boolean; mocked?: boolean; confirmation?: string }> {
         const borrowerIdNum = parseInt(borrowerId, 10);
         const loanIdNum = parseInt(loanId, 10);
         const repaymentIdNum = parseInt(repaymentId, 10);
@@ -462,6 +476,10 @@ export class BorrowerLoansService {
         if (!repayment || Number(repayment.loanId) !== loanIdNum) throw new Error('Repayment not found');
         if (repayment.paidAt) throw new Error('This installment is already marked as paid');
 
+        if (options?.isE2EMockPayment) {
+            console.log(`[E2E] Mock payment bypass enabled for loan ${loanIdNum}, repayment ${repaymentIdNum}`);
+        }
+
         await this.repaymentRepo.update(repaymentIdNum, { paidAt: new Date() });
 
         await this.auditRepo.create({
@@ -472,6 +490,10 @@ export class BorrowerLoansService {
             createdAt: new Date(),
         } as any);
 
-        return { success: true };
+        return {
+            success: true,
+            mocked: Boolean(options?.isE2EMockPayment),
+            confirmation: 'Repayment confirmed successfully',
+        };
     }
 }

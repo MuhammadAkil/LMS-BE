@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { UserRepository } from '../repository/UserRepository';
 import { PlatformConfigRepository } from '../repository/PlatformConfigRepository';
+import { AppDataSource } from '../config/database';
 
 /**
  * BORROWER GUARDS - Access control for borrower endpoints
@@ -210,9 +211,14 @@ export async function BorrowerCommissionPaymentGuard(
         return;
     }
 
-    // TODO: Query payments table for commission_type payment with status = PAID
-    // SELECT status FROM payments WHERE borrower_id = ? AND payment_type_id = COMMISSION_ID ORDER BY created_at DESC LIMIT 1
-    const commissionPaid = user.commissionPaid || false; // TODO: Fetch from DB
+    // payment_type_id 3 = PORTAL_COMMISSION; status_id 2 = PAID (payment_statuses)
+    const rows: any[] = await AppDataSource.query(
+        `SELECT id FROM payments
+         WHERE user_id = ? AND payment_type_id = 3 AND status_id = 2
+         ORDER BY created_at DESC LIMIT 1`,
+        [user.id]
+    );
+    const commissionPaid = rows.length > 0;
 
     if (!commissionPaid) {
         res.status(403).json({

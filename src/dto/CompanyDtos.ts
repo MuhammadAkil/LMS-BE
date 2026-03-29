@@ -63,6 +63,8 @@ export class CompanyProfileResponse {
     approvedAt?: Date;
     createdAt!: Date;
     updatedAt!: Date;
+    /** Auto-computed rank (1 = highest). Read-only. */
+    rank?: number | null;
 }
 
 // ==================== CONDITIONS DTOs ====================
@@ -126,6 +128,14 @@ export class CompanyAgreementResponse {
     createdAt!: Date;
     updatedAt!: Date;
     status!: 'UNSIGNED' | 'SIGNED';
+    /** Bilateral: pending lender, pending company, or both signed */
+    signingStatus?: 'PENDING_LENDER' | 'PENDING_COMPANY' | 'SIGNED';
+    lenderSignedAt?: Date;
+    companySignedAt?: Date;
+    signedDocumentPath?: string;
+    /** For pending list: lender display name/email */
+    lenderName?: string;
+    lenderEmail?: string;
 }
 
 export class SignAgreementRequest {
@@ -135,15 +145,26 @@ export class SignAgreementRequest {
 
     @IsOptional()
     @IsString()
-    signatureData?: string; // Base64 encoded signature
+    signerName?: string;
+
+    @IsOptional()
+    @IsString()
+    signerRole?: string;
+
+    @IsOptional()
+    @IsString()
+    signatureData?: string; // Base64 encoded signature image/data
 }
 
 export class AgreementDownloadResponse {
     contractId!: number;
     fileName!: string;
     contentType!: string;
-    data!: Buffer; // Binary PDF data
+    /** @deprecated Prefer url — binary inline responses are not used with S3 */
+    data?: Buffer;
     createdAt!: Date;
+    url?: string;
+    expiresIn?: number;
 }
 
 // ==================== LINKED LENDERS DTOs ====================
@@ -259,6 +280,10 @@ export class ManagedLoanResponse {
     createdAt!: Date;
     nextPaymentDueDate?: Date;
     repaymentDetails!: RepaymentDetailDto[];
+    /** Lender on whose behalf the company is managing this loan */
+    lenderId!: number;
+    lenderName!: string;
+    lenderEmail?: string;
 }
 
 export class RepaymentDetailDto {
@@ -279,12 +304,25 @@ export class ManagedLoansListResponse {
     };
 }
 
+/** Off-platform disbursement record (manual bank transfer by lender or company). */
+export interface DisbursementDto {
+    id: number;
+    loanId: number;
+    senderType: 'LENDER' | 'COMPANY';
+    amount: number;
+    transferDate: string;
+    referenceNumber?: string;
+    confirmedAt: string;
+}
+
 export class ManagedLoanDetailResponse extends ManagedLoanResponse {
     contractTerms!: string;
     interestRate!: number;
     totalRepayments!: number;
     paidRepayments!: number;
     overdueRepayments!: number;
+    /** Set when disbursement has been confirmed (by lender or company). */
+    disbursement?: DisbursementDto;
 }
 
 // ==================== BULK ACTIONS DTOs ====================
@@ -327,6 +365,17 @@ export class BulkXmlExportRequest {
     @IsNotEmpty({ message: 'Loan IDs are required' })
     loanIds!: number[];
 
+    /** Optional: field keys to include in XML (default: all). */
+    @IsOptional()
+    @IsArray()
+    @IsString({ each: true })
+    fields?: string[];
+
+    /** Optional: use saved template's field selection. */
+    @IsOptional()
+    @IsInt()
+    templateId?: number;
+
     // ENFORCED: loanIds.length must be <= 500
 }
 
@@ -357,7 +406,7 @@ export class BulkActionResponse {
 // ==================== DOCUMENT CENTER DTOs ====================
 
 export class DocumentListItem {
-    id!: number;
+    id!: string | number;
     type!: string; // CONTRACT, EXPORT, CLAIM, REMINDER
     name!: string;
     fileSize?: number;
@@ -376,11 +425,14 @@ export class DocumentListResponse {
 }
 
 export class DocumentDownloadResponse {
-    id!: number;
+    id!: string | number;
     fileName!: string;
     contentType!: string;
-    data!: Buffer;
+    /** Present for legacy disk-backed rows only */
+    data?: Buffer;
     createdAt!: Date;
+    url?: string;
+    expiresIn?: number;
 }
 
 // ==================== NOTIFICATIONS DTOs ====================
@@ -461,4 +513,182 @@ export class ExportLimitExceededError extends CompanyErrorResponse {
     statusCode = '400';
     statusMessage = 'Export Limit Exceeded';
     detail = 'XML exports are limited to 500 loans per request.';
+}
+
+// ==================== REPORTS ====================
+
+export class CompanyReportsQuery {
+    @IsOptional()
+    @IsDateString()
+    dateFrom?: string; // ISO date, e.g. "2025-01-01"
+
+    @IsOptional()
+    @IsDateString()
+    dateTo?: string;   // ISO date, e.g. "2025-12-31"
+
+    @IsOptional()
+    @IsInt()
+    lenderId?: number; // Filter by specific linked lender
+
+    @IsOptional()
+    @IsString()
+    loanStatus?: string; // E.g. ACTIVE | DEFAULTED | CLOSED | FUNDED
+
+    @IsOptional()
+    @IsString()
+    borrowerLevel?: string; // A | B | C | D | E | F
+
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    page?: number;
+
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    @Max(200)
+    pageSize?: number;
+}
+
+export class CompanyPortfolioLoanDto {
+    id!: number;
+    loanAmount!: number;
+    outstandingBalance!: number;
+    status!: string;
+    borrowerLevel?: string;
+    lenderId!: number;
+    lenderEmail!: string;
+    lenderName!: string;
+    commissionAmount!: number;
+    loanCreatedAt!: Date;
+    closedAt?: Date;
+    overdueCount!: number;
+    paidCount!: number;
+    totalRepayments!: number;
+}
+
+export class CompanyPortfolioReportResponse {
+    loans!: CompanyPortfolioLoanDto[];
+    summary!: {
+        totalLoans: number;
+        totalLoanAmount: number;
+        totalOutstandingBalance: number;
+        totalCommissions: number;
+        defaultedLoans: number;
+        activeLoans: number;
+        closedLoans: number;
+    };
+    pagination!: { page: number; pageSize: number; total: number; pages: number };
+    generatedAt!: Date;
+}
+
+export class CompanyCommissionLenderDto {
+    lenderId!: number;
+    lenderEmail!: string;
+    lenderName!: string;
+    managedAmount!: number;
+    commissionsEarned!: number;
+    commissionRate!: number;
+    activeLoans!: number;
+    agreementSignedAt?: Date;
+    periodFrom!: Date;
+    periodTo!: Date;
+}
+
+export class CompanyCommissionReportResponse {
+    lenders!: CompanyCommissionLenderDto[];
+    summary!: {
+        totalManagedAmount: number;
+        totalCommissionsEarned: number;
+        commissionRate: number;
+        lenderCount: number;
+    };
+    generatedAt!: Date;
+}
+
+export class CompanyDefaultedLoanDto {
+    id!: number;
+    loanAmount!: number;
+    outstandingBalance!: number;
+    borrowerEmail!: string;
+    borrowerLevel?: string;
+    lenderId!: number;
+    lenderEmail!: string;
+    defaultedAt?: Date;
+    claimStatus?: string; // generated | submitted | resolved | none
+    overdueRepayments!: number;
+}
+
+export class CompanyDefaultedReportResponse {
+    loans!: CompanyDefaultedLoanDto[];
+    total!: number;
+    generatedAt!: Date;
+}
+
+export class CompanyReportExportRequest {
+    @IsOptional()
+    @IsDateString()
+    dateFrom?: string;
+
+    @IsOptional()
+    @IsDateString()
+    dateTo?: string;
+
+    @IsOptional()
+    @IsInt()
+    lenderId?: number;
+
+    @IsOptional()
+    @IsString()
+    loanStatus?: string;
+
+    @IsOptional()
+    @IsString()
+    borrowerLevel?: string;
+
+    @IsOptional()
+    @IsArray()
+    @IsInt({ each: true })
+    loanIds?: number[]; // If provided, export only these loans
+
+    /** Optional: field keys to include in XML/CSV (default: all). */
+    @IsOptional()
+    @IsArray()
+    @IsString({ each: true })
+    fields?: string[];
+
+    /** Optional: use saved template's field selection. */
+    @IsOptional()
+    @IsInt()
+    templateId?: number;
+}
+
+// ==================== EXPORT TEMPLATES ====================
+
+export class CreateCompanyExportTemplateRequest {
+    @IsNotEmpty()
+    @IsString()
+    name!: string;
+
+    @IsArray()
+    @IsString({ each: true })
+    fieldKeys!: string[];
+}
+
+export class UpdateCompanyExportTemplateRequest {
+    @IsOptional()
+    @IsString()
+    name?: string;
+
+    @IsOptional()
+    @IsArray()
+    @IsString({ each: true })
+    fieldKeys?: string[];
+}
+
+export class CompanyExportTemplateResponse {
+    id!: number;
+    name!: string;
+    fieldKeys!: string[];
+    createdAt!: string;
 }

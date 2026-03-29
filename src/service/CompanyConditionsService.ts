@@ -31,7 +31,7 @@ export class CompanyConditionsService {
         const queryRunner = AppDataSource.createQueryRunner();
         try {
             const rows = await queryRunner.query(
-                `SELECT id, conditions_json, conditions_status, conditions_locked_at, admin_revision_note, min_managed_amount, bank_account, commission_pct
+                `SELECT id, conditions_json, conditions_status, conditions_locked_at, admin_revision_note, min_managed_amount, bankAccount, commission_pct
                  FROM companies WHERE id = ?`,
                 [companyId]
             );
@@ -48,7 +48,7 @@ export class CompanyConditionsService {
                 minManagedAmount: Number(json.minManagedAmount ?? c.min_managed_amount ?? 0),
                 minPeriodMonths: Number(json.minPeriodMonths ?? 12),
                 managementCommissionRate: Number(json.managementCommissionRate ?? c.commission_pct ?? 0),
-                bankAccount: json.bankAccount ?? c.bank_account ?? '',
+                bankAccount: json.bankAccount ?? c.bankAccount ?? '',
                 handleReminders: Boolean(json.handleReminders ?? true),
                 handleCourtClaims: Boolean(json.handleCourtClaims ?? false),
                 autoOfferSettings: json.autoOfferSettings ?? undefined,
@@ -97,7 +97,7 @@ export class CompanyConditionsService {
         try {
             const r = await qr.query(`SELECT \`value\` FROM platform_configs WHERE \`key\` = 'MAX_COMPANY_COMMISSION_RATE' LIMIT 1`);
             if (r && r[0] && r[0].value != null) return Number(r[0].value);
-        } catch (_) {}
+        } catch (_) { }
         return 20; // default cap 20%
     }
 

@@ -16,7 +16,7 @@ export class UserSession {
     @Column({ type: 'bigint', name: 'user_id' })
     userId!: number;
 
-    @Column({ type: 'varchar', length: 255, unique: true })
+    @Column({ type: 'varchar', length: 512, unique: true })
     token!: string;
 
     @Column({ type: 'datetime', nullable: true, name: 'expires_at' })

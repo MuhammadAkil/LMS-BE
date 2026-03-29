@@ -46,7 +46,7 @@ export class LenderMarketplaceController {
      * - Capital locked immediately
      * - Bid amount must be <= remaining loan amount
      * - Must not exceed lender's max bid limit
-     * - Funds held in virtual wallet hold
+     * - Bid commitment recorded; investment capital is not held by the portal (see platform fund flow rules).
      * 
      * Request body:
      * - loan_request_id: string
@@ -58,7 +58,7 @@ export class LenderMarketplaceController {
      * - status: 'ACTIVE'
      * - locked_funds: true
      */
-    @Post('marketplace/bids')
+    @Post('/marketplace/bids')
     @UseBefore(MarketplaceRuleGuard)
     @HttpCode(201)
     async createBid(
@@ -88,7 +88,7 @@ export class LenderMarketplaceController {
      * - total_allocated: number
      * - active_bid_count: number
      */
-    @Get('lender/bids')
+    @Get('/lender/bids')
     async getLenderBids(
         @Req() req: MarketplaceRequest,
     ): Promise<LenderBidsResponse> {
@@ -123,7 +123,7 @@ export class LenderMarketplaceController {
      * 
      * Response: Confirmation with updated bid status
      */
-    @Delete('marketplace/bids/:id')
+    @Delete('/marketplace/bids/:id')
     @UseBefore(BidOwnershipGuard, CapitalLockGuard)
     @HttpCode(200)
     async withdrawBid(

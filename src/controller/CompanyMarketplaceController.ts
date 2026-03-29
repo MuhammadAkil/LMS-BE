@@ -30,7 +30,8 @@ import { IsBoolean, IsEnum, IsInt, IsNumber, IsOptional, Min, Max, IsNotEmpty } 
 import { Request } from 'express';
 import { MarketplaceRequest } from '../common/MarketplaceRequest';
 import { MarketplaceBidService } from '../service/MarketplaceBidService';
-import { AgreementGuard, MarketplaceRuleGuard } from '../middleware/MarketplaceGuards';
+import { LenderOffersService } from '../service/LenderOffersService';
+import { LenderLoansService } from '../service/LenderLoansService';
 import { CompanyGuard, CompanyStatusGuard, AgreementSignatureGuard } from '../middleware/CompanyGuards';
 import {
     CreateCompanyAutoBidRequest,
@@ -38,6 +39,7 @@ import {
     CompanyActivityResponse,
 } from '../dto/MarketplaceDtos';
 import { CompanyRepository } from '../repository/CompanyRepository';
+import { AppDataSource } from '../config/database';
 
 enum BorrowerTrustLevel {
     A = 'A', B = 'B', C = 'C', D = 'D', E = 'E', F = 'F',
@@ -77,9 +79,24 @@ export class SaveAutoBidConfigRequest {
     timeBasedBidding?: boolean;
 }
 
+export class CreateDelegatedBidRequest {
+    @IsNotEmpty()
+    loanId!: string;
+
+    @IsInt()
+    lenderId!: number;
+
+    @IsNumber()
+    @Min(10)
+    amount!: number;
+}
+
 @Controller('/company/marketplace')
+@UseBefore(CompanyGuard, CompanyStatusGuard)
 export class CompanyMarketplaceController {
     private companyRepo = new CompanyRepository();
+    private offersService = new LenderOffersService();
+    private loansService = new LenderLoansService();
 
     constructor(
         private bidService: MarketplaceBidService,
@@ -151,20 +168,14 @@ export class CompanyMarketplaceController {
      * - locked_funds: true
      */
     @Post('auto-bid')
-    @UseBefore(AgreementGuard, MarketplaceRuleGuard)
+    @UseBefore(AgreementSignatureGuard)
     @HttpCode(201)
     async createAutoBid(
         @Body() request: CreateCompanyAutoBidRequest,
-        @Req() req: MarketplaceRequest,
+        @Req() req: Request,
     ): Promise<BidResponse> {
-        const companyId = req['companyId'];
-
-        // TODO: Validate company-specific rules:
-        // 1. Check ManagementAgreement is active and signed
-        // 2. Check max_bid_per_loan for this company
-        // 3. Check max_borrower_exposure (don't over-concentrate)
-        // 4. Verify company pool has sufficient funds
-        // 5. Check company isn't trying to front-run manual bids in queue
+        const companyId = (req as any).user?.companyId;
+        if (!companyId) throw new Error('Company ID not found in request');
 
         const bid = await this.bidService.createBid(
             companyId,
@@ -176,6 +187,68 @@ export class CompanyMarketplaceController {
         );
 
         return bid;
+    }
+
+    /**
+     * POST /api/company/marketplace/delegated-bid
+     * Company creates delegated bid for linked lender:
+     * 24h lender approval window, then 2h payment window.
+     */
+    @Post('delegated-bid')
+    @UseBefore(AgreementSignatureGuard)
+    @HttpCode(201)
+    async createDelegatedBid(
+        @Body() request: CreateDelegatedBidRequest,
+        @Req() req: Request,
+    ): Promise<any> {
+        const companyId = Number((req as any).user?.companyId);
+        const userId = Number((req as any).user?.id);
+        if (!companyId) throw new Error('Company ID not found in request');
+        if (!userId) throw new Error('User ID not found in request');
+
+        const created = await this.offersService.createDelegatedOffer(
+            companyId,
+            userId,
+            {
+                loanId: request.loanId,
+                lenderId: Number(request.lenderId),
+                amount: Number(request.amount),
+            }
+        );
+
+        return {
+            offerId: created.offerId,
+            status: created.status,
+            approvalExpiresAt: created.approvalExpiresAt,
+            commissionAmount: created.commissionAmount,
+            message: 'Delegated offer created. Lender must approve within 24h, then pay within 2h.',
+        };
+    }
+
+    /**
+     * GET /api/company/marketplace/open-loans
+     * Browse open loans for "act as lender" / proxy investment flow. Same shape as lender browse.
+     */
+    @Get('open-loans')
+    @UseBefore(AgreementSignatureGuard)
+    async getOpenLoans(
+        @Req() req: Request,
+        @QueryParam('page') page: number = 1,
+        @QueryParam('pageSize') pageSize: number = 20,
+        @QueryParam('minAmount') minAmount?: number,
+        @QueryParam('maxAmount') maxAmount?: number,
+        @QueryParam('minDuration') minDuration?: number,
+        @QueryParam('maxDuration') maxDuration?: number,
+    ): Promise<any> {
+        const filters = {
+            page: Number(page) || 1,
+            pageSize: Math.min(Number(pageSize) || 20, 100),
+            minAmount: minAmount != null ? Number(minAmount) : undefined,
+            maxAmount: maxAmount != null ? Number(maxAmount) : undefined,
+            minDuration: minDuration != null ? Number(minDuration) : undefined,
+            maxDuration: maxDuration != null ? Number(maxDuration) : undefined,
+        };
+        return this.loansService.browseOpenLoansForCompany(filters);
     }
 
     /**
@@ -194,32 +267,46 @@ export class CompanyMarketplaceController {
      * - Created timestamp
      */
     @Get('activity')
+    @UseBefore(AgreementSignatureGuard)
     async getCompanyActivity(
-        @Req() req: MarketplaceRequest,
+        @Req() req: Request,
         @QueryParam('status') status?: string,
         @QueryParam('limit') limit: number = 50,
         @QueryParam('offset') offset: number = 0,
     ): Promise<CompanyActivityResponse[]> {
-        const companyId = req.user.id;
+        const companyId = (req as any).user?.companyId;
+        if (!companyId) throw new Error('Company ID not found in request');
 
-        // TODO: Query company's bids with masked borrower information
-        // SELECT 
-        //   mb.id AS bid_id,
-        //   mb.loan_request_id,
-        //   mb.bid_amount,
-        //   mb.allocated_amount,
-        //   mb.status,
-        //   mb.created_at,
-        //   CONCAT(LEFT(b.name, 1), '****', RIGHT(b.name, 1)) AS borrower_name_masked
-        // FROM marketplace_bids mb
-        // JOIN loan_requests lr ON mb.loan_request_id = lr.id
-        // JOIN users b ON lr.borrower_id = b.id
-        // WHERE mb.company_id = ?
-        // AND (? IS NULL OR mb.status = ?)
+        const safeLimit = Math.min(Number(limit) || 50, 200);
+        const safeOffset = Math.max(Number(offset) || 0, 0);
+        const statusFilter = status ? `AND us.code = ?` : '';
+        const params: any[] = [companyId];
+        if (status) params.push(status);
+        params.push(safeLimit, safeOffset);
 
-        const activity: CompanyActivityResponse[] = [];
+        const rows = await AppDataSource.query(
+            `SELECT
+                lo.id,
+                lo.loanId,
+                lo.lenderId,
+                lo.amount,
+                lo.confirmed_amount AS confirmedAmount,
+                lo.createdAt,
+                l.statusId,
+                us.code AS statusCode,
+                u.email AS lenderEmail,
+                COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.first_name,''),' ',COALESCE(u.last_name,''))),  ''), u.email) AS lenderName
+             FROM loan_offers lo
+             INNER JOIN company_lenders cl ON cl.lenderId = lo.lenderId AND cl.companyId = ?
+             LEFT JOIN loans l ON l.id = lo.loanId
+             LEFT JOIN user_statuses us ON us.id = l.statusId
+             LEFT JOIN users u ON u.id = lo.lenderId
+             ${statusFilter}
+             ORDER BY lo.createdAt DESC
+             LIMIT ? OFFSET ?`,
+            params
+        );
 
-        // Placeholder until repository is implemented
-        return activity;
+        return rows ?? [];
     }
 }

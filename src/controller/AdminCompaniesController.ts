@@ -7,7 +7,10 @@ import {
   CompanyDetailDto,
   ApproveCompanyRequest,
   RejectCompanyRequest,
+  RequestCorrectionRequest,
   UpdateCompanyConditionsRequest,
+  CreateCompanyRequest,
+  CreateCompanyResponse,
 } from '../dto/AdminDtos';
 
 /**
@@ -33,19 +36,24 @@ export class AdminCompaniesController {
 
   /**
    * GET /admin/companies
-   * Returns paginated list of companies
+   * Returns paginated list of companies. Optional statusId: 1=Pending, 2=Approved, 3=Rejected, 4=Suspended.
    *
    * Query Parameters:
    * - limit: number (default 20)
    * - offset: number (default 0)
+   * - statusId: number (optional) — filter by status
    *
    * Response: CompanyListItemDto[]
    */
   @Get('/')
   async getAllCompanies(
     @QueryParam('limit') limit?: number,
-    @QueryParam('offset') offset?: number
+    @QueryParam('offset') offset?: number,
+    @QueryParam('statusId') statusId?: number
   ): Promise<CompanyListItemDto[]> {
+    if (statusId != null && statusId > 0) {
+      return this.companiesService.getCompaniesByStatus(statusId, limit || 20, offset || 0);
+    }
     return this.companiesService.getAllCompanies(limit || 20, offset || 0);
   }
 
@@ -116,15 +124,15 @@ export class AdminCompaniesController {
    * REQUIRES rejection reason
    *
    * Body: RejectCompanyRequest
-   * - rejectionReason: string (required, why company is rejected)
+   * - comment: string (required, why company is rejected)
    *
    * Effects:
    * - Sets status = REJECTED (3)
    * - Logs COMPANY_REJECTED
-   * - Notifies company of rejection
+   * - Notifies company to correct and resubmit
    *
    * Response: CompanyDetailDto
-   * Error: 400 if company is not PENDING or rejectionReason missing
+   * Error: 400 if company is not PENDING or comment missing
    */
   @Post('/:id/reject')
   @UseBefore(SuperAdminGuard)
@@ -138,6 +146,32 @@ export class AdminCompaniesController {
       throw new Error('Admin user ID not found in request');
     }
     return this.companiesService.rejectCompany(companyId, request, adminId);
+  }
+
+  /**
+   * POST /admin/companies/:id/request-correction
+   * Request correction: flag specific fields for resubmission. Company stays PENDING.
+   * Requires SuperAdminGuard. Verification is data completeness only.
+   *
+   * Body: RequestCorrectionRequest
+   * - fieldKeys: string[] (e.g. name, bankAccount, email, firstName, lastName, phone)
+   * - comment: string (required)
+   *
+   * Effects:
+   * - Stores correction request in company metadata; notifies company to correct and resubmit
+   */
+  @Post('/:id/request-correction')
+  @UseBefore(SuperAdminGuard)
+  async requestCorrection(
+    @Param('id') companyId: number,
+    @Body() request: RequestCorrectionRequest,
+    @Req() req: Request
+  ): Promise<CompanyDetailDto> {
+    const adminId = (req.user as any)?.id || (req.user as any)?.userId;
+    if (!adminId) {
+      throw new Error('Admin user ID not found in request');
+    }
+    return this.companiesService.requestCorrection(companyId, request, adminId);
   }
 
   /**
@@ -175,12 +209,20 @@ export class AdminCompaniesController {
     return this.companiesService.updateCompanyConditions(companyId, request, adminId);
   }
 
+  /**
+   * POST /admin/companies
+   * Creates a new company + linked company user account
+   * Requires SuperAdminGuard
+   *
+   * Body: CreateCompanyRequest
+   * Response: CreateCompanyResponse (includes temporaryPassword — shown once)
+   */
   @Post('/')
   @UseBefore(SuperAdminGuard)
-  async createCompany(@Body() body: { name: string; bankAccount?: string; conditions?: Record<string, unknown> }, @Req() req: Request): Promise<CompanyDetailDto> {
+  async createCompany(@Body() request: CreateCompanyRequest, @Req() req: Request): Promise<CreateCompanyResponse> {
     const adminId = (req.user as any)?.id || (req.user as any)?.userId;
     if (!adminId) throw new Error('Admin user ID not found');
-    return this.companiesService.createCompany(body, adminId);
+    return this.companiesService.createCompany(request, adminId);
   }
 
   @Put('/:id/suspend')
