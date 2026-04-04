@@ -57,6 +57,7 @@ export class Company {
   /**
    * Auto-computed rank (1 = highest). Based on total funds managed and account tenure.
    * Updated automatically when managed funds or tenure change; no manual assignment.
+   * DB column is `rank` (MySQL 8+ reserved — migrations must quote the identifier).
    */
   @Column({ type: 'int', nullable: true })
   rank?: number | null;

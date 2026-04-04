@@ -3,6 +3,34 @@ import { Request } from 'express';
 import { AdminAuditService } from '../service/AdminAuditService';
 import { AdminGuard } from '../middleware/AdminGuards';
 
+function parseNotificationPayload(payload: string | undefined | null): Record<string, unknown> {
+  if (payload == null || payload === '') return {};
+  try {
+    const v = JSON.parse(payload) as unknown;
+    return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function humanizeNotificationType(type: string): string {
+  if (!type) return 'System notification';
+  return type
+    .replace(/_/g, ' ')
+    .toLowerCase()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function summarizePayload(p: Record<string, unknown>): string {
+  const skip = new Set(['title', 'message', 'subject', 'body', 'description']);
+  const parts: string[] = [];
+  for (const [k, v] of Object.entries(p)) {
+    if (skip.has(k) || v == null || typeof v === 'object') continue;
+    parts.push(`${k}: ${String(v)}`);
+  }
+  return parts.slice(0, 4).join(' · ');
+}
+
 /**
  * Admin Notifications Controller
  * Admin inbox for system alerts and notifications
@@ -51,24 +79,53 @@ export class AdminNotificationsController {
     const unreadCount = unreadItems.length;
 
     let rawItems: any[];
+    let totalItems: number;
     if (unreadOnly) {
       rawItems = unreadItems.slice(off, off + lim);
+      totalItems = unreadItems.length;
     } else {
+      // getUserNotifications returns TypeORM [rows, count] tuple — do not use the tuple as a list
       const result = await this.auditService.getUserNotifications(adminId, lim, off);
-      rawItems = Array.isArray(result) ? result : (result as any)[0] ?? [];
+      const tuple = result as unknown as [any[], number];
+      if (Array.isArray(tuple) && tuple.length === 2 && Array.isArray(tuple[0]) && typeof tuple[1] === 'number') {
+        rawItems = tuple[0];
+        totalItems = tuple[1];
+      } else {
+        rawItems = [];
+        totalItems = 0;
+      }
     }
 
-    const notifications = rawItems.map((n: any) => ({
-      id: n.id,
-      type: n.type || 'SYSTEM',
-      title: n.title || n.payload && (() => { try { return JSON.parse(n.payload)?.title; } catch { return null; } })() || 'Notification',
-      message: n.message || n.payload && (() => { try { return JSON.parse(n.payload)?.message; } catch { return null; } })() || '',
-      isRead: n.read ?? n.isRead ?? false,
-      createdAt: n.createdAt,
-      readAt: n.readAt || null,
-    }));
+    const notifications = rawItems.map((n: any) => {
+      const parsed = parseNotificationPayload(n.payload);
+      const titleFromPayload =
+        (typeof parsed.title === 'string' && parsed.title) ||
+        (typeof parsed.subject === 'string' && parsed.subject) ||
+        '';
+      const messageFromPayload =
+        (typeof parsed.message === 'string' && parsed.message) ||
+        (typeof parsed.body === 'string' && parsed.body) ||
+        (typeof parsed.description === 'string' && parsed.description) ||
+        '';
+      const typeStr = n.type || 'SYSTEM';
+      const title = n.title || titleFromPayload || humanizeNotificationType(typeStr);
+      const message = n.message || messageFromPayload || summarizePayload(parsed) || '';
+      const isRead = Boolean(n.read ?? n.isRead);
+      return {
+        id: n.id,
+        userId: n.userId,
+        type: typeStr,
+        title,
+        message,
+        read: isRead,
+        isRead,
+        payload: n.payload,
+        createdAt: n.createdAt,
+        readAt: n.readAt || null,
+      };
+    });
 
-    const total = Array.isArray(unreadOnly ? unreadItems : rawItems) ? (unreadOnly ? unreadItems.length : rawItems.length) : 0;
+    const total = totalItems;
 
     return {
       statusCode: '200',
@@ -80,7 +137,7 @@ export class AdminNotificationsController {
           page: Math.floor(off / lim) + 1,
           pageSize: lim,
           totalItems: total,
-          totalPages: Math.ceil(total / lim),
+          totalPages: Math.max(1, Math.ceil((total || 0) / lim)),
         },
       },
     };

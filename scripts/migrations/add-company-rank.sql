@@ -1,4 +1,5 @@
 -- Add auto-computed rank column to companies (1 = highest).
 -- Rank is updated by application logic based on funds managed and account tenure.
--- Run once. If column already exists, skip or use: ALTER TABLE companies ADD COLUMN rank INT NULL;
-ALTER TABLE companies ADD COLUMN rank INT NULL AFTER admin_revision_note;
+-- `rank` must be quoted: it is a reserved word in MySQL 8+.
+-- Run once. If column already exists, skip (duplicate column error) or run scripts/run-add-company-rank.js
+ALTER TABLE companies ADD COLUMN `rank` INT NULL AFTER admin_revision_note;

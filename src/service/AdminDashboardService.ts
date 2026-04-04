@@ -20,8 +20,9 @@ export class AdminDashboardService {
   /**
    * Get dashboard statistics
    * Aggregates key metrics across system
+   * @param skipAudit — when true, skip VIEW_DASHBOARD audit (e.g. when bundled into reports overview)
    */
-  async getDashboardStats(adminId: number): Promise<DashboardStatsResponse> {
+  async getDashboardStats(adminId: number, options?: { skipAudit?: boolean }): Promise<DashboardStatsResponse> {
     const queryRunner = AppDataSource.createQueryRunner();
 
     try {
@@ -71,20 +72,16 @@ export class AdminDashboardService {
         FROM companies
       `).catch(() => ({ activeCompanies: 0 }));
 
-      // Log the view
-      await this.auditService.logAction(
-        adminId,
-        'VIEW_DASHBOARD',
-        'DASHBOARD',
-        0
-      );
-
       const activeLoans = Number(loanStats[0]?.activeLoans) || 0;
       const defaultedLoans = Number(loanStats[0]?.defaultedLoans) || 0;
       const totalLoans = activeLoans + defaultedLoans;
       const defaultRate = totalLoans > 0 ? (defaultedLoans / totalLoans) * 100 : 0;
       const outstandingPLN = parseFloat(loanStats[0]?.outstandingPLN || 0) || 0;
       const totalDisbursed = parseFloat(loanStats[0]?.totalDisbursed || 0) || 0;
+
+      if (!options?.skipAudit) {
+        await this.auditService.logAction(adminId, 'VIEW_DASHBOARD', 'DASHBOARD', 0);
+      }
 
       return {
         totalUsers: Number(userStats[0]?.totalUsers) || 0,
@@ -303,6 +300,64 @@ export class AdminDashboardService {
     } finally {
       await qr.release();
     }
+  }
+
+  /**
+   * Full payload for admin Reports screen: summary KPIs + chart datasets (single VIEW_REPORTS audit).
+   */
+  async getReportsOverview(adminId: number): Promise<{
+    summary: {
+      transactions: number;
+      defaults: number;
+      revenue: number;
+      loansPerUser: number;
+      activeLoans: number;
+      totalLoans: number;
+      defaultRate: number;
+      totalUsers: number;
+      activeUsers: number;
+      outstandingPLN: number;
+      totalDisbursed: number;
+      failedPayments: number;
+      totalPaymentVolume: number;
+      activeCompanies: number;
+      pendingVerifications: number;
+      usersByRole: { borrower: number; lender: number; company: number };
+    };
+    charts: Awaited<ReturnType<AdminDashboardService['getChartData']>>;
+  }> {
+    const stats = await this.getDashboardStats(adminId, { skipAudit: true });
+    const charts = await this.getChartData();
+    await this.auditService.logAction(adminId, 'VIEW_REPORTS', 'REPORTS', 0, {});
+
+    const activeLoans = stats.activeLoans;
+    const defaultedLoans = stats.defaultedLoans;
+    const totalLoans = activeLoans + defaultedLoans;
+    const loansPerUserRaw = stats.totalUsers ? activeLoans / Math.max(stats.totalUsers, 1) : 0;
+    const loansPerUser = Math.round(loansPerUserRaw * 100) / 100;
+    const outstandingPLN = stats.outstandingPLN ?? stats.outstandingAmount ?? 0;
+
+    return {
+      summary: {
+        transactions: stats.totalPayments,
+        defaults: defaultedLoans,
+        revenue: stats.commissionsTotal ?? 0,
+        loansPerUser,
+        activeLoans,
+        totalLoans,
+        defaultRate: Math.round((stats.defaultRate ?? 0) * 100) / 100,
+        totalUsers: stats.totalUsers,
+        activeUsers: stats.activeUsers,
+        outstandingPLN,
+        totalDisbursed: stats.totalDisbursed ?? 0,
+        failedPayments: stats.failedPayments,
+        totalPaymentVolume: stats.totalAmount,
+        activeCompanies: stats.activeCompanies,
+        pendingVerifications: stats.pendingVerifications,
+        usersByRole: stats.usersByRole ?? { borrower: 0, lender: 0, company: 0 },
+      },
+      charts,
+    };
   }
 
   /**
