@@ -6,6 +6,38 @@ import {
     CompanyPaginationQuery,
 } from '../dto/CompanyDtos';
 
+function parseNotificationPayload(raw: unknown): Record<string, unknown> {
+    if (raw == null || raw === '') return {};
+    if (typeof raw === 'string') {
+        try {
+            const v = JSON.parse(raw) as unknown;
+            return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+        } catch {
+            return {};
+        }
+    }
+    if (typeof raw === 'object' && !Array.isArray(raw)) return raw as Record<string, unknown>;
+    return {};
+}
+
+function humanizeNotificationType(type: string): string {
+    if (!type) return 'System notification';
+    return type
+        .replace(/_/g, ' ')
+        .toLowerCase()
+        .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function summarizePayload(p: Record<string, unknown>): string {
+    const skip = new Set(['title', 'message', 'subject', 'body', 'description']);
+    const parts: string[] = [];
+    for (const [k, v] of Object.entries(p)) {
+        if (skip.has(k) || v == null || typeof v === 'object') continue;
+        parts.push(`${k}: ${String(v)}`);
+    }
+    return parts.slice(0, 4).join(' · ');
+}
+
 /**
  * Company Notifications Service
  * Manages company user notifications
@@ -21,6 +53,39 @@ export class CompanyNotificationsService {
 
     constructor() {
         this.auditService = new CompanyAuditService();
+    }
+
+    private formatNotificationFromRow(row: {
+        id: number;
+        type: string;
+        payload: string | null | undefined;
+        read: boolean | number;
+        createdAt: Date | string;
+    }): CompanyNotificationResponse {
+        const payload = parseNotificationPayload(row.payload);
+        const titleFromPayload =
+            (typeof payload.title === 'string' && payload.title) ||
+            (typeof payload.subject === 'string' && payload.subject) ||
+            '';
+        const messageFromPayload =
+            (typeof payload.message === 'string' && payload.message) ||
+            (typeof payload.body === 'string' && payload.body) ||
+            (typeof payload.description === 'string' && payload.description) ||
+            '';
+        const typeStr = row.type || 'SYSTEM';
+        const title = titleFromPayload || this.getTitleForType(typeStr);
+        const message = messageFromPayload || summarizePayload(payload) || this.getMessageForType(typeStr);
+        const createdAt =
+            row.createdAt instanceof Date ? row.createdAt : new Date(row.createdAt ?? Date.now());
+        return {
+            id: row.id,
+            type: typeStr,
+            title,
+            message,
+            payload,
+            read: Boolean(row.read),
+            createdAt,
+        };
     }
 
     /**
@@ -82,25 +147,15 @@ export class CompanyNotificationsService {
 
             const unreadCount = parseInt(unreadResult[0]?.unreadCount || 0);
 
-            // Parse notifications
-            const notificationList: CompanyNotificationResponse[] = notifications.map((row: any) => {
-                let payload: Record<string, any> = {};
-                try {
-                    payload = row.payload ? JSON.parse(row.payload) : {};
-                } catch (e) {
-                    // Silent fail on JSON parse
-                }
-
-                return {
+            const notificationList: CompanyNotificationResponse[] = notifications.map((row: any) =>
+                this.formatNotificationFromRow({
                     id: row.id,
                     type: row.type,
-                    title: this.getTitleForType(row.type),
-                    message: (payload as any).message || this.getMessageForType(row.type),
-                    payload,
-                    read: Boolean(row.read),
+                    payload: row.payload,
+                    read: row.read,
                     createdAt: row.createdAt,
-                };
-            });
+                })
+            );
 
             return {
                 notifications: notificationList,
@@ -130,7 +185,7 @@ export class CompanyNotificationsService {
             // Verify notification belongs to user
             const notification = await queryRunner.query(
                 `
-        SELECT id, type, payload, read
+        SELECT id, type, payload, read, created_at as createdAt
         FROM notifications
         WHERE id = ? AND user_id = ?
         `,
@@ -162,23 +217,13 @@ export class CompanyNotificationsService {
                 }
             );
 
-            // Parse and return notification
-            let payload: Record<string, any> = {};
-            try {
-                payload = notification[0].payload ? JSON.parse(notification[0].payload) : {};
-            } catch (e) {
-                // Silent fail
-            }
-
-            return {
+            return this.formatNotificationFromRow({
                 id: notification[0].id,
                 type: notification[0].type,
-                title: this.getTitleForType(notification[0].type),
-                message: (payload as any).message || this.getMessageForType(notification[0].type),
-                payload,
+                payload: notification[0].payload,
                 read: true,
-                createdAt: new Date(),
-            };
+                createdAt: notification[0].createdAt ?? new Date(),
+            });
         } finally {
             await queryRunner.release();
         }
@@ -276,7 +321,7 @@ export class CompanyNotificationsService {
             NOTIFICATION_READ: 'Notification Marked as Read',
         };
 
-        return titles[type] || type;
+        return titles[type] || humanizeNotificationType(type);
     }
 
     /**

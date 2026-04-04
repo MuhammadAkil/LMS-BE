@@ -8,6 +8,34 @@ import {
 } from '../dto/BorrowerDtos';
 import { Notification } from '../domain/Notification';
 
+function parseNotificationPayload(payload: string | undefined | null): Record<string, unknown> {
+    if (payload == null || payload === '') return {};
+    try {
+        const v = JSON.parse(payload) as unknown;
+        return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+    } catch {
+        return {};
+    }
+}
+
+function humanizeNotificationType(type: string): string {
+    if (!type) return 'System notification';
+    return type
+        .replace(/_/g, ' ')
+        .toLowerCase()
+        .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function summarizePayload(p: Record<string, unknown>): string {
+    const skip = new Set(['title', 'message', 'subject', 'body', 'description']);
+    const parts: string[] = [];
+    for (const [k, v] of Object.entries(p)) {
+        if (skip.has(k) || v == null || typeof v === 'object') continue;
+        parts.push(`${k}: ${String(v)}`);
+    }
+    return parts.slice(0, 4).join(' · ');
+}
+
 /**
  * B-08: BORROWER NOTIFICATIONS SERVICE
  * All notifications are stored and read from LMS MySQL (notifications table).
@@ -23,18 +51,22 @@ export class BorrowerNotificationsService {
     }
 
     private mapToDto(n: Notification): NotificationListItemDto {
-        let title = n.type;
-        let message = '';
-        try {
-            const payload = typeof n.payload === 'string' ? JSON.parse(n.payload || '{}') : n.payload || {};
-            title = payload.title ?? title;
-            message = payload.message ?? message;
-        } catch {
-            // ignore
-        }
+        const parsed = parseNotificationPayload(n.payload);
+        const titleFromPayload =
+            (typeof parsed.title === 'string' && parsed.title) ||
+            (typeof parsed.subject === 'string' && parsed.subject) ||
+            '';
+        const messageFromPayload =
+            (typeof parsed.message === 'string' && parsed.message) ||
+            (typeof parsed.body === 'string' && parsed.body) ||
+            (typeof parsed.description === 'string' && parsed.description) ||
+            '';
+        const typeStr = n.type || 'SYSTEM';
+        const title = titleFromPayload || humanizeNotificationType(typeStr);
+        const message = messageFromPayload || summarizePayload(parsed) || '';
         return {
             id: n.id,
-            type: n.type,
+            type: typeStr,
             title,
             message,
             isRead: n.read,
